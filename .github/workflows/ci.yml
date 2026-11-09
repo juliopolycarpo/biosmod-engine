@@ -24,6 +24,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # Clippy runs on Linux only; this catches platform-specific warnings elsewhere.
+      RUSTFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v5
       - run: rustup show
