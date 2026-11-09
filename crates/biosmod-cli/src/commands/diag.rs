@@ -4,7 +4,7 @@ use crate::BreadcrumbCommand;
 use crate::config::io_error;
 use crate::output::Reply;
 use crate::publish::check_outputs;
-use biosmod_core::breadcrumbs::{self, Breadcrumbs, FIRST_INDEX, LENGTH};
+use biosmod_core::breadcrumbs::{self, Breadcrumbs};
 use biosmod_core::synthetic::Fixture;
 use biosmod_core::util::unhex;
 use biosmod_core::{Code, Error, Result};
@@ -16,6 +16,7 @@ use std::path::Path;
 ///
 /// Port 70h is never touched (its index register also holds the NMI mask) and
 /// no CMOS data byte is ever written.
+#[cfg(any(target_os = "linux", test))]
 pub trait UpperCmos {
     fn read(&mut self, index: u8) -> Result<u8>;
 }
@@ -65,9 +66,10 @@ impl UpperCmos for DevPort {
 }
 
 /// Read E0-E9.
+#[cfg(any(target_os = "linux", test))]
 pub fn read_all(cmos: &mut dyn UpperCmos) -> Result<Vec<u8>> {
-    (0..LENGTH as u8)
-        .map(|i| cmos.read(FIRST_INDEX + i))
+    (0..breadcrumbs::LENGTH as u8)
+        .map(|i| cmos.read(breadcrumbs::FIRST_INDEX + i))
         .collect()
 }
 

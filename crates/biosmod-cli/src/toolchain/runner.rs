@@ -69,7 +69,7 @@ impl Invocation {
     }
 
     /// Arguments as lossy strings (for test fakes).
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn words(&self) -> Vec<String> {
         self.args
             .iter()
