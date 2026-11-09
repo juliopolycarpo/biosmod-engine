@@ -240,6 +240,7 @@ fn window_close_respects_active_read_and_publication() {
         &export_window,
         &export_state,
         std::path::Path::new("/tmp/plan.json"),
+        ExportKind::Plan,
         Ok(()),
     );
     assert!(!export_window.window().is_visible());
@@ -273,10 +274,6 @@ fn selecting_a_patch_and_picker_paths_update_the_session() {
     );
     assert!(state.session.review.is_some());
     assert!(state.session.manifest.is_some());
-    state.session.diagnostics = "fake diagnostic".into();
-    let log = temp.path().join("diagnostics.txt");
-    apply_picked(&mut state, PathKind::Diagnostics, log.clone());
-    assert_eq!(std::fs::read_to_string(log).unwrap(), "fake diagnostic");
 }
 
 #[test]
@@ -369,10 +366,13 @@ fn plan_export_preserves_exact_bytes_and_refuses_existing_files() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("reviewed plan.json");
     let reviewed = b"{\n  \"schema\": \"bme.plan/1\"\n}\n";
-    write_new_file(&path, reviewed).unwrap();
+    NewFileWriter.write_new(&path, reviewed).unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), reviewed);
     assert_eq!(
-        write_new_file(&path, b"different").unwrap_err().kind(),
+        NewFileWriter
+            .write_new(&path, b"different")
+            .unwrap_err()
+            .kind(),
         std::io::ErrorKind::AlreadyExists
     );
     assert_eq!(std::fs::read(path).unwrap(), reviewed);
@@ -430,4 +430,112 @@ fn review_presentation_tracks_replacement_and_invalidation() {
     );
     window.invoke_back_to_selection();
     assert!(window.get_plan_details().is_empty());
+}
+
+struct FakeExportWriter {
+    writes: std::sync::mpsc::Sender<(std::thread::ThreadId, PathBuf, Vec<u8>)>,
+    release: Mutex<std::sync::mpsc::Receiver<()>>,
+    completed: std::sync::mpsc::Sender<()>,
+}
+
+impl ExportWriter for FakeExportWriter {
+    fn write_new(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        self.writes
+            .send((std::thread::current().id(), path.into(), bytes.to_vec()))
+            .unwrap();
+        self.release
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(2))
+            .expect("fake export: expected the test to release the stalled writer");
+        self.completed.send(()).unwrap();
+        Ok(())
+    }
+}
+
+#[test]
+fn diagnostics_export_runs_off_the_event_loop_and_serializes_writes() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let (release, gate) = std::sync::mpsc::channel();
+    let (completed, finished) = std::sync::mpsc::channel();
+    {
+        let mut state = state.lock().unwrap();
+        state.export_writer = Arc::new(FakeExportWriter {
+            writes: sender,
+            release: Mutex::new(gate),
+            completed,
+        });
+        state.session.diagnostics = "retained diagnostics".into();
+    }
+    let path = PathBuf::from("/stalled-filesystem/diagnostics.txt");
+    start_export_diagnostics(&window, &state, path.clone());
+    let (writer_thread, written_path, bytes) = receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("diagnostics export: expected a submitted write");
+    assert_ne!(
+        writer_thread,
+        std::thread::current().id(),
+        "diagnostics export: expected worker I/O | received an event-loop write"
+    );
+    assert_eq!(written_path, path);
+    assert_eq!(bytes, b"retained diagnostics");
+    assert!(window.get_busy());
+    window.invoke_output_edited("/must-not-change.bin".into());
+    assert!(state.lock().unwrap().session.output.is_none());
+    window.show().unwrap();
+    assert_eq!(
+        window
+            .window()
+            .dispatch_event_with_result(WindowEvent::CloseRequested)
+            .unwrap(),
+        WindowEventDispatchResult::Rejected
+    );
+    start_export_diagnostics(&window, &state, "/another-file.txt".into());
+    assert!(
+        receiver.try_recv().is_err(),
+        "a second export must not submit while one is active"
+    );
+    release.send(()).unwrap();
+    finished
+        .recv_timeout(Duration::from_secs(2))
+        .expect("export worker did not settle after release");
+    finish_export(&window, &state, &path, ExportKind::Diagnostics, Ok(()));
+    assert!(!window.window().is_visible());
+    assert!(!state.lock().unwrap().exporting);
+}
+
+#[test]
+fn diagnostics_export_reports_refusals_and_partial_files_and_allows_retry() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    let path = Path::new("/tmp/diagnostics.txt");
+    state.lock().unwrap().exporting = true;
+    finish_export(
+        &window,
+        &state,
+        path,
+        ExportKind::Diagnostics,
+        Err(std::io::ErrorKind::AlreadyExists.into()),
+    );
+    assert!(!window.get_busy());
+    assert!(
+        window
+            .get_status()
+            .contains("Diagnostics export /tmp/diagnostics.txt: file already exists")
+    );
+    state.lock().unwrap().exporting = true;
+    finish_export(
+        &window,
+        &state,
+        path,
+        ExportKind::Diagnostics,
+        Err(std::io::ErrorKind::WriteZero.into()),
+    );
+    assert!(window.get_status().contains("partial file may remain"));
+    assert!(!state.lock().unwrap().exporting);
+    state.lock().unwrap().exporting = true;
+    finish_export(&window, &state, path, ExportKind::Diagnostics, Ok(()));
+    assert!(window.get_status().starts_with("Diagnostics exported to"));
 }

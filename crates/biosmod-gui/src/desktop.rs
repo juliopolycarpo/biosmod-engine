@@ -6,7 +6,7 @@ use crate::settings::Settings;
 use crate::ui::{AppWindow, PatchRow};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, atomic::Ordering};
 use std::time::{Duration, Instant};
 
@@ -20,8 +20,21 @@ pub struct Desktop {
     exporting: bool,
     closing: bool,
     presented_review: RefCell<Option<Arc<Review>>>,
+    export_writer: Arc<dyn ExportWriter>,
 }
 type Shared = Arc<Mutex<Desktop>>;
+
+trait ExportWriter: Send + Sync {
+    fn write_new(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()>;
+}
+
+struct NewFileWriter;
+
+impl ExportWriter for NewFileWriter {
+    fn write_new(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        write_new_file(path, bytes)
+    }
+}
 
 impl Desktop {
     /// Build the window controller without performing engine I/O.
@@ -41,6 +54,7 @@ impl Desktop {
             exporting: false,
             closing: false,
             presented_review: RefCell::new(None),
+            export_writer: Arc::new(NewFileWriter),
         })
     }
 }
@@ -189,7 +203,7 @@ pub fn bind(ui: &AppWindow, desktop: Desktop) -> Shared {
         let mut state = shared.lock().unwrap();
         if state.exporting {
             state.closing = true;
-            state.session.status = "Finishing plan export before closing…".into();
+            state.session.status = "Finishing file export before closing…".into();
             if let Some(ui) = weak.upgrade() {
                 sync(&ui, &state);
             }
@@ -427,6 +441,11 @@ fn pick(ui: &AppWindow, shared: &Shared, kind: PathKind) {
                 start_export_plan(&ui, &future_shared, file.path().to_path_buf());
                 return;
             }
+            if matches!(kind, PathKind::Diagnostics) {
+                drop(state);
+                start_export_diagnostics(&ui, &future_shared, file.path().to_path_buf());
+                return;
+            }
             apply_picked(&mut state, kind, file.path().to_path_buf());
         }
         sync_paths(&ui, &state);
@@ -452,14 +471,7 @@ fn apply_picked(state: &mut Desktop, kind: PathKind, path: PathBuf) {
             set_engine(state, Some(path));
         }
         PathKind::ExistingOutput => state.session.open_output(path),
-        PathKind::Plan | PathKind::ExportPlan => {}
-        PathKind::Diagnostics => {
-            state.session.status = match write_new_file(&path, state.session.diagnostics.as_bytes())
-            {
-                Ok(()) => format!("Diagnostics exported to {}", path.display()),
-                Err(e) => format!("Diagnostics {}: {e}", path.display()),
-            };
-        }
+        PathKind::Plan | PathKind::ExportPlan | PathKind::Diagnostics => {}
         PathKind::Source => {}
     }
 }
@@ -500,45 +512,86 @@ fn close_if_requested(ui: &AppWindow, state: &Desktop) -> bool {
     true
 }
 
+#[derive(Clone, Copy)]
+enum ExportKind {
+    Plan,
+    Diagnostics,
+}
+
+impl ExportKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Plan => "Plan",
+            Self::Diagnostics => "Diagnostics",
+        }
+    }
+}
+
+enum ExportContent {
+    Plan(Arc<Review>),
+    Diagnostics(String),
+}
+
 fn start_export_plan(ui: &AppWindow, shared: &Shared, path: PathBuf) {
+    start_export(ui, shared, path, ExportKind::Plan);
+}
+
+fn start_export_diagnostics(ui: &AppWindow, shared: &Shared, path: PathBuf) {
+    start_export(ui, shared, path, ExportKind::Diagnostics);
+}
+
+fn start_export(ui: &AppWindow, shared: &Shared, path: PathBuf, kind: ExportKind) {
     let mut state = shared.lock().unwrap();
     if state.session.busy() || state.dialog_open || state.exporting {
         return;
     }
-    let Some(review) = &state.session.review else {
+    let content = match kind {
+        ExportKind::Plan => state.session.review.clone().map(ExportContent::Plan),
+        ExportKind::Diagnostics => Some(ExportContent::Diagnostics(
+            state.session.diagnostics.clone(),
+        )),
+    };
+    let Some(content) = content else {
         state.session.status = "Review a plan before exporting it.".into();
         sync(ui, &state);
         return;
     };
-    let review = review.clone();
+    let writer = state.export_writer.clone();
     state.exporting = true;
-    state.session.status = "Exporting reviewed plan…".into();
+    state.session.status = format!("Exporting {}…", kind.label().to_lowercase());
     sync(ui, &state);
     drop(state);
     let shared = shared.clone();
     let weak = ui.as_weak();
     std::thread::spawn(move || {
-        let result = write_new_file(&path, &review.bytes);
-        let _ = weak.upgrade_in_event_loop(move |ui| finish_export(&ui, &shared, &path, result));
+        let bytes = match &content {
+            ExportContent::Plan(review) => review.bytes.as_slice(),
+            ExportContent::Diagnostics(text) => text.as_bytes(),
+        };
+        let result = writer.write_new(&path, bytes);
+        let _ =
+            weak.upgrade_in_event_loop(move |ui| finish_export(&ui, &shared, &path, kind, result));
     });
 }
 
 fn finish_export(
     ui: &AppWindow,
     shared: &Shared,
-    path: &std::path::Path,
+    path: &Path,
+    kind: ExportKind,
     result: std::io::Result<()>,
 ) {
     let mut state = shared.lock().unwrap();
     state.exporting = false;
+    let label = kind.label();
     state.session.status = match result {
-        Ok(()) => format!("Plan exported to {}", path.display()),
+        Ok(()) => format!("{label} exported to {}", path.display()),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => format!(
-            "Plan export {}: file already exists; choose a new path.",
+            "{label} export {}: file already exists; choose a new path.",
             path.display()
         ),
         Err(error) => format!(
-            "Plan export {}: {error}. A partial file may remain.",
+            "{label} export {}: {error}. A partial file may remain.",
             path.display()
         ),
     };
