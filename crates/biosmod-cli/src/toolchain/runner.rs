@@ -136,9 +136,10 @@ pub trait Runner {
 /// The real process runner.
 pub struct System;
 
-fn tail_of(file: &mut fs::File) -> String {
+/// The last `TAIL` bytes of `file` written at or after offset `floor`.
+fn tail_of(file: &mut fs::File, floor: u64) -> String {
     let len = file.seek(SeekFrom::End(0)).unwrap_or(0);
-    let _ = file.seek(SeekFrom::Start(len.saturating_sub(TAIL)));
+    let _ = file.seek(SeekFrom::Start(len.saturating_sub(TAIL).max(floor)));
     let mut bytes = Vec::new();
     let _ = file.read_to_end(&mut bytes);
     String::from_utf8_lossy(&bytes).into_owned()
@@ -163,9 +164,18 @@ impl Runner for System {
         let (mut out, mut err) = match &invocation.log {
             Some(path) => {
                 let file = if invocation.append_log {
-                    fs::OpenOptions::new().create(true).append(true).open(path)
+                    fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .read(true)
+                        .open(path)
                 } else {
-                    fs::File::create(path)
+                    fs::OpenOptions::new()
+                        .create(true)
+                        .truncate(true)
+                        .write(true)
+                        .read(true)
+                        .open(path)
                 }
                 .map_err(io)?;
                 (file.try_clone().map_err(io)?, file)
@@ -175,6 +185,8 @@ impl Runner for System {
                 tempfile::tempfile().map_err(io)?,
             ),
         };
+        // An appended log holds earlier runs; only what this run writes is captured.
+        let floor = out.metadata().map_or(0, |m| m.len());
         let mut command = Command::new(&invocation.program);
         command
             .args(&invocation.args)
@@ -201,11 +213,11 @@ impl Runner for System {
             }
             std::thread::sleep(Duration::from_millis(50));
         };
-        let stdout = tail_of(&mut out);
+        let stdout = tail_of(&mut out, floor);
         let stderr = if invocation.log.is_some() {
             String::new()
         } else {
-            tail_of(&mut err)
+            tail_of(&mut err, 0)
         };
         Ok(Finished {
             status: status.and_then(|s| s.code()),
@@ -241,6 +253,29 @@ mod tests {
             .run(&Invocation::new("/nonexistent/bme-test"))
             .unwrap_err();
         assert_eq!(missing.code, Code::ToolUnavailable);
+    }
+
+    #[test]
+    fn appended_log_captures_only_the_current_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("run.log");
+        let run = |text: &str| {
+            System
+                .run(
+                    &Invocation::new("sh")
+                        .args(["-c", &format!("echo {text}")])
+                        .append_log(&log),
+                )
+                .unwrap()
+        };
+        run("first");
+        let second = run("second");
+        assert_eq!(
+            second.stdout.trim(),
+            "second",
+            "(stdout): earlier run leaked"
+        );
+        assert_eq!(fs::read_to_string(&log).unwrap(), "first\nsecond\n");
     }
 
     #[test]
