@@ -1,0 +1,22 @@
+Third-party code in this directory
+
+PeimUEFIHelper.java
+  Modified copy of ghidra_scripts/UEFIHelper.java from ghidra-firmware-utils,
+  https://github.com/al3xtjames/ghidra-firmware-utils
+  Copyright 2019 Alex James <theracermaster@gmail.com>.
+  Licensed under the Apache License, Version 2.0 (LICENSE-Apache-2.0.txt).
+  The changes are listed in the file's header.
+
+ghidra-firmware-utils-12.2.patch
+  A patch to ghidra-firmware-utils (same copyright and license) that replaces
+  two TaskMonitor.checkCanceled() calls, removed in Ghidra 12.2, with
+  checkCancelled().
+
+ExportFirmware.java, ExportSelectedFirmware.java, SeedFirmwareCallbacks.java
+and SetupFirmwareMemory.java come from x99-bios-fixes
+(https://github.com/juliopolycarpo/x99-bios-fixes, commit
+765e7a80ae8337c0953dc0da41de5f28b56c5c92), by the same author, under the MIT
+license of this repository.
+
+bme embeds these files and writes them to a temporary script directory for
+`bme tools analyze`; it does not modify them.

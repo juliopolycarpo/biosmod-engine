@@ -1,0 +1,174 @@
+{
+  "$defs": {
+    "Fact": {
+      "additionalProperties": false,
+      "description": "A hardware fact firmware cannot prove; users assert it with `--assert <id>`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "statement": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "statement"
+      ],
+      "type": "object"
+    },
+    "FirmwareBuild": {
+      "additionalProperties": false,
+      "description": "One firmware build a board ships; patch variants are keyed by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "image_size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "version_string": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "type": "object"
+    },
+    "Revision": {
+      "additionalProperties": false,
+      "description": "The physical revision a profile describes, and how it is known.",
+      "properties": {
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/RevisionStatus"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    "RevisionStatus": {
+      "oneOf": [
+        {
+          "enum": [
+            "unknown"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "observed",
+          "description": "Read from the physical board by a contributor (see `note`/evidence).",
+          "type": "string"
+        },
+        {
+          "const": "unverified",
+          "description": "Taken from a listing, filename or vendor label only.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/bme.board-1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A board/revision profile: the discovery and compatibility entry point.",
+  "properties": {
+    "chipset": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evidence": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "facts": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Fact"
+      },
+      "type": "array"
+    },
+    "firmware": {
+      "items": {
+        "$ref": "#/$defs/FirmwareBuild"
+      },
+      "type": "array"
+    },
+    "id": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "patches": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "revision": {
+      "$ref": "#/$defs/Revision"
+    },
+    "schema": {
+      "const": "bme.board/1",
+      "type": "string"
+    },
+    "vendor": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "vendor",
+    "model",
+    "revision",
+    "firmware",
+    "patches"
+  ],
+  "title": "Board",
+  "type": "object"
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/envelope.schema.json",
+  "title": "bme/1 output envelope",
+  "type": "object",
+  "required": ["protocol", "product", "version", "command", "ok"],
+  "properties": {
+    "protocol": {"const": "bme/1"},
+    "product": {"const": "biosmod-engine"},
+    "version": {"type": "string"},
+    "command": {"type": "string"},
+    "ok": {"type": "boolean"},
+    "data": {},
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {"type": "string", "pattern": "^[A-Z_]+$"},
+        "message": {"type": "string"},
+        "details": {}
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {"properties": {"ok": {"const": true}}, "required": ["data"], "not": {"required": ["error"]}},
+    {"properties": {"ok": {"const": false}}, "required": ["error"], "not": {"required": ["data"]}}
+  ],
+  "additionalProperties": false
+}
