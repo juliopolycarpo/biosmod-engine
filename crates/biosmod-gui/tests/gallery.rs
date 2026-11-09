@@ -147,6 +147,11 @@ fn gallery_states_build_and_capture() {
     );
     window.set_status_tone(Tone::Danger);
     shot("4-failed");
+    window.set_status(
+        "The engine reported a failure: module size: expected 604832 | received 604800 while rebuilding volume 3 of 6 (offset 0x1fe000, compressed section, LZMA stream, checksum mismatch in the reproduction step)"
+            .into(),
+    );
+    shot("8-long-status");
     window.set_patches(ModelRc::new(VecModel::from(Vec::<PatchRow>::new())));
     window.set_image_facts(ModelRc::default());
     window.set_scan_facts(ModelRc::default());
