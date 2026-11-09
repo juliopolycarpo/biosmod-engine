@@ -230,6 +230,7 @@ export component AppWindow inherits Window {
                     image-facts: root.image-facts;
                     scan-facts: root.scan-facts;
                     image-sha: root.image-sha;
+                    compact: root.height < 700px;
                 }
                 if root.patches.length == 0: Rectangle {
                     background: Theme.surface;

@@ -35,6 +35,8 @@ export component FindingsSummary inherits Rectangle {
     in property <[Fact]> image-facts;
     in property <[Fact]> scan-facts;
     in property <string> image-sha;
+    // Drop the digest row when height is scarce; the reviewed plan repeats the digest.
+    in property <bool> compact;
     background: Theme.surface;
     border-color: Theme.border;
     border-width: 1px;
@@ -45,7 +47,7 @@ export component FindingsSummary inherits Rectangle {
         spacing: Theme.space-sm;
         FactList { facts: root.image-facts; }
         FactList { facts: root.scan-facts; }
-        if root.image-sha != "": HorizontalLayout {
+        if root.image-sha != "" && !root.compact: HorizontalLayout {
             spacing: Theme.space-md;
             Text {
                 text: "SHA-256";
