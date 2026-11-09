@@ -310,7 +310,18 @@ fn component_geometry(component: &Component, patch: &Patch, at: &str) -> Result<
         )));
     }
     patch::ordered(&component.hunks).map_err(|e| invalid(format!("{at}: {}", e.message)))?;
-    let base = component.source_size as usize;
+    let base = usize::try_from(component.source_size).map_err(|_| {
+        invalid(format!(
+            "{at}: source_size {} exceeds the supported range",
+            component.source_size
+        ))
+    })?;
+    let result = usize::try_from(component.result_size).map_err(|_| {
+        invalid(format!(
+            "{at}: result_size {} exceeds the supported range",
+            component.result_size
+        ))
+    })?;
     let mut appended = 0usize;
     for hunk in &component.hunks {
         let window = hunk.context_before.0.len()
@@ -335,7 +346,11 @@ fn component_geometry(component: &Component, patch: &Patch, at: &str) -> Result<
                         hunk.offset
                     )));
                 }
-                if hunk.offset + hunk.before.0.len() > base {
+                if hunk
+                    .offset
+                    .checked_add(hunk.before.0.len())
+                    .is_none_or(|end| end > base)
+                {
                     return Err(invalid(format!(
                         "{at}: hunk at {:#x} ends past the module size {base:#x}",
                         hunk.offset
@@ -355,11 +370,21 @@ fn component_geometry(component: &Component, patch: &Patch, at: &str) -> Result<
                         hunk.offset
                     )));
                 }
-                appended += hunk.after.0.len();
+                appended = appended.checked_add(hunk.after.0.len()).ok_or_else(|| {
+                    invalid(format!(
+                        "{at}: appended size {appended} plus {} exceeds the supported range",
+                        hunk.after.0.len()
+                    ))
+                })?;
             }
         }
     }
-    if component.layer_on.is_empty() && component.result_size as usize != base + appended {
+    let expected = base.checked_add(appended).ok_or_else(|| {
+        invalid(format!(
+            "{at}: source_size {base} plus {appended} appended bytes exceeds the supported range"
+        ))
+    })?;
+    if component.layer_on.is_empty() && result != expected {
         return Err(invalid(format!(
             "{at}: result_size {} must equal source_size {base} plus {appended} appended bytes",
             component.result_size

@@ -38,7 +38,20 @@ pub fn ordered<'a>(hunks: impl IntoIterator<Item = &'a Hunk>) -> Result<Vec<&'a 
                 ),
             ));
         }
-        end = Some(hunk.offset + hunk.before.0.len());
+        end = Some(
+            hunk.offset
+                .checked_add(hunk.before.0.len())
+                .ok_or_else(|| {
+                    Error::new(
+                        Code::PatchConflict,
+                        format!(
+                            "hunk at {:#x}: range length {} overflows",
+                            hunk.offset,
+                            hunk.before.0.len()
+                        ),
+                    )
+                })?,
+        );
         last_append = hunk.before.0.is_empty().then_some(hunk.offset);
     }
     Ok(rows)
@@ -61,7 +74,7 @@ pub fn apply<'a>(data: &[u8], hunks: impl IntoIterator<Item = &'a Hunk>) -> Resu
                 ),
             ));
         }
-        if data.get(at..at + old.len()) != Some(old.as_slice()) {
+        if at.checked_add(old.len()).and_then(|end| data.get(at..end)) != Some(old.as_slice()) {
             return Err(mismatch(at, old, data));
         }
         out.extend_from_slice(&data[cursor..at]);
@@ -84,7 +97,9 @@ pub fn reverse<'a>(data: &[u8], hunks: impl IntoIterator<Item = &'a Hunk>) -> Re
             .offset
             .checked_add_signed(shift)
             .ok_or_else(|| mismatch(hunk.offset, old, data))?;
-        if at < cursor || data.get(at..at + old.len()) != Some(old.as_slice()) {
+        if at < cursor
+            || at.checked_add(old.len()).and_then(|end| data.get(at..end)) != Some(old.as_slice())
+        {
             return Err(mismatch(hunk.offset, old, data));
         }
         out.extend_from_slice(&data[cursor..at]);
@@ -98,7 +113,7 @@ pub fn reverse<'a>(data: &[u8], hunks: impl IntoIterator<Item = &'a Hunk>) -> Re
 
 fn mismatch(at: usize, expected: &[u8], data: &[u8]) -> Error {
     let received = data
-        .get(at..(at + expected.len()).min(data.len()))
+        .get(at..at.saturating_add(expected.len()).min(data.len()))
         .unwrap_or(&[]);
     Error::new(
         Code::PatchSourceMismatch,
@@ -117,9 +132,19 @@ pub fn state<'a>(data: &[u8], hunks: impl IntoIterator<Item = &'a Hunk>) -> Resu
     for hunk in ordered(hunks)? {
         let at = hunk.offset;
         let (before, after) = (&hunk.before.0, &hunk.after.0);
-        if !before.is_empty() && data.get(at..at + before.len()) == Some(before.as_slice()) {
+        if !before.is_empty()
+            && at
+                .checked_add(before.len())
+                .and_then(|end| data.get(at..end))
+                == Some(before.as_slice())
+        {
             original = true;
-        } else if !after.is_empty() && data.get(at..at + after.len()) == Some(after.as_slice()) {
+        } else if !after.is_empty()
+            && at
+                .checked_add(after.len())
+                .and_then(|end| data.get(at..end))
+                == Some(after.as_slice())
+        {
             fixed = true;
         } else if before.is_empty() && data.len() == at {
             original = true;
@@ -338,6 +363,13 @@ mod tests {
             apply(&data, &[append(4, b"x")]).is_err(),
             "append must sit at the module end"
         );
+    }
+
+    #[test]
+    fn overflowing_hunk_range_is_rejected() {
+        let hunk = replace(usize::MAX, b"x", b"y");
+        let error = ordered([&hunk]).unwrap_err();
+        assert!(error.message.contains("range"), "{error}");
     }
 
     #[test]
