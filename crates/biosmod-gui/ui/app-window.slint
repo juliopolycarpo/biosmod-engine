@@ -1,5 +1,6 @@
 import { AboutSlint, Button, ComboBox, LineEdit, ListView, Palette, Spinner, TextEdit } from "std-widgets.slint";
 import { PatchCard, PatchRow } from "patch-card.slint";
+import { Stepper } from "stepper.slint";
 import { Theme } from "theme.slint";
 import { Caption, Divider, FieldLabel, NavTab, PageTitle, SectionTitle } from "widgets.slint";
 
@@ -138,17 +139,17 @@ export component AppWindow inherits Window {
             spacing: Theme.space-sm;
             HorizontalLayout {
                 spacing: Theme.space-sm;
-                VerticalLayout {
-                    spacing: Theme.space-xs;
-                    alignment: center;
-                    PageTitle { text: "Firmware workflow"; }
-                    Caption { text: root.stage < 2 ? "Choose an image and source, then scan for corrections." : root.stage == 2 || root.show-review ? "Review the resolved plan before building a copy." : "Check the output and its offline verification."; }
-                }
+                Stepper { current: root.stage < 2 ? 0 : root.stage == 2 || root.show-review ? 1 : 2; }
                 Rectangle { horizontal-stretch: 1; }
-                Text { text: root.stage < 2 ? "1 / 3  SELECT" : root.stage == 2 || root.show-review ? "2 / 3  REVIEW" : "3 / 3  VERIFY"; color: Theme.muted; font-size: Theme.font-caption; vertical-alignment: center; }
-                Button { text: "Open plan"; enabled: !root.busy; clicked => { root.import-plan(); } }
-                Button { text: "Open output"; enabled: !root.busy; clicked => { root.open-output(); } }
-                Button { text: root.paths-open ? "Hide paths" : "Enter paths"; enabled: !root.busy; clicked => { root.paths-open = !root.paths-open; } }
+                VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: Theme.space-sm;
+                        Button { text: "Open plan"; enabled: !root.busy; clicked => { root.import-plan(); } }
+                        Button { text: "Open output"; enabled: !root.busy; clicked => { root.open-output(); } }
+                        Button { text: root.paths-open ? "Hide paths" : "Enter paths"; enabled: !root.busy; clicked => { root.paths-open = !root.paths-open; } }
+                    }
+                }
             }
             if root.paths-open: VerticalLayout {
                 spacing: Theme.space-sm;
