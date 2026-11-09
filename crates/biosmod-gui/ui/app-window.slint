@@ -462,7 +462,10 @@ export component AppWindow inherits Window {
                     padding-left: Theme.space-xl;
                     padding-right: Theme.space-xl;
                     spacing: Theme.space-sm;
-                    if root.busy: Spinner { width: 30px; height: 30px; indeterminate: true; }
+                    if root.busy: VerticalLayout {
+                        alignment: center;
+                        Spinner { width: 22px; height: 22px; indeterminate: true; }
+                    }
                     if !root.busy && root.status-tone != Tone.quiet: VerticalLayout {
                         alignment: center;
                         Rectangle {
