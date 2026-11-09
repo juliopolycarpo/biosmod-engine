@@ -148,7 +148,7 @@ pub fn schema(name: Option<&str>) -> Result<Reply> {
             )
         })?
     };
-    let text = serde_json::to_string_pretty(&value).expect("schema serializes") + "\n";
+    let text = String::from_utf8(biosmod_core::json::pretty(&value)).expect("JSON is UTF-8");
     Ok(Reply::new(value, text))
 }
 

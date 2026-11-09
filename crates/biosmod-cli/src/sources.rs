@@ -37,6 +37,17 @@ pub enum Trust {
     UnsignedLocal,
 }
 
+impl Trust {
+    /// The kebab-case name serialized in plans and reports.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Trust::Builtin => "builtin",
+            Trust::Signed => "signed",
+            Trust::UnsignedLocal => "unsigned-local",
+        }
+    }
+}
+
 /// A loaded source.
 #[derive(Debug)]
 pub struct Loaded {
@@ -390,7 +401,7 @@ pub fn add(
         ));
     }
     let key = trust_key.map(key_line).transpose()?;
-    let source = if location.starts_with("https://") || location.contains("://") {
+    let source = if location.contains("://") {
         origin(location)?;
         if key.is_none() {
             return Err(Error::new(

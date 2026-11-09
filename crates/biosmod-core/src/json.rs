@@ -15,6 +15,15 @@ pub fn parse_strict<T: DeserializeOwned>(bytes: &[u8], what: &str) -> Result<T> 
         .map_err(|e| Error::new(Code::CatalogInvalid, format!("{what}: {e}")))
 }
 
+/// Pretty JSON with a trailing newline, as committed catalogs use.
+///
+/// Example: `let bytes = json::pretty(&board);`
+pub fn pretty<T: serde::Serialize>(value: &T) -> Vec<u8> {
+    let mut out = serde_json::to_vec_pretty(value).expect("serializable");
+    out.push(b'\n');
+    out
+}
+
 /// Reject any JSON object that repeats a key, at any depth.
 pub fn check_duplicates(bytes: &[u8]) -> Result<()> {
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
@@ -82,6 +91,12 @@ impl<'de> Visitor<'de> for UniqueKeys {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pretty_indents_and_ends_with_one_newline() {
+        let bytes = pretty(&serde_json::json!({"a": 1}));
+        assert_eq!(bytes, b"{\n  \"a\": 1\n}\n");
+    }
 
     #[test]
     fn duplicate_keys_are_rejected_at_any_depth() {

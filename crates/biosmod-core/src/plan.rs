@@ -319,15 +319,8 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
             k.sort();
             k
         };
-        let result = compose(
-            catalog,
-            &firmware,
-            component,
-            &found.original,
-            &keep,
-            &related,
-        )?;
-        check_structure(image, found, &related, &keep, &result)?;
+        let result = compose(&firmware, component, &found.original, &keep, &related)?;
+        check_structure(image, found, &related, &keep)?;
         let file = image.file(&found.leaf);
         let mut change = ComponentChange {
             name: component.name.clone(),
@@ -411,13 +404,11 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
         notes,
         allowlist,
     };
-    verify_built(image, catalog, &built)?;
-    Ok(built)
+    verify_built(image, catalog, built)
 }
 
 /// Apply the kept patches to the recovered original, base patches before layered ones.
 fn compose(
-    catalog: &Catalog,
     firmware: &str,
     component: &Component,
     original: &[u8],
@@ -477,7 +468,6 @@ fn compose(
             expect_single(only, layer)?;
         }
     }
-    let _ = catalog;
     Ok(result)
 }
 
@@ -487,7 +477,6 @@ fn check_structure(
     found: &analysis::Match,
     related: &[(&Patch, &Component)],
     keep: &[String],
-    result: &[u8],
 ) -> Result<()> {
     for (patch, component) in related.iter().filter(|(p, _)| keep.contains(&p.id)) {
         if component.checks.xip_image_base {
@@ -524,13 +513,12 @@ fn check_structure(
             }
         }
     }
-    let _ = result;
     Ok(())
 }
 
 /// Re-parse the output and confirm states and untouched bytes.
-fn verify_built(input: &Image, catalog: &Catalog, built: &Built) -> Result<()> {
-    let check = Image::parse(built.image.clone()).map_err(|e| {
+fn verify_built(input: &Image, catalog: &Catalog, mut built: Built) -> Result<Built> {
+    let check = Image::parse(std::mem::take(&mut built.image)).map_err(|e| {
         Error::new(
             Code::OutputVerificationFailed,
             format!("re-parsed output: {}", e.message),
@@ -546,7 +534,7 @@ fn verify_built(input: &Image, catalog: &Catalog, built: &Built) -> Result<()> {
             ));
         }
     }
-    outside_allowlist_unchanged(&input.bytes, &built.image, &built.allowlist)?;
+    outside_allowlist_unchanged(&input.bytes, &check.bytes, &built.allowlist)?;
     for change in &built.components {
         let leaves = check
             .leaves
@@ -567,7 +555,8 @@ fn verify_built(input: &Image, catalog: &Catalog, built: &Built) -> Result<()> {
             ));
         }
     }
-    Ok(())
+    built.image = check.bytes;
+    Ok(built)
 }
 
 /// Fail when any byte outside `allowlist` differs, or the size changed.

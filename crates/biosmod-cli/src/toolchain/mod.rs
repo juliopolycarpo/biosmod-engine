@@ -193,10 +193,6 @@ pub fn java_major(output: &str) -> Option<u32> {
     }
 }
 
-fn short(duration: u64) -> Duration {
-    Duration::from_secs(duration)
-}
-
 /// One doctor finding.
 #[derive(Debug, Clone, Serialize)]
 pub struct Check {
@@ -215,7 +211,11 @@ fn check(name: &'static str, ok: bool, detail: impl Into<String>) -> Check {
 
 fn java_check(runner: &dyn Runner, program: &'static str, min: u32) -> Check {
     let name = if program == "javac" { "jdk" } else { "java" };
-    let finished = match runner.run(&Invocation::new(program).arg("-version").timeout(short(60))) {
+    let finished = match runner.run(
+        &Invocation::new(program)
+            .arg("-version")
+            .timeout(Duration::from_secs(60)),
+    ) {
         Ok(f) => f,
         Err(e) => {
             return check(
@@ -316,7 +316,7 @@ pub fn startup_check(runner: &dyn Runner, home: &Path) -> Check {
             "-noanalysis",
             "-deleteProject",
         ])
-        .timeout(short(600));
+        .timeout(Duration::from_secs(600));
     let _ = fs::create_dir_all(work.path().join("project"));
     match runner.run(&invocation) {
         Ok(f) if f.success() && f.output().contains("Import succeeded") => {
@@ -446,9 +446,11 @@ pub fn install(env: &Env, args: &SetupArgs, note: &mut dyn FnMut(&str)) -> Resul
     if !java.ok {
         return Err(Error::new(Code::ToolUnavailable, java.detail));
     }
-    let git = env
-        .runner
-        .run(&Invocation::new("git").arg("--version").timeout(short(60)));
+    let git = env.runner.run(
+        &Invocation::new("git")
+            .arg("--version")
+            .timeout(Duration::from_secs(60)),
+    );
     if !git.as_ref().is_ok_and(Finished::success) {
         return Err(Error::new(
             Code::ToolUnavailable,
@@ -585,7 +587,7 @@ fn gradle_home(env: &Env, args: &SetupArgs, note: &mut dyn FnMut(&str)) -> Resul
         let output = env.runner.run(
             &Invocation::new(home.join("bin/gradle"))
                 .arg("--version")
-                .timeout(short(300)),
+                .timeout(Duration::from_secs(300)),
         )?;
         if !output.output().lines().any(|l| l.trim() == wanted) {
             return Err(Error::new(
@@ -697,7 +699,7 @@ fn install_ghidra(
 fn git(env: &Env, args: &[&str], cwd: Option<&Path>) -> Result<Finished> {
     let mut invocation = Invocation::new("git")
         .args(args.iter().copied())
-        .timeout(short(900));
+        .timeout(Duration::from_secs(900));
     if let Some(dir) = cwd {
         invocation = invocation.arg_first("-C", dir);
     }
@@ -787,7 +789,7 @@ fn build_extension(
         .arg(source)
         .arg("buildExtension")
         .env("GHIDRA_INSTALL_DIR", ghidra)
-        .timeout(short(3600));
+        .timeout(Duration::from_secs(3600));
     if env.offline {
         invocation = invocation.arg("--offline");
     }
@@ -937,7 +939,7 @@ pub fn run_analysis(
             .arg("-analysisTimeoutPerFile")
             .arg(timeout.to_string())
             .log(&log)
-            .timeout(short(
+            .timeout(Duration::from_secs(
                 timeout
                     .saturating_mul(modules.len() as u64)
                     .saturating_add(900),

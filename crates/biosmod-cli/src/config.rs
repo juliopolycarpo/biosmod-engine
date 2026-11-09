@@ -173,6 +173,18 @@ pub fn io_error(path: &Path, error: std::io::Error) -> Error {
     Error::new(Code::Io, format!("{}: {error}", path.display()))
 }
 
+/// Create `path`, failing if it exists, and write `bytes` to it.
+///
+/// Example: `write_new(Path::new("plan.json"), b"{}")?;`
+pub fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .and_then(|mut file| file.write_all(bytes))
+        .map_err(|e| io_error(path, e))
+}
+
 /// Replace `path` atomically with `bytes`, creating parent directories.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path
@@ -191,6 +203,25 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn write_new_creates_the_file_and_refuses_to_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("out.json");
+        write_new(&path, b"first").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+        let error = write_new(&path, b"second").unwrap_err();
+        assert_eq!(
+            error.code,
+            Code::Io,
+            "expected Io for an existing file: {error:?}"
+        );
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            b"first",
+            "existing file untouched"
+        );
+    }
 
     fn env<'a>(vars: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<OsString> + 'a {
         move |key| {

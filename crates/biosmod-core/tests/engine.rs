@@ -57,6 +57,23 @@ fn expect_err(result: Result<Vec<u8>, Error>, code: Code, text: &str) {
 }
 
 #[test]
+fn boards_for_lists_shipping_boards_and_is_empty_for_unknown_firmware() {
+    let case = Case::new();
+    assert_eq!(
+        case.catalog.boards_for(synthetic::FIRMWARE),
+        vec![synthetic::BOARD.to_string()]
+    );
+    assert!(case.catalog.boards_for("NOPE").is_empty());
+}
+
+#[test]
+fn every_file_kind_maps_to_its_own_directory() {
+    use biosmod_core::catalog::FileKind;
+    let dirs: Vec<&str> = FileKind::ALL.iter().map(|k| k.directory()).collect();
+    assert_eq!(dirs, ["boards", "patches", "evidence", "provenance"]);
+}
+
+#[test]
 fn parser_finds_both_volumes_with_valid_checksums() {
     let case = Case::new();
     let image = case.image();

@@ -81,6 +81,14 @@ pub enum FileKind {
 }
 
 impl FileKind {
+    /// Every kind, in directory-walk order.
+    pub const ALL: [FileKind; 4] = [
+        FileKind::Board,
+        FileKind::Patch,
+        FileKind::Evidence,
+        FileKind::Provenance,
+    ];
+
     /// The directory holding files of this kind.
     pub fn directory(self) -> &'static str {
         match self {
@@ -588,6 +596,16 @@ impl Catalog {
         Ok(())
     }
 
+    /// Ids of the boards that ship `firmware`, empty when no board declares it.
+    ///
+    /// Example: `let boards = catalog.boards_for("B05");`
+    pub fn boards_for(&self, firmware: &str) -> Vec<String> {
+        self.firmware_builds()
+            .get(firmware)
+            .map(|boards| boards.iter().map(|b| b.id.clone()).collect())
+            .unwrap_or_default()
+    }
+
     /// Firmware build ids declared by boards, with the boards that ship them.
     pub fn firmware_builds(&self) -> BTreeMap<&str, Vec<&Board>> {
         let mut builds: BTreeMap<&str, Vec<&Board>> = BTreeMap::new();
@@ -670,17 +688,15 @@ pub fn index_files(files: &[(String, Vec<u8>)]) -> Result<Vec<FileEntry>> {
     let mut entries = Vec::with_capacity(files.len());
     for (path, bytes) in files {
         crate::validation::relative_path(path)?;
-        let kind = match path.split('/').next() {
-            Some("boards") => FileKind::Board,
-            Some("patches") => FileKind::Patch,
-            Some("evidence") => FileKind::Evidence,
-            Some("provenance") => FileKind::Provenance,
-            _ => {
-                return Err(Error::new(
-                    Code::CatalogInvalid,
-                    format!("{path}: expected boards/, patches/, evidence/ or provenance/"),
-                ));
-            }
+        let top = path.split('/').next();
+        let Some(kind) = FileKind::ALL
+            .into_iter()
+            .find(|k| top == Some(k.directory()))
+        else {
+            return Err(Error::new(
+                Code::CatalogInvalid,
+                format!("{path}: expected boards/, patches/, evidence/ or provenance/"),
+            ));
         };
         entries.push(FileEntry {
             path: path.clone(),

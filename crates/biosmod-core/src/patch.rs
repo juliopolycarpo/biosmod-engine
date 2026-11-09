@@ -8,7 +8,7 @@
 
 use crate::catalog::{Hunk, HunkOp};
 use crate::error::{Code, Error, Result};
-use crate::util::hex;
+use crate::util::{hex, window};
 
 /// How a component's bytes relate to a set of hunks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,7 +74,7 @@ pub fn apply<'a>(data: &[u8], hunks: impl IntoIterator<Item = &'a Hunk>) -> Resu
                 ),
             ));
         }
-        if at.checked_add(old.len()).and_then(|end| data.get(at..end)) != Some(old.as_slice()) {
+        if window(data, at, old.len()) != Some(old.as_slice()) {
             return Err(mismatch(at, old, data));
         }
         out.extend_from_slice(&data[cursor..at]);
@@ -97,9 +97,7 @@ pub fn reverse<'a>(data: &[u8], hunks: impl IntoIterator<Item = &'a Hunk>) -> Re
             .offset
             .checked_add_signed(shift)
             .ok_or_else(|| mismatch(hunk.offset, old, data))?;
-        if at < cursor
-            || at.checked_add(old.len()).and_then(|end| data.get(at..end)) != Some(old.as_slice())
-        {
+        if at < cursor || window(data, at, old.len()) != Some(old.as_slice()) {
             return Err(mismatch(hunk.offset, old, data));
         }
         out.extend_from_slice(&data[cursor..at]);
@@ -132,19 +130,9 @@ pub fn state<'a>(data: &[u8], hunks: impl IntoIterator<Item = &'a Hunk>) -> Resu
     for hunk in ordered(hunks)? {
         let at = hunk.offset;
         let (before, after) = (&hunk.before.0, &hunk.after.0);
-        if !before.is_empty()
-            && at
-                .checked_add(before.len())
-                .and_then(|end| data.get(at..end))
-                == Some(before.as_slice())
-        {
+        if !before.is_empty() && window(data, at, before.len()) == Some(before.as_slice()) {
             original = true;
-        } else if !after.is_empty()
-            && at
-                .checked_add(after.len())
-                .and_then(|end| data.get(at..end))
-                == Some(after.as_slice())
-        {
+        } else if !after.is_empty() && window(data, at, after.len()) == Some(after.as_slice()) {
             fixed = true;
         } else if before.is_empty() && data.len() == at {
             original = true;

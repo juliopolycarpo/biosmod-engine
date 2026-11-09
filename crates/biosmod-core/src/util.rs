@@ -29,16 +29,10 @@ pub fn unhex(text: &str) -> Result<Vec<u8>> {
             ),
         ));
     }
-    let nibble = |c: u8| match c {
-        b'0'..=b'9' => Some(c - b'0'),
-        b'a'..=b'f' => Some(c - b'a' + 10),
-        b'A'..=b'F' => Some(c - b'A' + 10),
-        _ => None,
-    };
     raw.as_chunks::<2>()
         .0
         .iter()
-        .map(|pair| match (nibble(pair[0]), nibble(pair[1])) {
+        .map(|pair| match (hex_value(pair[0]), hex_value(pair[1])) {
             (Some(high), Some(low)) => Ok(high << 4 | low),
             _ => Err(Error::new(
                 Code::CatalogInvalid,
@@ -66,19 +60,24 @@ pub fn align(value: usize, size: usize) -> usize {
     value.div_ceil(size) * size
 }
 
+/// Bytes `[at, at + len)` of `data`, or `None` when the range overflows or leaves `data`.
+///
+/// Example: `assert_eq!(window(&[1, 2, 3], 1, 2), Some(&[2, 3][..]));`
+pub fn window(data: &[u8], at: usize, len: usize) -> Option<&[u8]> {
+    at.checked_add(len).and_then(|end| data.get(at..end))
+}
+
 /// Bytes `[at, at + len)` of `data`, or a `FormatInvalid` error naming `what`.
 pub fn slice<'a>(data: &'a [u8], at: usize, len: usize, what: &str) -> Result<&'a [u8]> {
-    at.checked_add(len)
-        .and_then(|end| data.get(at..end))
-        .ok_or_else(|| {
-            Error::new(
-                Code::FormatInvalid,
-                format!(
-                    "{what} at {at:#x}+{len:#x}: exceeds buffer of {:#x} bytes",
-                    data.len()
-                ),
-            )
-        })
+    window(data, at, len).ok_or_else(|| {
+        Error::new(
+            Code::FormatInvalid,
+            format!(
+                "{what} at {at:#x}+{len:#x}: exceeds buffer of {:#x} bytes",
+                data.len()
+            ),
+        )
+    })
 }
 
 /// Little-endian u16 at `at`.
@@ -359,6 +358,15 @@ impl schemars::JsonSchema for Digest256 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_rejects_overflow_and_out_of_range_spans() {
+        let data = [1u8, 2, 3];
+        assert_eq!(window(&data, 1, 2), Some(&[2u8, 3][..]));
+        assert_eq!(window(&data, 3, 0), Some(&[][..]), "empty span at the end");
+        assert_eq!(window(&data, 2, 2), None, "span leaves the buffer");
+        assert_eq!(window(&data, usize::MAX, 2), None, "at + len overflows");
+    }
 
     #[test]
     fn guid_round_trips_through_text_and_disk_order() {

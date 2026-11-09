@@ -9,7 +9,7 @@ use crate::{
     VerifyArgs,
 };
 use biosmod_core::analysis::{self, ScanReport, State, module_bytes};
-use biosmod_core::catalog::{Catalog, LeafKind, Scope};
+use biosmod_core::catalog::{LeafKind, Scope};
 use biosmod_core::firmware::{self, Image, rebuild};
 use biosmod_core::plan::document::{
     Blob, MANIFEST_SCHEMA, NOTICE, OutputManifest, PLAN_SCHEMA, PlanDocument, SourcePin,
@@ -370,10 +370,7 @@ fn pin(source: &Loaded) -> SourcePin {
     let catalog = &source.catalog;
     SourcePin {
         alias: source.alias.clone(),
-        trust: serde_json::to_value(source.trust)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_string))
-            .unwrap_or_default(),
+        trust: source.trust.as_str().to_string(),
         location: source.location.clone(),
         scope: match &catalog.scope {
             Scope::Board(path) => Some(path.clone()),
@@ -386,20 +383,12 @@ fn pin(source: &Loaded) -> SourcePin {
     }
 }
 
-fn boards_for(catalog: &Catalog, firmware: &str) -> Vec<String> {
-    catalog
-        .firmware_builds()
-        .get(firmware)
-        .map(|b| b.iter().map(|b| b.id.clone()).collect())
-        .unwrap_or_default()
-}
-
 fn make_plan(
     ctx: &Ctx,
     rom: &Path,
     select: &SelectArgs,
     source: &crate::SourceArgs,
-) -> Result<(Image, PlanDocument, Vec<u8>)> {
+) -> Result<(PlanDocument, Vec<u8>)> {
     let image = read_image(rom)?;
     let loaded = load_sources(ctx, source, &select.select)?;
     let prepared = prepare(&image, &loaded, select, source.firmware.as_deref())?;
@@ -409,12 +398,12 @@ fn make_plan(
         &built,
         &image.bytes,
         pin(prepared.source),
-        boards_for(catalog, &built.firmware),
+        catalog.boards_for(&built.firmware),
         prepared.requested,
         &prepared.request,
         catalog,
     );
-    Ok((image, document, built.image))
+    Ok((document, built.image))
 }
 
 fn plan_text(plan: &PlanDocument) -> String {
@@ -478,15 +467,9 @@ fn plan_text(plan: &PlanDocument) -> String {
 
 pub fn plan(ctx: &Ctx, args: &PlanArgs) -> Result<Reply> {
     check_outputs(&[&args.output], &[&args.rom])?;
-    let (_, document, _) = make_plan(ctx, &args.rom, &args.select, &args.source)?;
-    let bytes = biosmod_core::synthetic::pretty(&document);
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&args.output)
-        .map_err(|e| crate::config::io_error(&args.output, e))?;
-    std::io::Write::write_all(&mut file, &bytes)
-        .map_err(|e| crate::config::io_error(&args.output, e))?;
+    let (document, _) = make_plan(ctx, &args.rom, &args.select, &args.source)?;
+    let bytes = biosmod_core::json::pretty(&document);
+    crate::config::write_new(&args.output, &bytes)?;
     let text = plan_text(&document)
         + &format!(
             "Wrote plan {}\nNext: bme patch {} --plan {} -o <new-file>\n",
@@ -528,11 +511,7 @@ fn pinned_source(ctx: &Ctx, plan: &PlanDocument, allow_unsigned_local: bool) -> 
             format!("plan source {}: {}", plan.source.alias, e.message),
         )
     })?;
-    let trust = serde_json::to_value(loaded.trust)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_string))
-        .unwrap_or_default();
-    if !plan.source.matches(&loaded.catalog) || trust != plan.source.trust {
+    if !plan.source.matches(&loaded.catalog) || loaded.trust.as_str() != plan.source.trust {
         return Err(Error::new(
             Code::PlanInputChanged,
             format!(
@@ -581,7 +560,7 @@ fn rebuild_from_plan(
     rom: &Path,
     plan: &PlanDocument,
     allow_unsigned_local: bool,
-) -> Result<(Vec<u8>, Vec<u8>)> {
+) -> Result<Vec<u8>> {
     let input = read_bounded(rom, super::MAX_IMAGE_BYTES)?;
     if Blob::of(&input) != plan.input {
         return Err(Error::new(
@@ -595,15 +574,15 @@ fn rebuild_from_plan(
         ));
     }
     let loaded = pinned_source(ctx, plan, allow_unsigned_local)?;
-    let image = Image::parse(input.clone())?;
+    let image = Image::parse(input)?;
     let request = requested_ids(plan, &loaded)?;
     let built = plan::build(&image, &loaded.catalog, &request)?;
     // Every field is recomputed from the pinned catalog, so editing any of them is detected.
     let rebuilt = PlanDocument::new(
         &built,
-        &input,
+        &image.bytes,
         pin(&loaded),
-        boards_for(&loaded.catalog, &built.firmware),
+        loaded.catalog.boards_for(&built.firmware),
         plan.requested.clone(),
         &request,
         &loaded.catalog,
@@ -617,7 +596,7 @@ fn rebuild_from_plan(
             ),
         ));
     }
-    Ok((input, built.image))
+    Ok(built.image)
 }
 
 /// The build request named by a plan's `requested` list, checked against the pinned source.
@@ -654,12 +633,12 @@ pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
     let (plan, output) = match &args.plan {
         Some(path) => {
             let plan = read_plan(path)?;
-            let (_, output) =
+            let output =
                 rebuild_from_plan(ctx, &args.rom, &plan, args.source.allow_unsigned_local)?;
             (plan, output)
         }
         None => {
-            let (_, plan, output) = make_plan(ctx, &args.rom, &args.select, &args.source)?;
+            let (plan, output) = make_plan(ctx, &args.rom, &args.select, &args.source)?;
             (plan, output)
         }
     };
@@ -690,7 +669,7 @@ pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
         verification,
         notice: NOTICE.into(),
     };
-    let bytes = biosmod_core::synthetic::pretty(&manifest);
+    let bytes = biosmod_core::json::pretty(&manifest);
     publish::publish(&Filesystem, &args.output, &output, &bytes)?;
     let mut text = plan_text(&manifest.plan);
     let _ = writeln!(
@@ -754,14 +733,15 @@ pub fn verify(ctx: &Ctx, args: &VerifyArgs) -> Result<Reply> {
             ),
         ));
     }
-    let structure = Image::parse(output.clone()).map_err(|e| {
+    let structure = Image::parse(output).map_err(|e| {
         Error::new(
             Code::OutputVerificationFailed,
             format!("output structure: {}", e.message),
         )
     })?;
-    outside_allowlist_unchanged(&input, &output, &plan.allowlist)?;
-    let changed = diff(&input, &output);
+    let output = &structure.bytes;
+    outside_allowlist_unchanged(&input, output, &plan.allowlist)?;
+    let changed = diff(&input, output);
     if changed != plan.changed {
         return Err(Error::new(
             Code::OutputVerificationFailed,
@@ -773,7 +753,7 @@ pub fn verify(ctx: &Ctx, args: &VerifyArgs) -> Result<Reply> {
         json!({"check": "output-digest", "ok": true}),
         json!({"check": "structure", "ok": true, "volumes": structure.volumes.len()}),
         json!({"check": "unchanged-outside-allowlist", "ok": true, "allowlist": plan.allowlist}),
-        json!({"check": "changed-regions", "ok": true, "regions": changed.len(), "bytes": changed_bytes(&input, &output)}),
+        json!({"check": "changed-regions", "ok": true, "regions": changed.len(), "bytes": changed_bytes(&input, output)}),
     ];
     let mut skipped = Vec::new();
     match pinned_source(ctx, plan, true) {
@@ -797,9 +777,9 @@ pub fn verify(ctx: &Ctx, args: &VerifyArgs) -> Result<Reply> {
                 states.push(json!({"id": id, "state": state}));
             }
             checks.push(json!({"check": "patch-states", "ok": true, "patches": states}));
-            let image = Image::parse(input.clone())?;
+            let image = Image::parse(input)?;
             let built = plan::build(&image, &loaded.catalog, &plan.request())?;
-            if built.image != output {
+            if built.image != *output {
                 return Err(Error::new(
                     Code::OutputVerificationFailed,
                     "independent rebuild from the pinned catalog differs from the output",
@@ -876,13 +856,7 @@ pub fn extract(args: &ExtractArgs) -> Result<Reply> {
     let image = read_image(&args.rom)?;
     let guid: Guid = args.guid.parse()?;
     let (leaf, data) = find_leaf(&image, guid, args.leaf.into())?;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&args.output)
-        .map_err(|e| crate::config::io_error(&args.output, e))?;
-    std::io::Write::write_all(&mut file, &data)
-        .map_err(|e| crate::config::io_error(&args.output, e))?;
+    crate::config::write_new(&args.output, &data)?;
     let digest = sha256_hex(&data);
     let text = format!(
         "Wrote {}: {} bytes, sha256 {digest}\n",
@@ -943,7 +917,7 @@ pub fn replace(args: &ReplaceArgs) -> Result<Reply> {
             end: file.offset + file.extent(),
         }
     };
-    let check = Image::parse(out.clone()).map_err(|e| {
+    let check = Image::parse(out).map_err(|e| {
         Error::new(
             Code::OutputVerificationFailed,
             format!("re-parsed output: {}", e.message),
@@ -955,6 +929,7 @@ pub fn replace(args: &ReplaceArgs) -> Result<Reply> {
             "re-parsed module differs from the input module",
         ));
     }
+    let out = check.bytes;
     outside_allowlist_unchanged(&image.bytes, &out, &[allowlist])?;
     let changed_module =
         old.iter().zip(&new).filter(|(a, b)| a != b).count() + old.len().abs_diff(new.len());
@@ -967,7 +942,7 @@ pub fn replace(args: &ReplaceArgs) -> Result<Reply> {
         &Filesystem,
         &args.output,
         &out,
-        &biosmod_core::synthetic::pretty(&record),
+        &biosmod_core::json::pretty(&record),
     )?;
     let text = format!(
         "Wrote {} and {}: module bytes changed {changed_module}, image sha256 {}\n{NOTICE}\n",

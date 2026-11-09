@@ -355,11 +355,7 @@ pub fn patch_state(
                 states.insert(if fixed { State::Fixed } else { State::Present });
             }
             None => {
-                let hidden = image.leaves.get(&component.ffs_guid).is_none_or(|leaves| {
-                    leaves.iter().all(|l| {
-                        module_bytes(image, l, component.leaf, component.table_offset).is_none()
-                    })
-                });
+                let hidden = count == 0;
                 let in_opaque = image
                     .volumes
                     .iter()
@@ -516,11 +512,9 @@ pub fn scan(image: &Image, catalog: &Catalog, firmware: Option<&str>) -> ScanRep
     let firmware = firmware
         .map(str::to_string)
         .or_else(|| detection.firmware.clone());
-    let builds = catalog.firmware_builds();
     let boards = firmware
         .as_deref()
-        .and_then(|f| builds.get(f))
-        .map(|b| b.iter().map(|b| b.id.clone()).collect())
+        .map(|f| catalog.boards_for(f))
         .unwrap_or_default();
     let mut patches = Vec::new();
     for patch in catalog.patches.values() {
@@ -533,7 +527,7 @@ pub fn scan(image: &Image, catalog: &Catalog, firmware: Option<&str>) -> ScanRep
                     (state, detail)
                 }
             }
-            None => unknown_build_state(image, catalog, patch),
+            None => unknown_build_state(image, patch),
         };
         let blocked = match (state, firmware.as_deref()) {
             (State::Present, Some(fw)) => blocker(image, catalog, fw, patch),
@@ -578,7 +572,7 @@ pub fn scan(image: &Image, catalog: &Catalog, firmware: Option<&str>) -> ScanRep
     }
 }
 
-fn unknown_build_state(image: &Image, catalog: &Catalog, patch: &Patch) -> (State, String) {
+fn unknown_build_state(image: &Image, patch: &Patch) -> (State, String) {
     let mut first = None;
     for firmware in patch.variants.keys() {
         if patch.components(firmware).is_empty() {
@@ -590,6 +584,5 @@ fn unknown_build_state(image: &Image, catalog: &Catalog, patch: &Patch) -> (Stat
         }
         first.get_or_insert(hit);
     }
-    let _ = catalog;
     first.unwrap_or((State::NotApplicable, String::new()))
 }

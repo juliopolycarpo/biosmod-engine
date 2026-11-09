@@ -2,6 +2,14 @@ use super::*;
 use crate::testkit::{FakeTransport, Signer25519, temp_paths};
 use biosmod_core::synthetic::Fixture;
 
+#[test]
+fn trust_names_match_their_serialized_form() {
+    for trust in [Trust::Builtin, Trust::Signed, Trust::UnsignedLocal] {
+        let serialized = serde_json::to_value(trust).unwrap();
+        assert_eq!(serialized.as_str(), Some(trust.as_str()));
+    }
+}
+
 const URL: &str = "https://catalogs.example/lab/catalog.json";
 
 /// Publish the synthetic catalog (optionally with a different version) on the fake transport.

@@ -303,11 +303,18 @@ fn visit(sections: &[Section], stream: &[u8], f: &mut dyn FnMut(&Section, &[u8])
     }
 }
 
-/// True when 16-bit little-endian words sum to zero, as the FV header requires.
-pub fn checksum16_ok(data: &[u8]) -> bool {
+/// Wrapping sum of the 16-bit little-endian words in `data`.
+///
+/// Example: `assert_eq!(checksum16(&[1, 0, 2, 0]), 3);`
+pub fn checksum16(data: &[u8]) -> u16 {
     data.as_chunks::<2>().0.iter().fold(0u16, |acc, w| {
         acc.wrapping_add(u16::from_le_bytes([w[0], w[1]]))
-    }) == 0
+    })
+}
+
+/// True when 16-bit little-endian words sum to zero, as the FV header requires.
+pub fn checksum16_ok(data: &[u8]) -> bool {
+    checksum16(data) == 0
 }
 
 fn find_volumes(
@@ -670,6 +677,19 @@ pub fn descriptor_regions(image: &[u8]) -> Option<Vec<Region>> {
         }
     }
     Some(regions)
+}
+
+#[cfg(test)]
+mod checksum_tests {
+    use super::*;
+
+    #[test]
+    fn checksum16_wraps_and_ignores_a_trailing_odd_byte() {
+        assert_eq!(checksum16(&[1, 0, 2, 0]), 3);
+        assert_eq!(checksum16(&[0xFF, 0xFF, 2, 0]), 1, "sum wraps at 16 bits");
+        assert_eq!(checksum16(&[1, 0, 9]), 1, "odd trailing byte is ignored");
+        assert!(checksum16_ok(&[1, 0, 0xFF, 0xFF]));
+    }
 }
 
 #[cfg(test)]

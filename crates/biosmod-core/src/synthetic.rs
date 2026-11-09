@@ -12,6 +12,7 @@ use crate::catalog::*;
 use crate::codec;
 use crate::firmware::rebuild::make_file;
 use crate::firmware::{FFS2_GUID, LZMA_GUID};
+pub use crate::json::pretty;
 use crate::util::{Digest256, Guid, HexBytes, align, sha256};
 use semver::Version;
 use std::collections::BTreeMap;
@@ -64,9 +65,7 @@ pub fn volume(files: &[Vec<u8>], length: usize) -> Vec<u8> {
     for value in [(length / 0x1000) as u32, 0x1000, 0, 0] {
         header.extend_from_slice(&value.to_le_bytes());
     }
-    let sum = header.as_chunks::<2>().0.iter().fold(0u16, |a, w| {
-        a.wrapping_add(u16::from_le_bytes([w[0], w[1]]))
-    });
+    let sum = crate::firmware::checksum16(&header);
     header[50..52].copy_from_slice(&sum.wrapping_neg().to_le_bytes());
     let mut out = header;
     for file in files {
@@ -364,11 +363,4 @@ impl Fixture {
         files.push(("catalog.json".into(), pretty(&manifest)));
         files
     }
-}
-
-/// Pretty JSON with a trailing newline, as committed catalogs use.
-pub fn pretty<T: serde::Serialize>(value: &T) -> Vec<u8> {
-    let mut out = serde_json::to_vec_pretty(value).expect("serializable");
-    out.push(b'\n');
-    out
 }

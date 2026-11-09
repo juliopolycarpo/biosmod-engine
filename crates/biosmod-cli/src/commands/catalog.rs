@@ -2,13 +2,14 @@
 
 use super::{Ctx, load_sources};
 use crate::CatalogCommand;
-use crate::config::{SourceKind, io_error, write_atomic};
+use crate::config::{SourceKind, io_error, write_atomic, write_new};
 use crate::output::{Reply, table};
 use crate::sources::{self, DirSource, LoadPolicy, Store};
 use crate::transport::{Https, Offline, Transport};
-use biosmod_core::catalog::{CATALOG_SCHEMA, Catalog, Manifest, Scope, index_files};
+use biosmod_core::catalog::{CATALOG_SCHEMA, Catalog, FileKind, Manifest, Scope, index_files};
+use biosmod_core::json::pretty;
 use biosmod_core::legacy::{self, Origin};
-use biosmod_core::{Code, Error, Result, json, synthetic::pretty};
+use biosmod_core::{Code, Error, Result, json};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -145,9 +146,9 @@ fn validate(path: &Path) -> Result<Reply> {
 /// Collect `(relative path, bytes)` for every file under the four content directories.
 pub fn collect(root: &Path) -> Result<Vec<(String, Vec<u8>)>> {
     let mut files = Vec::new();
-    let mut pending: Vec<PathBuf> = ["boards", "patches", "evidence", "provenance"]
+    let mut pending: Vec<PathBuf> = FileKind::ALL
         .iter()
-        .map(|d| root.join(d))
+        .map(|k| root.join(k.directory()))
         .filter(|d| d.is_dir())
         .collect();
     while let Some(dir) = pending.pop() {
@@ -384,13 +385,7 @@ fn import(
         }
     }
     for (file, bytes, _) in &converted {
-        let target = output.join(file);
-        let mut handle = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&target)
-            .map_err(|e| io_error(&target, e))?;
-        std::io::Write::write_all(&mut handle, bytes).map_err(|e| io_error(&target, e))?;
+        write_new(&output.join(file), bytes)?;
     }
     let ids: Vec<&str> = converted.iter().map(|(_, _, id)| id.as_str()).collect();
     let text = format!(
