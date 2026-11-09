@@ -368,6 +368,7 @@ fn import(
             path.file_name().expect("file").to_string_lossy()
         );
         let patch = legacy::import(&bytes, &name, &boards, &origin)?;
+        biosmod_core::validation::identifier(&patch.id, "patch id")?;
         converted.push((format!("{}.json", patch.id), pretty(&patch), patch.id));
     }
     fs::create_dir_all(output).map_err(|e| io_error(output, e))?;
@@ -399,4 +400,29 @@ fn import(
         ids.join(" ")
     );
     Ok(Reply::new(json!({"output": output, "patches": ids}), text))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn import_rejects_ids_that_escape_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("input");
+        let output = dir.path().join("output");
+        fs::create_dir(&input).unwrap();
+        for id in ["../escaped", "/absolute", "C:\\escaped", "dir\\escaped"] {
+            let record = json!({"schema": 1, "id": id, "title": "test", "findings": [], "finding_confidence": {}, "local_fix_confidence": "", "physical_fix_confidence": "", "hardware_tested": false, "tier": 1, "supersedes": [], "conflicts": [], "limits": "", "boards": {}});
+            fs::write(input.join("record.json"), record.to_string()).unwrap();
+            let err = import(&input, &[], &"a".repeat(40), "repo", &output).unwrap_err();
+            assert_eq!(err.code, Code::CatalogInvalid);
+            assert!(err.message.contains(&format!("{id:?}")), "{err}");
+            assert!(
+                !output.exists(),
+                "invalid ID {id:?} created the output directory"
+            );
+        }
+        assert!(!dir.path().join("escaped.json").exists());
+    }
 }
