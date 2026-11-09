@@ -105,6 +105,13 @@ fn gallery_states_build_and_capture() {
             h.parse().unwrap(),
         ));
     }
+    if let Some(theme) = std::env::var("BME_GUI_THEME")
+        .ok()
+        .and_then(|t| t.parse::<i32>().ok())
+    {
+        window.set_theme_choice(theme);
+        window.invoke_apply_theme();
+    }
     window.show().unwrap();
     populate(&window);
     let dir = std::env::var_os("BME_GUI_GALLERY").map(std::path::PathBuf::from);
