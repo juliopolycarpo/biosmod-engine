@@ -225,9 +225,17 @@ impl Image {
         section.body(stream)
     }
 
-    /// Flash base address when the image is mapped to end at 4 GiB.
+    /// Flash address of image offset 0, with the BIOS region mapped to end at 4 GiB.
+    ///
+    /// A full SPI dump maps its descriptor BIOS region below 4 GiB; a BIOS-only
+    /// image ends at 4 GiB itself.
+    ///
+    /// Example: `let address = image.flash_base() + file.offset as u64;`
     pub fn flash_base(&self) -> u64 {
-        (1u64 << 32).wrapping_sub(self.bytes.len() as u64)
+        let end = descriptor_regions(&self.bytes)
+            .and_then(|regions| regions.into_iter().find(|r| r.name == "bios"))
+            .map_or(self.bytes.len(), |bios| bios.end);
+        (1u64 << 32).wrapping_sub(end as u64)
     }
 
     /// The UI name of a file, if it has a UI section.

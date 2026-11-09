@@ -227,10 +227,6 @@ pub fn xip_reason(image: &Image, file: &FfsFile) -> Option<String> {
                 ));
                 return;
             }
-            if image.bytes.get(0x10..0x14) == Some(&0x0ff0_a55au32.to_le_bytes()) {
-                reason = Some("has an uncertain flash mapping in a descriptor image".into());
-                return;
-            }
             let address = image.flash_base()
                 + (file.offset
                     + file.header_size
@@ -438,18 +434,16 @@ pub fn write_in_place(out: &mut [u8], volume: &Volume, replaced: &[Replacement])
 mod tests {
     use super::*;
 
-    #[test]
-    fn descriptor_layout_does_not_move_an_uncompressed_executable() {
+    /// A 64 KiB descriptor dump whose BIOS region ends at 0xd000, holding one
+    /// uncompressed DXE driver linked at `base`.
+    fn descriptor_image(base: u32) -> Image {
         use crate::synthetic::{DXE_GUID, ffs, section, volume};
         let mut pe = vec![0; 256];
         pe[..2].copy_from_slice(b"MZ");
         pe[0x3c..0x40].copy_from_slice(&0x40u32.to_le_bytes());
         pe[0x40..0x44].copy_from_slice(b"PE\0\0");
         pe[0x58..0x5a].copy_from_slice(&0x10bu16.to_le_bytes());
-        // The BIOS region ends at 0xd000, before the end of this 64 KiB dump.
-        // The PE body starts at 0x1000 + 0x48 + 24 + 4 in the dump.
-        let base = (1u64 << 32) - 0xd000 + 0x1064;
-        pe[0x74..0x78].copy_from_slice(&(base as u32).to_le_bytes());
+        pe[0x74..0x78].copy_from_slice(&base.to_le_bytes());
         let file = ffs(DXE_GUID, 0x07, &section(SECTION_PE32, &pe), 0);
         let mut bytes = vec![0xff; 0x1000];
         bytes[0x10..0x14].copy_from_slice(&0x0ff0_a55au32.to_le_bytes());
@@ -470,10 +464,33 @@ mod tests {
         bytes.resize(0x10000, 0xff);
         let regions = super::super::descriptor_regions(&bytes).expect("valid descriptor");
         assert!(regions.iter().any(|r| r.name == "bios" && r.end == 0xd000));
-        let image = Image::parse(bytes).expect("descriptor fixture parses");
+        Image::parse(bytes).expect("descriptor fixture parses")
+    }
+
+    #[test]
+    fn descriptor_flash_base_maps_the_bios_region_end_to_4_gib() {
+        let image = descriptor_image(0);
+        assert_eq!(
+            image.flash_base(),
+            (1u64 << 32) - 0xd000,
+            "expected the BIOS region end at 4 GiB, not the dump end"
+        );
+    }
+
+    #[test]
+    fn descriptor_layout_keeps_an_executable_linked_at_its_flash_address() {
+        // The PE body starts at 0x1000 + 0x48 + 24 + 4 in the dump.
+        let image = descriptor_image(((1u64 << 32) - 0xd000 + 0x1064) as u32);
         let reason = immovable(&image, &image.volumes[0].files[0])
-            .expect("unknown descriptor mapping must keep the executable in place");
-        assert!(reason.contains("descriptor"), "{reason}");
+            .expect("an executable linked at its flash address must stay in place");
+        assert!(reason.contains("executes in place"), "{reason}");
+    }
+
+    #[test]
+    fn descriptor_layout_moves_an_executable_linked_elsewhere() {
+        let image = descriptor_image(0);
+        let reason = immovable(&image, &image.volumes[0].files[0]);
+        assert_eq!(reason, None, "expected a base-0 DXE driver to be movable");
     }
 
     #[test]
