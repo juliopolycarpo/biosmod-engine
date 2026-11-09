@@ -12,11 +12,12 @@ export global Theme {
     out property <brush> accent: Palette.accent-background;
     out property <brush> accent-text: Palette.accent-foreground;
 
-    // Status tones, tuned separately for each color scheme to keep text contrast.
-    out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
-    out property <color> success: dark ? #6fd08c : #1b7f3b;
-    out property <color> warning: dark ? #f2b84b : #8a5a00;
-    out property <color> danger: dark ? #ff8a80 : #b3261e;
+    // Status tones. Each mixes a hue with the palette foreground, so it darkens on light
+    // surfaces and lightens on dark ones. Palette.color-scheme stays `unknown` while following
+    // the system, so it cannot choose between two fixed variants.
+    out property <color> success: #1f9d4d.mix(Palette.foreground.with-alpha(1), 0.7);
+    out property <color> warning: #b7791f.mix(Palette.foreground.with-alpha(1), 0.7);
+    out property <color> danger: #d93025.mix(Palette.foreground.with-alpha(1), 0.7);
 
     // Spacing scale.
     out property <length> space-xs: 4px;
