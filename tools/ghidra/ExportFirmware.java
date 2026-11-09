@@ -102,6 +102,8 @@ public class ExportFirmware extends GhidraScript {
                 item.add("instructions", instructions);
                 functions.add(item);
             }
+            if (monitor.isCancelled()) throw new IOException("export cancelled");
+            if (c.checkError() || assembly.checkError()) throw new IOException("failed to write export");
         } finally { decompiler.dispose(); }
         root.add("functions", functions);
         root.addProperty("decompiled_functions", complete);
@@ -109,6 +111,7 @@ public class ExportFirmware extends GhidraScript {
         try (Writer writer = Files.newBufferedWriter(output.resolve(name + ".json"), StandardCharsets.UTF_8)) {
             new GsonBuilder().setPrettyPrinting().create().toJson(root, writer);
         }
+        Files.write(output.resolve(".bme-export-complete"), new byte[] {1});
         println("FIRMWARE_EXPORT " + name + " functions=" + functions.size() + " decompiled=" + complete + " failed=" + failed);
     }
 }

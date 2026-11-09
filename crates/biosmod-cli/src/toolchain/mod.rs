@@ -913,51 +913,80 @@ pub fn run_analysis(
         fs::write(scripts.path().join(name), bytes).map_err(|e| io_error(scripts.path(), e))?;
     }
     let log = output.join("ghidra.log");
-    let invocation = Invocation::new(&script)
-        .arg(project)
-        .arg("bme")
-        .arg("-import")
-        .args(modules.iter().map(|m| m.as_os_str()))
-        .arg("-overwrite")
-        .arg("-scriptPath")
-        .arg(scripts.path())
-        .args([
-            "-preScript",
-            "SetupFirmwareMemory.java",
-            "-postScript",
-            "PeimUEFIHelper.java",
-        ])
-        .arg(&data)
-        .arg("-postScript")
-        .arg("ExportFirmware.java")
-        .arg(output)
-        .arg("-analysisTimeoutPerFile")
-        .arg(timeout.to_string())
-        .log(&log)
-        .timeout(short(
-            timeout
-                .saturating_mul(modules.len() as u64)
-                .saturating_add(900),
-        ));
-    note(&format!("running Ghidra headless (log: {})", log.display()));
-    let finished = runner.run(&invocation)?;
-    if !finished.success() {
-        return Err(Error::new(
-            Code::ToolFailed,
-            format!(
-                "analyzeHeadless {}; see {}: {}",
-                finished.describe(),
-                log.display(),
-                finished.tail(400)
-            ),
-        ));
+    let mut produced = Vec::new();
+    for module in modules {
+        let staging = tempfile::tempdir().map_err(|e| failed(format!("export directory: {e}")))?;
+        let invocation = Invocation::new(&script)
+            .arg(project)
+            .arg("bme")
+            .arg("-import")
+            .arg(module)
+            .arg("-overwrite")
+            .arg("-scriptPath")
+            .arg(scripts.path())
+            .args([
+                "-preScript",
+                "SetupFirmwareMemory.java",
+                "-postScript",
+                "PeimUEFIHelper.java",
+            ])
+            .arg(&data)
+            .arg("-postScript")
+            .arg("ExportFirmware.java")
+            .arg(staging.path())
+            .arg("-analysisTimeoutPerFile")
+            .arg(timeout.to_string())
+            .log(&log)
+            .timeout(short(
+                timeout
+                    .saturating_mul(modules.len() as u64)
+                    .saturating_add(900),
+            ));
+        note(&format!("running Ghidra headless (log: {})", log.display()));
+        let finished = runner.run(&invocation)?;
+        if !finished.success() {
+            return Err(Error::new(
+                Code::ToolFailed,
+                format!(
+                    "analyzeHeadless {}; see {}: {}",
+                    finished.describe(),
+                    log.display(),
+                    finished.tail(400)
+                ),
+            ));
+        }
+        if !staging.path().join(".bme-export-complete").is_file() {
+            return Err(Error::new(
+                Code::ToolFailed,
+                format!(
+                    "{}: expected Ghidra export completion; see {}",
+                    module.display(),
+                    log.display()
+                ),
+            ));
+        }
+        let name = module
+            .file_name()
+            .ok_or_else(|| failed(format!("{}: expected a module filename", module.display())))?
+            .to_string_lossy();
+        let name = name.strip_suffix(".pe").unwrap_or(&name);
+        for ext in ["c", "asm", "json"] {
+            let filename = format!("{name}.{ext}");
+            let source = staging.path().join(&filename);
+            if !source.is_file() {
+                return Err(Error::new(
+                    Code::ToolFailed,
+                    format!(
+                        "{}: expected Ghidra export {filename}; see {}",
+                        module.display(),
+                        log.display()
+                    ),
+                ));
+            }
+            fs::copy(&source, output.join(&filename)).map_err(|e| io_error(&source, e))?;
+            produced.push(filename);
+        }
     }
-    let mut produced: Vec<String> = fs::read_dir(output)
-        .map_err(|e| io_error(output, e))?
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n != "ghidra.log")
-        .collect();
     produced.sort();
     let text = format!(
         "Exported {} files to {} (C output is approximate; check .asm bytes before patching)\n",

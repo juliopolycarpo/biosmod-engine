@@ -402,6 +402,10 @@ fn analysis_writes_scripts_and_reports_failures() {
     let module = dir.path().join("Uncore.pe");
     fs::write(&module, b"MZ").unwrap();
     let tools = FakeTools::new();
+    fs::create_dir_all(dir.path().join("x")).unwrap();
+    for ext in ["c", "asm", "json"] {
+        fs::write(dir.path().join("x").join(format!("Uncore.{ext}")), b"stale").unwrap();
+    }
     let home = GhidraHome {
         path: home,
         origin: "config",
@@ -415,8 +419,8 @@ fn analysis_writes_scripts_and_reports_failures() {
         60,
         &mut |_| {},
     )
-    .unwrap();
-    assert_eq!(reply.data["files"], serde_json::json!([]));
+    .unwrap_err();
+    assert_eq!(reply.code, Code::ToolFailed);
     let call = tools.calls.borrow().last().unwrap().clone();
     assert!(
         call.contains("-postScript ExportFirmware.java")
@@ -453,4 +457,117 @@ fn analysis_writes_scripts_and_reports_failures() {
         .code,
         Code::ToolUnavailable
     );
+}
+
+struct FakeExporter {
+    incomplete: Option<&'static str>,
+    missing: Option<&'static str>,
+    calls: RefCell<Vec<String>>,
+}
+
+impl Runner for FakeExporter {
+    fn run(&self, invocation: &Invocation) -> Result<Finished> {
+        let args = invocation.words();
+        let import = args.iter().position(|s| s == "-import").unwrap();
+        let export = args
+            .iter()
+            .position(|s| s == "ExportFirmware.java")
+            .unwrap();
+        let name = Path::new(&args[import + 1])
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .trim_end_matches(".pe");
+        self.calls.borrow_mut().push(name.to_string());
+        let dir = Path::new(&args[export + 1]);
+        for ext in ["c", "asm", "json"] {
+            if self.missing == Some(name) && ext == "json" {
+                continue;
+            }
+            fs::write(dir.join(format!("{name}.{ext}")), b"partial").unwrap();
+        }
+        if self.incomplete != Some(name) {
+            fs::write(dir.join(".bme-export-complete"), b"complete").unwrap();
+        }
+        Ok(Finished {
+            status: Some(0),
+            ..Finished::default()
+        })
+    }
+}
+
+#[test]
+fn analysis_requires_completion_for_each_module() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let home = root.join("ghidra");
+    fs::create_dir_all(home.join("support")).unwrap();
+    fs::write(headless(&home), b"").unwrap();
+    fs::create_dir_all(extension_dir(&home).join("data")).unwrap();
+    let home = GhidraHome {
+        path: home,
+        origin: "config",
+    };
+    let modules = [root.join("one.pe"), root.join("two.pe")];
+    for module in &modules {
+        fs::write(module, b"MZ").unwrap();
+    }
+    let output = root.join("exports");
+    fs::create_dir_all(&output).unwrap();
+    for ext in ["c", "asm", "json"] {
+        fs::write(output.join(format!("two.{ext}")), b"stale").unwrap();
+    }
+    let runner = FakeExporter {
+        incomplete: Some("two"),
+        missing: None,
+        calls: RefCell::new(vec![]),
+    };
+    let error = run_analysis(
+        &runner,
+        &home,
+        &root.join("project"),
+        &output,
+        &modules,
+        60,
+        &mut |_| {},
+    )
+    .unwrap_err();
+    assert_eq!(error.code, Code::ToolFailed);
+    assert!(error.message.contains("two.pe"));
+    assert_eq!(*runner.calls.borrow(), ["one", "two"]);
+    let runner = FakeExporter {
+        incomplete: None,
+        missing: Some("two"),
+        calls: RefCell::new(vec![]),
+    };
+    let error = run_analysis(
+        &runner,
+        &home,
+        &root.join("project"),
+        &output,
+        &modules,
+        60,
+        &mut |_| {},
+    )
+    .unwrap_err();
+    assert_eq!(error.code, Code::ToolFailed);
+    assert!(error.message.contains("two.json"));
+    let runner = FakeExporter {
+        incomplete: None,
+        missing: None,
+        calls: RefCell::new(vec![]),
+    };
+    let reply = run_analysis(
+        &runner,
+        &home,
+        &root.join("project"),
+        &output,
+        &modules,
+        60,
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(reply.data["files"].as_array().unwrap().len(), 6);
+    assert_eq!(*runner.calls.borrow(), ["one", "two"]);
 }
