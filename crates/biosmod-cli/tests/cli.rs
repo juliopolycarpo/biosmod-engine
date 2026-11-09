@@ -218,7 +218,8 @@ fn unavailable_pinned_catalog_is_incomplete_verification_not_success() {
     );
 }
 
-#[cfg(unix)]
+// Linux permits raw-byte filenames; the macOS CI filesystem rejects them.
+#[cfg(target_os = "linux")]
 #[test]
 fn json_publication_supports_non_utf8_output_paths_without_panicking() {
     use std::os::unix::ffi::OsStringExt;

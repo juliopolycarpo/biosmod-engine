@@ -256,7 +256,8 @@ mod tests {
         assert!(manifest_path(&out).exists() && !out.exists());
     }
 
-    #[cfg(unix)]
+    // Linux permits raw-byte filenames; the macOS CI filesystem rejects them.
+    #[cfg(target_os = "linux")]
     #[test]
     fn non_utf8_failed_rollback_reports_remaining_artifacts() {
         use std::os::unix::ffi::OsStringExt;
@@ -274,7 +275,7 @@ mod tests {
             b"{}",
         )
         .unwrap_err();
-        assert_eq!(error.code, Code::PublishIncomplete);
+        assert_eq!(error.code, Code::PublishIncomplete, "{error}");
         assert!(manifest_path(&out).exists());
         let details = error.details.unwrap();
         assert!(details["manifest"].as_str().unwrap().contains("out-"));
