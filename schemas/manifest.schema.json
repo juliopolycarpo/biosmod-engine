@@ -54,12 +54,19 @@
         },
         "source_sha256": {
           "$ref": "#/$defs/Digest256"
+        },
+        "table_offset": {
+          "description": "Offset of the ACPI table inside its RAW section; 0 for PE32 modules.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
         "name",
         "ffs_guid",
         "leaf",
+        "table_offset",
         "file_offset",
         "patches",
         "source_sha256",

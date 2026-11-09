@@ -49,6 +49,8 @@ pub struct ComponentChange {
     pub name: String,
     pub ffs_guid: Guid,
     pub leaf: LeafKind,
+    /// Offset of the ACPI table inside its RAW section; 0 for PE32 modules.
+    pub table_offset: usize,
     pub file_offset: usize,
     pub patches: Vec<String>,
     pub source_sha256: Digest256,
@@ -326,6 +328,7 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
             name: component.name.clone(),
             ffs_guid: component.ffs_guid,
             leaf: component.leaf,
+            table_offset: component.table_offset,
             file_offset: file.offset,
             patches: keep.clone(),
             source_sha256: component.source_sha256,
@@ -544,7 +547,17 @@ fn verify_built(input: &Image, catalog: &Catalog, mut built: Built) -> Result<Bu
         }
     }
     outside_allowlist_unchanged(&input.bytes, &check.bytes, &built.allowlist)?;
-    for change in &built.components {
+    verify_components(&check, &built.components)?;
+    built.image = check.bytes;
+    Ok(built)
+}
+
+/// Confirm each rebuilt component is present in the re-parsed output with its composed hash.
+///
+/// Example: a plan whose ACPI table sits at offset 8 of its RAW section is found at
+/// `table_offset: 8` and refused at 0.
+fn verify_components(check: &Image, components: &[ComponentChange]) -> Result<()> {
+    for change in components {
         let leaves = check
             .leaves
             .get(&change.ffs_guid)
@@ -552,20 +565,19 @@ fn verify_built(input: &Image, catalog: &Catalog, mut built: Built) -> Result<Bu
             .unwrap_or_default();
         let found = leaves
             .iter()
-            .filter_map(|l| module_bytes(&check, l, change.leaf, 0))
+            .filter_map(|l| module_bytes(check, l, change.leaf, change.table_offset))
             .any(|bytes| Digest256::of(bytes) == change.result_sha256);
-        if !found && change.leaf == LeafKind::Pe32 {
+        if !found {
             return Err(Error::new(
                 Code::OutputVerificationFailed,
                 format!(
-                    "{}: re-parsed module hash differs from the composed result",
-                    change.name
+                    "{}: re-parsed {:?} module hash differs from the composed result {}",
+                    change.name, change.leaf, change.result_sha256
                 ),
             ));
         }
     }
-    built.image = check.bytes;
-    Ok(built)
+    Ok(())
 }
 
 /// Fail when any byte outside `allowlist` differs, or the size changed.
@@ -833,5 +845,53 @@ mod relocation_tests {
         assert!(touches_relocation(&hunk(4, &[1, 2, 3], &[9]), &covered));
         assert!(touches_relocation(&hunk(6, &[1], &[9, 9]), &covered));
         assert!(!touches_relocation(&hunk(0, &[1, 2], &[9, 9]), &covered));
+    }
+}
+
+#[cfg(test)]
+mod component_verification_tests {
+    use super::*;
+    use crate::synthetic::{TABLE_GUID, acpi, ffs, module, section, volume};
+
+    fn image_with_table_at(prefix: usize) -> (Image, Vec<u8>) {
+        let table = acpi(&module(3, 96));
+        let body = [vec![0u8; prefix], table.clone()].concat();
+        let file = ffs(TABLE_GUID, 0x02, &section(0x19, &body), 0);
+        let mut bytes = vec![0xFF; 0x1000];
+        bytes.extend(volume(&[file], 0x4000));
+        (Image::parse(bytes).expect("synthetic image parses"), table)
+    }
+
+    fn change(table_offset: usize, result: &[u8]) -> ComponentChange {
+        ComponentChange {
+            name: "Table".into(),
+            ffs_guid: TABLE_GUID,
+            leaf: LeafKind::AcpiTable,
+            table_offset,
+            file_offset: 0,
+            patches: vec![],
+            source_sha256: Digest256::of(&[]),
+            result_sha256: Digest256::of(result),
+            file_size_change: 0,
+            rebuilt: true,
+        }
+    }
+
+    #[test]
+    fn acpi_table_hash_mismatch_is_refused() {
+        let (image, table) = image_with_table_at(0);
+        let mut wrong = table.clone();
+        wrong[40] ^= 0xFF;
+        let err = verify_components(&image, &[change(0, &wrong)]).unwrap_err();
+        assert_eq!(err.code, Code::OutputVerificationFailed);
+        assert!(err.message.contains("hash differs"), "{err}");
+    }
+
+    #[test]
+    fn acpi_table_is_found_at_its_recorded_offset() {
+        let (image, table) = image_with_table_at(8);
+        verify_components(&image, &[change(8, &table)]).expect("table at offset 8");
+        let err = verify_components(&image, &[change(0, &table)]).unwrap_err();
+        assert_eq!(err.code, Code::OutputVerificationFailed);
     }
 }
