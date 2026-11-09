@@ -33,6 +33,26 @@ Core and CLI retain Rust 1.88 and Linux, Windows and macOS coverage. The Linux G
 
 After changing a document type, regenerate the committed schemas: `BME_UPDATE_SCHEMAS=1 cargo nextest run --locked --test cli`.
 
+## CI caches
+
+Each job caches Cargo downloads and compiled dependency crates with
+`Swatinem/rust-cache`. PRs can restore caches from `main`; successful PR jobs
+also save caches for subsequent runs of the same PR. GitHub isolates PR caches
+from `main` and other PRs.
+
+Caches are separated by job, runner OS/architecture, compiler, and build
+environment (including `RUSTFLAGS`). Cargo manifests, lockfiles, toolchain files,
+and Cargo configuration contribute to automatic invalidation. After a dependency
+change, the action can restore an older cache and Cargo rebuilds dependencies as
+needed. MSRV and GUI jobs set `RUSTUP_TOOLCHAIN` before cache lookup so metadata
+and builds use the same compiler.
+
+Workspace crates and incremental build state are excluded by the action's
+default cleanup. Debug and release dependency artifacts are cached, but each
+profile still needs an initial build. Cache misses and GitHub eviction are
+expected; every job must also work with an empty cache. Rust toolchain downloads
+and the GUI job's system packages are installed separately on each runner.
+
 ## Board profiles and patch records
 
 A record is accepted when someone else can check it from the files alone.
