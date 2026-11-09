@@ -25,10 +25,10 @@ export component FactList inherits HorizontalLayout {
             color: Theme.text;
             overflow: elide;
             vertical-alignment: center;
-            // A long value stops growing at 200px so it cannot starve the short ones,
-            // and any value may shrink to 64px when the window is narrow.
+            // Short values such as a trust level never elide. A long value stops growing at
+            // 200px and may shrink to 64px when the window is narrow.
             max-width: 200px;
-            min-width: min(self.preferred-width, 64px);
+            min-width: self.preferred-width <= 110px ? self.preferred-width : 64px;
         }
     }
 }
