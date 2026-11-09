@@ -133,7 +133,7 @@ jobs:
             env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_THEME="$theme" BME_GUI_GALLERY="$out" xvfb-run -a cargo +1.92.0 nextest run --locked --profile ci --test-threads 1 -p biosmod-gui --test gallery gallery_states_build_and_capture
           done
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ !cancelled() }}
         with:
           name: gui-gallery
           path: ${{ runner.temp }}/gui-gallery
@@ -156,7 +156,7 @@ jobs:
           name: linux-x86_64
           path: dist/*.tar.gz
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ !cancelled() }}
         with:
           name: linux-gui-diagnostics
           path: |
