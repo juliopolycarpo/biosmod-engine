@@ -2,14 +2,25 @@
 
 ## Code
 
+Install [cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/)
+(CI uses 0.9.150). Nextest runs each test in its own process and schedules tests
+across binaries in parallel. Run doctests separately with `cargo test --doc`.
+
 ```sh
 cargo fmt --all --check
 cargo clippy -p biosmod-core -p biosmod-cli --all-targets -- -D warnings
-cargo test -p biosmod-core -p biosmod-cli
+cargo nextest run --locked -p biosmod-core -p biosmod-cli
+cargo test --locked --doc -p biosmod-core -p biosmod-cli
 cargo build -p biosmod-cli
 cargo clippy -p biosmod-gui --all-targets -- -D warnings
-cargo test -p biosmod-gui
+cargo nextest run --locked -p biosmod-gui
+cargo test --locked --doc -p biosmod-gui
 ```
+
+Use `--profile ci` for the CI timeout and failure-reporting settings. Native GUI
+runs under X11 or Wayland use `--test-threads 1` so windows do not compete for
+focus; headless tests use nextest's default parallelism. Build the CLI before
+running GUI integration tests because they launch `target/debug/bme`.
 
 Core and CLI retain Rust 1.88 and Linux, Windows and macOS coverage. The Linux GUI requires Rust 1.92 and its native windowing and graphics libraries. CI checks it separately on Ubuntu 24.04, with X11 and Wayland software-renderer smoke tests. Check both desktop sessions, keyboard navigation, scaling and file dialogs when changing the interface; headless tests alone do not qualify desktop integration.
 
@@ -20,7 +31,27 @@ Core and CLI retain Rust 1.88 and Linux, Windows and macOS coverage. The Linux G
 - Required CI must not depend on vendor ROMs or large downloads. Tests that need real dumps read them from `BME_ROM_*` variables and report when they are skipped.
 - Commits follow Conventional Commits, one concern each, with a body.
 
-After changing a document type, regenerate the committed schemas: `BME_UPDATE_SCHEMAS=1 cargo test --test cli`.
+After changing a document type, regenerate the committed schemas: `BME_UPDATE_SCHEMAS=1 cargo nextest run --locked --test cli`.
+
+## CI caches
+
+Each job caches Cargo downloads and compiled dependency crates with
+`Swatinem/rust-cache`. PRs can restore caches from `main`; successful PR jobs
+also save caches for subsequent runs of the same PR. GitHub isolates PR caches
+from `main` and other PRs.
+
+Caches are separated by job, runner OS/architecture, compiler, and build
+environment (including `RUSTFLAGS`). Cargo manifests, lockfiles, toolchain files,
+and Cargo configuration contribute to automatic invalidation. After a dependency
+change, the action can restore an older cache and Cargo rebuilds dependencies as
+needed. MSRV and GUI jobs set `RUSTUP_TOOLCHAIN` before cache lookup so metadata
+and builds use the same compiler.
+
+Workspace crates and incremental build state are excluded by the action's
+default cleanup. Debug and release dependency artifacts are cached, but each
+profile still needs an initial build. Cache misses and GitHub eviction are
+expected; every job must also work with an empty cache. Rust toolchain downloads
+and the GUI job's system packages are installed separately on each runner.
 
 ## Board profiles and patch records
 

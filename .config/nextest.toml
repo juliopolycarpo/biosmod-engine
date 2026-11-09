@@ -1,0 +1,5 @@
+[profile.ci]
+# Report all failures in a run; retain the default of no automatic retries.
+fail-fast = false
+# Stop a stuck test after two minutes, including its child processes.
+slow-timeout = { period = "30s", terminate-after = 4 }
