@@ -3,6 +3,7 @@
 //! (`BME_GUI_NATIVE_SMOKE=1`) to write the captures; otherwise the test only builds the states.
 
 use biosmod_gui::ui::{AppWindow, Fact, PatchRow, Tone};
+use i_slint_backend_testing::ElementHandle;
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::path::Path;
 
@@ -154,4 +155,26 @@ fn gallery_states_build_and_capture() {
     window.set_stage(0);
     shot("5-empty");
     window.hide().unwrap();
+}
+
+/// The footer and status bar must stay inside the minimum window while the manual paths
+/// panel is open; they used to be pushed out of view by about 70px.
+#[test]
+fn manual_paths_keep_footer_inside_minimum_window() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = AppWindow::new().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(760.0, 600.0));
+    window.show().unwrap();
+    populate(&window);
+    window.set_paths_open(true);
+    let button = ElementHandle::find_by_accessible_label(&window, "Review selected")
+        .next()
+        .expect("element: Review selected button | received: none");
+    let bottom = button.absolute_position().y + button.size().height;
+    assert!(
+        bottom <= 600.0 - 44.0,
+        "(footer): expected Review selected bottom <= 556 above the status bar | received: {bottom}"
+    );
 }

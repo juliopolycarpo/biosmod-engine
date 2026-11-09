@@ -226,7 +226,9 @@ export component AppWindow inherits Window {
                     }
                     Rectangle { horizontal-stretch: 1; }
                 }
-                if root.image-facts.length > 0 || root.scan-facts.length > 0: FindingsSummary {
+                // While the manual paths panel is open on a short window, the summary yields its rows
+                // so the footer and status bar stay on screen.
+                if (root.image-facts.length > 0 || root.scan-facts.length > 0) && !(root.paths-open && root.height < 700px): FindingsSummary {
                     image-facts: root.image-facts;
                     scan-facts: root.scan-facts;
                     image-sha: root.image-sha;
