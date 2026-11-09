@@ -2,8 +2,9 @@
 
 use crate::controller::{Action, Outcome, Review, Session, manifest_path, write_new_file};
 use crate::engine::Engine;
+use crate::model::{Patch, StateTone};
 use crate::settings::Settings;
-use crate::ui::{AppWindow, PatchRow};
+use crate::ui::{AppWindow, PatchRow, Tone};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -737,11 +738,18 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             .into(),
     );
     ui.set_scan_details(session.scan.as_ref().map(|s| format!("{} · {} {} · {}\nFirmware: {} · Board profiles: {} (catalog information, not physical identification)", s.alias,s.catalog,s.catalog_version,s.trust,s.report.firmware.as_deref().unwrap_or("unknown or ambiguous"),s.report.boards.join(", "))).unwrap_or_default().into());
-    let patches = session.scan.as_ref().map(|s| s.report.patches.iter().map(|p| PatchRow {
-        id: p.qualified(&s.alias).into(), title: p.title.as_str().into(), version: p.version.as_str().into(), class: p.class.as_str().into(), tier: p.tier.as_str().into(), state: p.state.as_str().into(),
-        blocker: p.explanation().into(), evidence: if p.evidence.is_empty() { "No hardware observations for this patch version.".into() } else { format!("Scoped evidence: {}. See Sources & tools for image, board and scenario.",p.evidence.join(", ")).into() },
-        selectable: p.selectable() && !session.busy(), selected: p.selected,
-    }).collect::<Vec<_>>()).unwrap_or_default();
+    let patches = session
+        .scan
+        .as_ref()
+        .map(|s| {
+            let selectable = !session.busy();
+            s.report
+                .patches
+                .iter()
+                .map(|p| patch_row(&s.alias, p, selectable))
+                .collect()
+        })
+        .unwrap_or_default();
     sync_patches(ui, patches);
     sync_review(ui, state);
     ui.set_result_details(session.result_details.as_str().into());
@@ -797,6 +805,37 @@ fn sync_review(ui: &AppWindow, state: &Desktop) {
             .unwrap_or_default(),
     );
     *presented = state.session.review.clone();
+}
+
+/// Present one scan row, enabling its checkbox only while no operation is running.
+/// Example: `patch_row("lab", &patch, true).id` is `lab::PA@1.0.0`.
+pub fn patch_row(alias: &str, patch: &Patch, idle: bool) -> PatchRow {
+    PatchRow {
+        id: patch.qualified(alias).into(),
+        title: patch.title.as_str().into(),
+        version: patch.version.as_str().into(),
+        class: patch.class.as_str().into(),
+        tier: patch.tier.as_str().into(),
+        state: patch.state_label().into(),
+        tone: match patch.state_tone() {
+            StateTone::Attention => Tone::Attention,
+            StateTone::Good => Tone::Good,
+            StateTone::Quiet => Tone::Quiet,
+        },
+        detail: patch.detail.as_str().into(),
+        blocker: patch.limits().join("\n").into(),
+        evidence: if patch.evidence.is_empty() {
+            "No hardware observations for this patch version.".into()
+        } else {
+            format!(
+                "Scoped evidence: {}. See Sources & tools for image, board and scenario.",
+                patch.evidence.join(", ")
+            )
+            .into()
+        },
+        selectable: patch.selectable() && idle,
+        selected: patch.selected,
+    }
 }
 
 fn sync_patches(ui: &AppWindow, patches: Vec<PatchRow>) {

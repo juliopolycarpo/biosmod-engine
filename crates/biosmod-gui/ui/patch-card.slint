@@ -1,6 +1,5 @@
-import { CheckBox } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Caption } from "widgets.slint";
+import { Caption, Chip, Tone, Tones } from "widgets.slint";
 
 export struct PatchRow {
     id: string,
@@ -9,43 +8,127 @@ export struct PatchRow {
     class: string,
     tier: string,
     state: string,
+    tone: Tone,
+    detail: string,
     blocker: string,
     evidence: string,
     selectable: bool,
     selected: bool,
 }
 
+/// A square checkmark drawn by the card; the card itself carries the accessible semantics.
+component CheckMark inherits Rectangle {
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border-width: 1.5px;
+    border-color: root.checked ? Theme.accent : Theme.muted;
+    background: root.checked ? Theme.accent : transparent;
+    opacity: root.enabled ? 1 : 0.4;
+    animate background, border-color { duration: 120ms; }
+    if root.checked: Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 18;
+        viewbox-height: 18;
+        commands: "M 4.5 9.5 L 7.5 12.5 L 13.5 5.5";
+        stroke: Theme.accent-text;
+        stroke-width: 2px;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+    }
+}
+
+/// One scan finding. The whole card toggles selection when the row is selectable.
+/// Example: `PatchCard { patch: row; toggled => { select(row.id); } }`
 export component PatchCard inherits Rectangle {
     in property <PatchRow> patch;
     in property <bool> enabled: true;
+    private property <bool> interactive: root.patch.selectable && root.enabled;
     callback toggled();
-    background: Theme.surface;
-    border-color: Theme.border;
-    border-width: 1px;
-    border-radius: Theme.radius;
-    height: patch-layout.preferred-height + 24px;
-    patch-layout := VerticalLayout {
-        padding: Theme.space-md;
-        spacing: Theme.space-sm;
-        HorizontalLayout {
-            spacing: Theme.space-md;
-            CheckBox {
-                text: root.patch.title;
-                checked: root.patch.selected;
-                enabled: root.patch.selectable && root.enabled;
-                toggled => { root.toggled(); }
-                horizontal-stretch: 1;
+    height: spacer.preferred-height;
+
+    // Transparent outer frame: the bottom padding is the gap between stacked cards.
+    spacer := VerticalLayout {
+        padding-bottom: Theme.space-sm;
+        card := Rectangle {
+            background: root.patch.selected ? Theme.accent.transparentize(0.88)
+                : touch.has-hover && root.interactive ? Theme.canvas : Theme.surface;
+            border-color: root.patch.selected || scope.has-focus ? Theme.accent : Theme.border;
+            border-width: root.patch.selected || scope.has-focus ? 2px : 1px;
+            border-radius: Theme.radius;
+            animate background, border-color { duration: 120ms; }
+
+            scope := FocusScope {
+                enabled: root.interactive;
+                accessible-role: checkbox;
+                accessible-label: root.patch.title;
+                accessible-description: root.patch.state;
+                accessible-checkable: root.patch.selectable;
+                accessible-checked: root.patch.selected;
+                accessible-enabled: root.interactive;
+                accessible-action-default => { root.toggled(); }
+                key-pressed(event) => {
+                    if event.text == " " || event.text == "\n" {
+                        root.toggled();
+                        return accept;
+                    }
+                    reject
+                }
+                touch := TouchArea {
+                    enabled: root.interactive;
+                    mouse-cursor: root.interactive ? MouseCursor.pointer : MouseCursor.default;
+                    clicked => {
+                        scope.focus();
+                        root.toggled();
+                    }
+                }
             }
-            Text {
-                text: root.patch.state;
-                color: Theme.accent;
-                font-size: Theme.font-caption;
-                font-weight: 600;
-                vertical-alignment: center;
+
+            VerticalLayout {
+                padding: Theme.space-md;
+                spacing: Theme.space-sm;
+                HorizontalLayout {
+                    spacing: Theme.space-md;
+                    CheckMark {
+                        checked: root.patch.selected;
+                        enabled: root.interactive;
+                        y: (parent.height - self.height) / 2;
+                    }
+                    Text {
+                        text: root.patch.title;
+                        color: Theme.text;
+                        font-size: Theme.font-body;
+                        font-weight: 600;
+                        overflow: elide;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    Chip { text: root.patch.state; tone: root.patch.tone; }
+                }
+                HorizontalLayout {
+                    spacing: Theme.space-sm;
+                    padding-left: 18px + Theme.space-md;
+                    Chip { text: root.patch.class; }
+                    Chip { text: root.patch.tier; }
+                    Caption {
+                        text: root.patch.id + "  ·  v" + root.patch.version;
+                        wrap: no-wrap;
+                        overflow: elide;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                }
+                VerticalLayout {
+                    padding-left: 18px + Theme.space-md;
+                    spacing: Theme.space-xs;
+                    Caption { text: root.patch.detail; color: Theme.text; }
+                    if root.patch.blocker != "": Caption { text: root.patch.blocker; color: Theme.warning; }
+                    if root.patch.evidence != "": Caption { text: root.patch.evidence; }
+                }
             }
         }
-        Caption { text: root.patch.id + "  ·  " + root.patch.version + "  ·  " + root.patch.class + "  ·  " + root.patch.tier; }
-        if root.patch.blocker != "": Caption { text: root.patch.blocker; }
-        if root.patch.evidence != "": Caption { text: root.patch.evidence; }
     }
 }

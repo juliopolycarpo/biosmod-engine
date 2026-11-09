@@ -1,5 +1,6 @@
 use super::*;
 use crate::controller::Review;
+use crate::model::Patch;
 use crate::model::SourceReport;
 use serde_json::json;
 use slint::platform::{WindowEvent, WindowEventDispatchResult};
@@ -699,4 +700,43 @@ fn opening_a_plan_resets_the_previous_operations_elapsed_time() {
         "plan import: expected a fresh activity clock | received the previous operation's elapsed time"
     );
     assert_eq!(window.get_operation_label(), "Opening plan");
+}
+
+#[test]
+fn patch_rows_separate_detail_from_limits_and_gate_selection_on_idleness() {
+    let patch: Patch = serde_json::from_value(json!({
+        "id":"PA","version":"1.0.0","title":"Correction","class":"correction","tier":"optional",
+        "state":"likely-present","plannable":false,"manual":false,"detail":"signature in another build",
+        "evidence":["obs-1"]
+    }))
+    .unwrap();
+    let row = patch_row("lab", &patch, true);
+    assert_eq!(row.id, "lab::PA@1.0.0");
+    assert_eq!(row.state, "Likely present");
+    assert_eq!(row.tone, Tone::Quiet);
+    assert_eq!(row.detail, "signature in another build");
+    assert!(
+        row.blocker.contains("Desktop selection requires"),
+        "blocker: expected the selection notice | received {:?}",
+        row.blocker
+    );
+    assert!(row.evidence.starts_with("Scoped evidence: obs-1"));
+    assert!(!row.selectable, "diagnostic rows are never selectable");
+
+    let mut present = patch;
+    present.state = "present".into();
+    present.plannable = true;
+    present.evidence.clear();
+    assert!(patch_row("lab", &present, true).selectable);
+    assert!(
+        !patch_row("lab", &present, false).selectable,
+        "busy session: expected the row to be disabled"
+    );
+    let row = patch_row("lab", &present, true);
+    assert_eq!(row.tone, Tone::Attention);
+    assert_eq!(row.blocker, "");
+    assert_eq!(
+        row.evidence,
+        "No hardware observations for this patch version."
+    );
 }

@@ -1,5 +1,18 @@
 import { Theme } from "theme.slint";
 
+/// How prominently a label is colored.
+export enum Tone { quiet, good, attention, danger }
+
+/// The foreground color for a tone. Example: `Tones.color(Tone.good)`.
+export global Tones {
+    pure public function color(tone: Tone) -> color {
+        tone == Tone.good ? Theme.success
+            : tone == Tone.attention ? Theme.warning
+            : tone == Tone.danger ? Theme.danger
+            : Theme.text.with-alpha(0.7);
+    }
+}
+
 /// A 24px page heading. Example: `PageTitle { text: "Diagnostics"; }`
 export component PageTitle inherits Text {
     color: Theme.text;
@@ -32,4 +45,30 @@ export component FieldLabel inherits Text {
 export component Divider inherits Rectangle {
     height: 1px;
     background: Theme.border;
+}
+
+/// A small rounded label. Example: `Chip { text: "optional"; tone: Tone.quiet; }`
+export component Chip inherits Rectangle {
+    in property <string> text;
+    in property <Tone> tone: Tone.quiet;
+    private property <color> ink: Tones.color(root.tone);
+    width: chip-layout.preferred-width;
+    height: chip-layout.preferred-height;
+    border-radius: self.height / 2;
+    border-width: 1px;
+    border-color: root.ink.transparentize(0.65);
+    background: root.ink.transparentize(0.9);
+    chip-layout := HorizontalLayout {
+        padding-left: Theme.space-sm;
+        padding-right: Theme.space-sm;
+        padding-top: 2px;
+        padding-bottom: 2px;
+        Text {
+            text: root.text;
+            color: root.ink;
+            font-size: Theme.font-caption;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
 }

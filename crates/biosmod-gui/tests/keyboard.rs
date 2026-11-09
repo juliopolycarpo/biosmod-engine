@@ -4,9 +4,9 @@ use biosmod_gui::controller::Review;
 use biosmod_gui::desktop::{Desktop, bind};
 use biosmod_gui::settings::Settings;
 use biosmod_gui::ui::AppWindow;
+use i_slint_backend_testing::ElementHandle;
 use serde_json::json;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
-use i_slint_backend_testing::ElementHandle;
 use slint::{ComponentHandle, Model};
 
 fn key(window: &AppWindow, text: slint::SharedString) {
