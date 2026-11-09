@@ -172,6 +172,12 @@ pub fn keep_extent(data: Vec<u8>, extent: usize, header_size: usize) -> Result<V
     if filler < 4 {
         return Ok(data);
     }
+    if filler >= 0xFF_FFFF {
+        return Err(Error::new(
+            Code::FormatUnsupported,
+            format!("filler section size {filler:#x}: expected below 0xFFFFFF"),
+        ));
+    }
     body.extend_from_slice(&(filler as u32).to_le_bytes()[..3]);
     body.push(SECTION_RAW);
     body.resize(body.len() + filler - 4, 0xFF);
@@ -299,6 +305,12 @@ fn erased(body: &[u8]) -> bool {
 
 /// An erased PAD file of `size` bytes (a multiple of 8, at least 24).
 fn pad_file(size: usize) -> Result<Vec<u8>> {
+    if !(24..0xFF_FFFF).contains(&size) {
+        return Err(Error::new(
+            Code::PackingRefused,
+            format!("PAD file size {size:#x}: expected 0x18..0xFFFFFE"),
+        ));
+    }
     let mut header = vec![0xFF; 16];
     header.extend_from_slice(&[0, 0xAA, FILE_PAD, 0]);
     header.extend_from_slice(&(size as u32).to_le_bytes()[..3]);
@@ -459,6 +471,14 @@ mod tests {
         assert_eq!(pad.len(), 48);
         assert_eq!(pad[18], FILE_PAD);
         assert!(pad[24..].iter().all(|b| *b == 0xFF));
+    }
+
+    #[test]
+    fn pad_file_rejects_sizes_its_24_bit_field_cannot_hold() {
+        let error = pad_file(0x100_0000).unwrap_err();
+        assert_eq!(error.code, Code::PackingRefused);
+        assert!(error.message.contains("0x1000000"), "{error}");
+        assert!(pad_file(16).is_err());
     }
 
     #[test]
