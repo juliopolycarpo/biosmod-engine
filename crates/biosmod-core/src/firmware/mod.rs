@@ -609,9 +609,27 @@ fn decode_section(
         }
         plain
     } else {
-        if data_offset >= h + 24 {
-            section.crc_valid = Some(le32(raw, h + 20, "CRC32")? == codec::crc32(payload));
+        if data_offset < h + 24 {
+            return Err(Error::new(
+                Code::FormatInvalid,
+                format!(
+                    "CRC32 section at {:#x}: data offset {data_offset:#x} leaves no CRC32 field",
+                    section.offset
+                ),
+            ));
         }
+        let stored = le32(raw, h + 20, "CRC32")?;
+        let actual = codec::crc32(payload);
+        if stored != actual {
+            return Err(Error::new(
+                Code::FormatInvalid,
+                format!(
+                    "CRC32 section at {:#x}: expected checksum {actual:#010x} | received {stored:#010x}",
+                    section.offset
+                ),
+            ));
+        }
+        section.crc_valid = Some(true);
         payload.to_vec()
     };
     let children = parse_stream(&decoded, depth + 1, budget)?;
@@ -652,4 +670,55 @@ pub fn descriptor_regions(image: &[u8]) -> Option<Vec<Region>> {
         }
     }
     Some(regions)
+}
+
+#[cfg(test)]
+mod crc_regression {
+    use super::*;
+    use crate::synthetic::{ffs, section, volume};
+
+    fn image_with_crc(stored: u32, data_offset: u16) -> Vec<u8> {
+        let payload = [4, 0, 0, SECTION_RAW];
+        let mut body = Vec::new();
+        body.extend_from_slice(&CRC32_GUID.0);
+        body.extend_from_slice(&data_offset.to_le_bytes());
+        body.extend_from_slice(&[0, 0]);
+        body.extend_from_slice(&stored.to_le_bytes());
+        body.extend_from_slice(&payload);
+        let file = ffs(
+            CRC32_GUID,
+            2,
+            &section(SECTION_GUID_DEFINED, &body),
+            FFS_ATTRIB_CHECKSUM,
+        );
+        volume(&[file], 0x1000)
+    }
+
+    #[test]
+    fn rejects_invalid_crc32_section() {
+        let payload = [4, 0, 0, SECTION_RAW];
+        let actual = codec::crc32(&payload);
+        let valid = Image::parse(image_with_crc(actual, 28)).expect("valid CRC and FFS checksums");
+        assert_eq!(valid.volumes[0].files[0].sections[0].crc_valid, Some(true));
+        let error = Image::parse(image_with_crc(0, 28)).unwrap_err();
+        assert_eq!(error.code, Code::FormatInvalid);
+        assert!(
+            error.message.contains(&format!(
+                "expected checksum {actual:#010x} | received 0x00000000"
+            )),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_crc32_section_without_checksum_field() {
+        let error = Image::parse(image_with_crc(0, 24)).unwrap_err();
+        assert_eq!(error.code, Code::FormatInvalid);
+        assert!(
+            error
+                .message
+                .contains("data offset 0x18 leaves no CRC32 field"),
+            "{error}"
+        );
+    }
 }
