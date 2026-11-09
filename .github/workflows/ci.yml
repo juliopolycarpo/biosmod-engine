@@ -8,12 +8,24 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - run: rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: ${{ github.job }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --all --check
       - run: cargo clippy --locked -p biosmod-core -p biosmod-cli --all-targets -- -D warnings
       - run: cargo run --locked --quiet -- catalog index catalog --check
@@ -24,13 +36,22 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     env:
       # Clippy runs on Linux only; this catches platform-specific warnings elsewhere.
       RUSTFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v5
       - run: rustup show
-      - run: cargo test --locked -p biosmod-core -p biosmod-cli
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: ${{ github.job }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
+        with:
+          tool: nextest@0.9.150
+      - run: cargo nextest run --locked --profile ci -p biosmod-core -p biosmod-cli
+      - run: cargo test --locked --doc -p biosmod-core -p biosmod-cli
       - name: Smoke test the offline workflow
         shell: bash
         run: |
@@ -46,24 +67,38 @@ jobs:
 
   msrv:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - run: rustup toolchain install 1.88.0 --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: ${{ github.job }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo +1.88.0 check --locked -p biosmod-core -p biosmod-cli --all-targets
 
   gui-linux:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev libx11-dev libx11-xcb-dev libxcursor-dev libxi-dev libxrandr-dev libxkbcommon-x11-dev libdbus-1-dev xvfb weston
       - run: rustup toolchain install 1.92.0 --profile minimal --component clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: ${{ github.job }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
+        with:
+          tool: nextest@0.9.150
       - run: cargo +1.92.0 build --locked -p biosmod-cli -p biosmod-gui
       - run: cargo +1.92.0 clippy --locked -p biosmod-gui --all-targets -- -D warnings
-      - run: cargo +1.92.0 test --locked -p biosmod-gui
+      - run: cargo +1.92.0 nextest run --locked --profile ci -p biosmod-gui
+      - run: cargo +1.92.0 test --locked --doc -p biosmod-gui
       - name: X11 software renderer
         run: |
           env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software xvfb-run -a timeout 20s target/debug/bme-gui --smoke-test
-          env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_SCREENSHOT="$RUNNER_TEMP/gui-x11.png" xvfb-run -a cargo +1.92.0 test --locked -p biosmod-gui --test ui_workflow --test keyboard
+          env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_SCREENSHOT="$RUNNER_TEMP/gui-x11.png" xvfb-run -a cargo +1.92.0 nextest run --locked --profile ci --test-threads 1 -p biosmod-gui --test ui_workflow --test keyboard
       - name: Native Wayland software renderer
         shell: bash
         run: |
@@ -80,7 +115,7 @@ jobs:
           done
           test -S "$XDG_RUNTIME_DIR/bme-ci"
           env -u DISPLAY WAYLAND_DISPLAY=bme-ci SLINT_BACKEND=winit-software timeout 20s target/debug/bme-gui --smoke-test
-          env -u DISPLAY WAYLAND_DISPLAY=bme-ci SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_SCREENSHOT="$RUNNER_TEMP/gui-wayland.png" cargo +1.92.0 test --locked -p biosmod-gui --test ui_workflow --test keyboard
+          env -u DISPLAY WAYLAND_DISPLAY=bme-ci SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_SCREENSHOT="$RUNNER_TEMP/gui-wayland.png" cargo +1.92.0 nextest run --locked --profile ci --test-threads 1 -p biosmod-gui --test ui_workflow --test keyboard
       - name: State gallery on X11
         shell: bash
         run: |
@@ -88,9 +123,10 @@ jobs:
           for theme in 1 2; do
             out="$RUNNER_TEMP/gui-gallery/theme-$theme"
             mkdir -p "$out"
-            env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_THEME="$theme" BME_GUI_GALLERY="$out" xvfb-run -a cargo +1.92.0 test --locked -p biosmod-gui --test gallery gallery_states_build_and_capture
+            env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_THEME="$theme" BME_GUI_GALLERY="$out" xvfb-run -a cargo +1.92.0 nextest run --locked --profile ci --test-threads 1 -p biosmod-gui --test gallery gallery_states_build_and_capture
           done
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: gui-gallery
           path: ${{ runner.temp }}/gui-gallery
@@ -107,7 +143,7 @@ jobs:
           package_root=${package_roots[0]}
           test -f "$package_root/share/licenses/biosmod-engine/third-party/THIRD-PARTY.txt"
           env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software xvfb-run -a timeout 20s "$package_root/bin/bme-gui" --smoke-test
-          env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_TEST_ENGINE="$package_root/bin/bme" xvfb-run -a cargo +1.92.0 test --locked -p biosmod-gui --test ui_workflow --test keyboard
+          env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_TEST_ENGINE="$package_root/bin/bme" xvfb-run -a cargo +1.92.0 nextest run --locked --profile ci --test-threads 1 -p biosmod-gui --test ui_workflow --test keyboard
       - uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
@@ -115,5 +151,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: linux-gui-screenshots
-          path: ${{ runner.temp }}/gui-*.png
+          name: linux-gui-diagnostics
+          path: |
+            ${{ runner.temp }}/gui-*.png
+            ${{ runner.temp }}/weston.log

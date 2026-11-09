@@ -4,7 +4,7 @@
 //!
 //! ```sh
 //! BME_ROM_MR9A=~/bios/MNX99MR9APRO_230322_original_90DEDD1D.bin \
-//! BME_ROM_PR9=~/bios/pr9-read1.bin cargo test --release --test real_roms
+//! BME_ROM_PR9=~/bios/pr9-read1.bin cargo nextest run --locked --release --test real_roms
 //! ```
 //!
 //! Expected digests are the images built by x99-bios-fixes (Python) at commit

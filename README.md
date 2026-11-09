@@ -64,7 +64,7 @@ The official catalog was converted from x99-bios-fixes at commit `765e7a80ae8337
 - the reference full builds for both boards;
 - every record built alone on both stock dumps: 29 identical outputs, and the 7 cases the reference refuses (manual packing, not applicable) are refused too.
 
-`cargo test --release --test real_roms` repeats these checks when the dumps are named by `BME_ROM_*` variables (see the test file). Without them those tests are skipped and say so.
+`cargo nextest run --locked --release --test real_roms` repeats these checks when the dumps are named by `BME_ROM_*` variables (see the test file). Without them those tests are skipped and say so.
 
 The reference tools are covered by commands: `scan`, `patch`, `extract`, `replace` and `derive` (x99fix); `tools setup ghidra`, `tools analyze` and `tools doctor` (setup-ghidra.sh, ghidra-analyze.sh); the breadcrumb builder is the `MRC-BREADCRUMBS` diagnostic record, and `diag breadcrumbs read` replaces read_breadcrumbs.py.
 
