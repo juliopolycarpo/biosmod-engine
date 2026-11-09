@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = ["crates/biosmod-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+repository = "https://github.com/juliopolycarpo/biosmod-engine"
+authors = ["Julio Polycarpo"]
+publish = false
+
+[workspace.dependencies]
+biosmod-core = { path = "crates/biosmod-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = { version = "0.11.1", default-features = false }
+semver = { version = "1.0.28", features = ["serde"] }
+liblzma = { version = "0.4.9", default-features = false, features = ["static"] }
+crc32fast = { version = "1.5.4", default-features = false }
+schemars = "1.2.3"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dev.package."*"]
+opt-level = 2

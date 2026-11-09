@@ -1,0 +1,23 @@
+[package]
+name = "biosmod-core"
+description = "Firmware image inspection, guarded patch planning and verification for Biosmod Engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+semver.workspace = true
+liblzma.workspace = true
+crc32fast.workspace = true
+schemars.workspace = true
+liblzma-sys = { version = "0.4.9", default-features = false, features = ["static"] }
+
+[dev-dependencies]
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
