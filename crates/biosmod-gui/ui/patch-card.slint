@@ -22,13 +22,13 @@ export component PatchCard inherits Rectangle {
     background: Theme.surface;
     border-color: Theme.border;
     border-width: 1px;
-    border-radius: 8px;
+    border-radius: Theme.radius;
     height: patch-layout.preferred-height + 24px;
     patch-layout := VerticalLayout {
-        padding: 12px;
-        spacing: 6px;
+        padding: Theme.space-md;
+        spacing: Theme.space-sm;
         HorizontalLayout {
-            spacing: 10px;
+            spacing: Theme.space-md;
             CheckBox {
                 text: root.patch.title;
                 checked: root.patch.selected;
@@ -39,7 +39,7 @@ export component PatchCard inherits Rectangle {
             Text {
                 text: root.patch.state;
                 color: Theme.accent;
-                font-size: 13px;
+                font-size: Theme.font-caption;
                 font-weight: 600;
                 vertical-alignment: center;
             }

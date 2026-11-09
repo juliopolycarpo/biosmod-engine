@@ -1,7 +1,7 @@
 import { AboutSlint, Button, ComboBox, LineEdit, ListView, Palette, Spinner, TextEdit } from "std-widgets.slint";
 import { PatchCard, PatchRow } from "patch-card.slint";
 import { Theme } from "theme.slint";
-import { Caption, SectionTitle } from "widgets.slint";
+import { Caption, Divider, FieldLabel, PageTitle, SectionTitle } from "widgets.slint";
 
 export { PatchRow }
 
@@ -97,9 +97,9 @@ export component AppWindow inherits Window {
             border-color: Theme.border;
             height: 56px;
             HorizontalLayout {
-                padding-left: 24px;
-                padding-right: 24px;
-                spacing: 12px;
+                padding-left: Theme.space-xl;
+                padding-right: Theme.space-xl;
+                spacing: Theme.space-md;
                 VerticalLayout {
                     width: 36px;
                     alignment: center;
@@ -107,18 +107,18 @@ export component AppWindow inherits Window {
                         width: 36px;
                         height: 36px;
                         border-radius: 9px;
-                        background: Theme.accent-surface;
-                        Text { text: "B"; font-size: 21px; font-weight: 700; color: Theme.accent-text; horizontal-alignment: center; vertical-alignment: center; }
+                        background: Theme.accent;
+                        Text { text: "B"; font-size: Theme.font-heading; font-weight: 700; color: Theme.accent-text; horizontal-alignment: center; vertical-alignment: center; }
                     }
                 }
                 VerticalLayout {
-                    spacing: 2px;
+                    spacing: Theme.space-xs;
                     alignment: center;
-                    Text { text: "BIOS Mod Engine"; font-size: 16px; font-weight: 700; color: Theme.text; }
-                    Text { text: "Firmware workspace"; font-size: 12px; color: Theme.muted; }
+                    Text { text: "BIOS Mod Engine"; font-size: Theme.font-heading; font-weight: 700; color: Theme.text; }
+                    Text { text: "Firmware workspace"; font-size: Theme.font-caption; color: Theme.muted; }
                 }
                 Rectangle { horizontal-stretch: 1; }
-                Text { text: root.engine-status; color: Theme.muted; font-size: 12px; vertical-alignment: center; overflow: elide; }
+                Text { text: root.engine-status; color: Theme.muted; font-size: Theme.font-caption; vertical-alignment: center; overflow: elide; }
                 VerticalLayout {
                     alignment: center;
                     Button { text: "About"; clicked => { root.page = 3; } }
@@ -126,10 +126,10 @@ export component AppWindow inherits Window {
             }
         }
         HorizontalLayout {
-            padding-left: 24px;
-            padding-right: 24px;
-            padding-top: 4px;
-            spacing: 8px;
+            padding-left: Theme.space-xl;
+            padding-right: Theme.space-xl;
+            padding-top: Theme.space-xs;
+            spacing: Theme.space-sm;
             Button { text: root.page == 0 ? "• Workflow" : "Workflow"; accessible-label: "Workflow"; clicked => { root.page = 0; } }
             Button { text: root.page == 1 ? "• Sources & tools" : "Sources & tools"; accessible-label: "Sources & tools"; clicked => { root.page = 1; } }
             Button { text: root.page == 2 ? "• Diagnostics" : "Diagnostics"; clicked => { root.page = 2; } }
@@ -139,33 +139,33 @@ export component AppWindow inherits Window {
             if root.page == 0: Button { text: root.paths-open ? "Hide paths" : "Enter paths"; enabled: !root.busy; clicked => { root.paths-open = !root.paths-open; } }
         }
         if root.page == 0: VerticalLayout {
-            padding: 12px;
-            spacing: 8px;
+            padding: Theme.space-md;
+            spacing: Theme.space-sm;
             HorizontalLayout {
-                spacing: 8px;
+                spacing: Theme.space-sm;
                 VerticalLayout {
-                    spacing: 3px;
+                    spacing: Theme.space-xs;
                     alignment: center;
-                    Text { text: "Firmware workflow"; font-size: 24px; font-weight: 700; color: Theme.text; }
+                    PageTitle { text: "Firmware workflow"; }
                     Caption { text: root.stage < 2 ? "Choose an image and source, then scan for corrections." : root.stage == 2 || root.show-review ? "Review the resolved plan before building a copy." : "Check the output and its offline verification."; }
                 }
                 Rectangle { horizontal-stretch: 1; }
-                Text { text: root.stage < 2 ? "1 / 3  SELECT" : root.stage == 2 || root.show-review ? "2 / 3  REVIEW" : "3 / 3  VERIFY"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                Text { text: root.stage < 2 ? "1 / 3  SELECT" : root.stage == 2 || root.show-review ? "2 / 3  REVIEW" : "3 / 3  VERIFY"; color: Theme.muted; font-size: Theme.font-caption; vertical-alignment: center; }
             }
             if root.paths-open: VerticalLayout {
-                spacing: 6px;
+                spacing: Theme.space-sm;
                 HorizontalLayout {
-                    spacing: 8px;
+                    spacing: Theme.space-sm;
                     LineEdit { placeholder-text: "Plan file path"; accessible-label: "Plan file path"; text <=> root.manual-plan-path; enabled: !root.busy; }
                     Button { text: "Open plan"; enabled: !root.busy && root.manual-plan-path != ""; clicked => { root.open-plan-path(root.manual-plan-path); root.paths-open = false; } }
                 }
                 HorizontalLayout {
-                    spacing: 8px;
+                    spacing: Theme.space-sm;
                     LineEdit { placeholder-text: "Existing output image path"; accessible-label: "Existing output image path"; text <=> root.manual-output-path; enabled: !root.busy; }
                     Button { text: "Open output"; enabled: !root.busy && root.manual-output-path != ""; clicked => { root.open-output-path(root.manual-output-path); root.paths-open = false; } }
                 }
                 HorizontalLayout {
-                    spacing: 8px;
+                    spacing: Theme.space-sm;
                     LineEdit { placeholder-text: "New plan export path"; accessible-label: "New plan export path"; text <=> root.manual-export-path; enabled: !root.busy && root.plan-details != ""; }
                     Button { text: "Save plan"; enabled: !root.busy && root.plan-details != "" && root.manual-export-path != ""; clicked => { root.export-plan-path(root.manual-export-path); root.paths-open = false; } }
                 }
@@ -174,14 +174,14 @@ export component AppWindow inherits Window {
                 background: Theme.surface;
                 border-color: Theme.border;
                 border-width: 1px;
-                border-radius: 8px;
+                border-radius: Theme.radius;
                 height: context-layout.preferred-height;
                 context-layout := VerticalLayout {
-                    padding: 12px;
-                    spacing: 8px;
+                    padding: Theme.space-md;
+                    spacing: Theme.space-sm;
                     HorizontalLayout {
-                        spacing: 8px;
-                        Text { text: "Image"; width: 54px; vertical-alignment: center; color: Theme.text; font-weight: 600; }
+                        spacing: Theme.space-sm;
+                        FieldLabel { text: "Image"; width: 54px; }
                         LineEdit {
                             placeholder-text: "Original firmware image path";
                             accessible-label: "Original firmware image path";
@@ -194,8 +194,8 @@ export component AppWindow inherits Window {
                         if root.stage >= 2: Text { text: "Scan source: " + root.source; color: Theme.muted; overflow: elide; width: 132px; vertical-alignment: center; }
                     }
                     if root.stage < 2: HorizontalLayout {
-                        spacing: 8px;
-                        Text { text: "Source"; width: 54px; vertical-alignment: center; color: Theme.text; font-weight: 600; }
+                        spacing: Theme.space-sm;
+                        FieldLabel { text: "Source"; width: 54px; }
                         LineEdit {
                             placeholder-text: "Catalog source alias";
                             accessible-label: "Catalog source alias";
@@ -208,9 +208,9 @@ export component AppWindow inherits Window {
                 }
             }
             if root.stage < 2: VerticalLayout {
-                spacing: 6px;
+                spacing: Theme.space-sm;
                 HorizontalLayout {
-                    spacing: 8px;
+                    spacing: Theme.space-sm;
                     SectionTitle { text: "Findings"; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
                 }
@@ -220,13 +220,13 @@ export component AppWindow inherits Window {
                     background: Theme.surface;
                     border-color: Theme.border;
                     border-width: 1px;
-                    border-radius: 8px;
+                    border-radius: Theme.radius;
                     vertical-stretch: 1;
                     VerticalLayout {
-                        padding: 24px;
-                        spacing: 8px;
+                        padding: Theme.space-xl;
+                        spacing: Theme.space-sm;
                         alignment: center;
-                        Text { text: "No findings to show"; font-size: 17px; font-weight: 700; color: Theme.text; horizontal-alignment: center; }
+                        Text { text: "No findings to show"; font-size: Theme.font-heading; font-weight: 700; color: Theme.text; horizontal-alignment: center; }
                         Caption { text: "Scan an image with a catalog source to see findings and available corrections."; horizontal-alignment: center; }
                     }
                 }
@@ -237,16 +237,16 @@ export component AppWindow inherits Window {
                 }
                 Caption { text: "Hardware-dependent findings and corrections that require joint selection cannot be applied here yet."; }
                 HorizontalLayout {
-                    spacing: 8px;
+                    spacing: Theme.space-sm;
                     Button { text: "Recommended"; enabled: root.can-recommend && !root.busy; clicked => { root.recommended(); } }
                     Rectangle { horizontal-stretch: 1; }
                     Button { text: "Review selected"; enabled: root.can-plan && !root.busy; clicked => { root.generate-plan(); } }
                 }
             }
             if root.stage >= 2 && (root.stage == 2 || root.show-review): VerticalLayout {
-                spacing: 10px;
+                spacing: Theme.space-md;
                 HorizontalLayout {
-                    spacing: 8px;
+                    spacing: Theme.space-sm;
                     SectionTitle { text: "Review plan"; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
                     Button { text: "Export plan…"; enabled: !root.busy && root.plan-details != ""; clicked => { root.export-plan(); } }
@@ -257,7 +257,7 @@ export component AppWindow inherits Window {
                 TextEdit { text: root.plan-details; read-only: true; min-height: 100px; accessible-label: "Plan details"; }
                 SectionTitle { text: "New output"; }
                 HorizontalLayout {
-                    spacing: 8px;
+                    spacing: Theme.space-sm;
                     LineEdit {
                         placeholder-text: "New output image path";
                         accessible-label: "New output image path";
@@ -269,16 +269,16 @@ export component AppWindow inherits Window {
                 }
                 if root.output-path != "": Caption { text: "Manifest: " + (root.manifest-path == "" ? root.output-path + ".manifest.json" : root.manifest-path); }
                 HorizontalLayout {
-                    spacing: 8px;
+                    spacing: Theme.space-sm;
                     Caption { text: "The original image will not be overwritten."; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
                     Button { text: "Build patched copy"; enabled: root.can-apply && !root.busy; clicked => { root.apply-plan(); } }
                 }
             }
             if root.stage >= 3 && !root.show-review: VerticalLayout {
-                spacing: 10px;
+                spacing: Theme.space-md;
                 HorizontalLayout {
-                    spacing: 8px;
+                    spacing: Theme.space-sm;
                     SectionTitle { text: root.result-title; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
                     if root.plan-details != "": Button { text: "Review plan"; clicked => { root.show-review = true; } }
@@ -288,7 +288,7 @@ export component AppWindow inherits Window {
                 if root.manifest-path != "": Caption { text: "Manifest: " + root.manifest-path; }
                 TextEdit { text: root.result-details; read-only: true; min-height: 100px; accessible-label: "Verification results"; }
                 HorizontalLayout {
-                    spacing: 8px;
+                    spacing: Theme.space-sm;
                     Caption { text: "Offline verification does not establish hardware boot behavior."; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
                     Button { text: "Verify output"; enabled: root.can-verify && !root.busy; clicked => { root.verify(); } }
@@ -296,12 +296,12 @@ export component AppWindow inherits Window {
             }
         }
         if root.page == 1: VerticalLayout {
-            padding: 24px;
-            spacing: 12px;
-            Text { text: "Sources & tools"; font-size: 24px; font-weight: 700; color: Theme.text; }
+            padding: Theme.space-xl;
+            spacing: Theme.space-md;
+            PageTitle { text: "Sources & tools"; }
             Caption { text: "Inspect configured catalog sources and engine tools."; }
             HorizontalLayout {
-                spacing: 8px;
+                spacing: Theme.space-sm;
                 Button { text: "Refresh sources"; enabled: !root.busy; clicked => { root.refresh-sources(); } }
                 Button { text: "Check tools"; enabled: !root.busy; clicked => { root.show-tools(); } }
                 Rectangle { horizontal-stretch: 1; }
@@ -311,12 +311,12 @@ export component AppWindow inherits Window {
             SectionTitle { text: "Tools"; }
             TextEdit { text: root.tool-details; placeholder-text: "Check tools to view their status."; read-only: true; accessible-label: "Tool diagnostics"; }
             HorizontalLayout {
-                spacing: 12px;
+                spacing: Theme.space-md;
                 VerticalLayout {
-                    spacing: 8px;
+                    spacing: Theme.space-sm;
                     SectionTitle { text: "Engine"; }
                     HorizontalLayout {
-                        spacing: 8px;
+                        spacing: Theme.space-sm;
                         LineEdit {
                             placeholder-text: "Path to bme executable";
                             accessible-label: "Engine executable path";
@@ -339,7 +339,7 @@ export component AppWindow inherits Window {
                     }
                 }
                 VerticalLayout {
-                    spacing: 8px;
+                    spacing: Theme.space-sm;
                     SectionTitle { text: "Appearance"; }
                     ComboBox {
                         accessible-label: "Appearance";
@@ -351,22 +351,22 @@ export component AppWindow inherits Window {
             }
         }
         if root.page == 2: VerticalLayout {
-            padding: 24px;
-            spacing: 12px;
-            Text { text: "Diagnostics"; font-size: 24px; font-weight: 700; color: Theme.text; }
+            padding: Theme.space-xl;
+            spacing: Theme.space-md;
+            PageTitle { text: "Diagnostics"; }
             Caption { text: "Recent operation details. Select text to copy it."; }
             diagnostics-field := TextEdit { text: root.diagnostics; read-only: true; accessible-label: "Recent diagnostics"; }
             HorizontalLayout {
-                spacing: 8px;
+                spacing: Theme.space-sm;
                 Button { text: "Copy all"; enabled: root.diagnostics != ""; clicked => { diagnostics-field.select-all(); diagnostics-field.copy(); } }
                 Button { text: "Export…"; enabled: root.diagnostics != ""; clicked => { root.export-diagnostics(); } }
                 Rectangle { horizontal-stretch: 1; }
             }
         }
         if root.page == 3: VerticalLayout {
-            padding: 24px;
-            spacing: 16px;
-            Text { text: "About BIOS Mod Engine"; font-size: 24px; font-weight: 700; color: Theme.text; }
+            padding: Theme.space-xl;
+            spacing: Theme.space-lg;
+            PageTitle { text: "About BIOS Mod Engine"; }
             Caption { text: "Inspect firmware and build a reviewed copy using the BIOS Mod Engine command-line tool."; }
             Caption { text: "Firmware matches and offline verification do not establish physical hardware compatibility or boot behavior."; }
             AboutSlint { }
@@ -378,11 +378,11 @@ export component AppWindow inherits Window {
             border-width: 1px;
             border-color: Theme.border;
             HorizontalLayout {
-                padding-left: 24px;
-                padding-right: 24px;
-                spacing: 8px;
+                padding-left: Theme.space-xl;
+                padding-right: Theme.space-xl;
+                spacing: Theme.space-sm;
                 if root.busy: Spinner { width: 30px; height: 30px; indeterminate: true; }
-                Text { text: root.busy ? root.operation-label + "  " + root.elapsed : root.status; color: Theme.muted; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                Text { text: root.busy ? root.operation-label + "  " + root.elapsed : root.status; color: Theme.muted; font-size: Theme.font-caption; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                 if root.busy && root.can-cancel: Button { text: "Cancel"; clicked => { root.cancel-operation(); } }
             }
         }

@@ -1,13 +1,35 @@
 import { Theme } from "theme.slint";
 
-export component SectionTitle inherits Text {
+/// A 24px page heading. Example: `PageTitle { text: "Diagnostics"; }`
+export component PageTitle inherits Text {
     color: Theme.text;
-    font-size: 17px;
+    font-size: Theme.font-title;
     font-weight: 700;
 }
 
+/// A section heading inside a page. Example: `SectionTitle { text: "Findings"; }`
+export component SectionTitle inherits Text {
+    color: Theme.text;
+    font-size: Theme.font-heading;
+    font-weight: 700;
+}
+
+/// Secondary explanatory text that wraps. Example: `Caption { text: "Choose an image."; }`
 export component Caption inherits Text {
     color: Theme.muted;
-    font-size: 13px;
+    font-size: Theme.font-caption;
     wrap: word-wrap;
+}
+
+/// A form label with a fixed column width. Example: `FieldLabel { text: "Image"; }`
+export component FieldLabel inherits Text {
+    color: Theme.text;
+    font-weight: 600;
+    vertical-alignment: center;
+}
+
+/// A one-pixel rule between regions. Example: `Divider { }`
+export component Divider inherits Rectangle {
+    height: 1px;
+    background: Theme.border;
 }
