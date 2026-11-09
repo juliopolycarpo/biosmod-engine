@@ -418,6 +418,11 @@ fn review_presentation_tracks_replacement_and_invalidation() {
             .starts_with("Generated in this session")
     );
     let first = window.get_plan_details();
+    assert_eq!(
+        first.as_str().as_ptr(),
+        state.lock().unwrap().session.review_text().as_ptr(),
+        "review presentation: expected one allocation shared with Slint | received a duplicate full document"
+    );
     window.invoke_output_edited("/tmp/other.bin".into());
     assert_eq!(
         first.as_str().as_ptr(),

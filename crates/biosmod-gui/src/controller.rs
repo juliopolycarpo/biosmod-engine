@@ -64,7 +64,7 @@ pub struct Review {
     pub bytes: Vec<u8>,
     pub document: Value,
     pub generated: bool,
-    text: String,
+    pub(crate) text: slint::SharedString,
 }
 
 impl Review {
@@ -85,7 +85,7 @@ impl Review {
             bytes,
             document,
             generated,
-            text,
+            text: text.into(),
         }
     }
 }

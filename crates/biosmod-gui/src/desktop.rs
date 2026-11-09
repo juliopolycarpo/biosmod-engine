@@ -788,7 +788,14 @@ fn sync_review(ui: &AppWindow, state: &Desktop) {
     if unchanged {
         return;
     }
-    ui.set_plan_details(state.session.review_text().into());
+    ui.set_plan_details(
+        state
+            .session
+            .review
+            .as_ref()
+            .map(|r| r.text.clone())
+            .unwrap_or_default(),
+    );
     *presented = state.session.review.clone();
 }
 
