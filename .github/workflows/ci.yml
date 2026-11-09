@@ -81,6 +81,20 @@ jobs:
           test -S "$XDG_RUNTIME_DIR/bme-ci"
           env -u DISPLAY WAYLAND_DISPLAY=bme-ci SLINT_BACKEND=winit-software timeout 20s target/debug/bme-gui --smoke-test
           env -u DISPLAY WAYLAND_DISPLAY=bme-ci SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_SCREENSHOT="$RUNNER_TEMP/gui-wayland.png" cargo +1.92.0 test --locked -p biosmod-gui --test ui_workflow --test keyboard
+      - name: State gallery on X11
+        shell: bash
+        run: |
+          set -euo pipefail
+          for theme in 1 2; do
+            out="$RUNNER_TEMP/gui-gallery/theme-$theme"
+            mkdir -p "$out"
+            env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_THEME="$theme" BME_GUI_GALLERY="$out" xvfb-run -a cargo +1.92.0 test --locked -p biosmod-gui --test gallery gallery_states_build_and_capture
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gui-gallery
+          path: ${{ runner.temp }}/gui-gallery
+          if-no-files-found: error
       - name: Build Linux archive
         run: RUSTUP_TOOLCHAIN=1.92.0 ./packaging/linux/archive.sh
       - name: Smoke test packaged pair
