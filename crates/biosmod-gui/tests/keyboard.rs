@@ -6,6 +6,7 @@ use biosmod_gui::settings::Settings;
 use biosmod_gui::ui::AppWindow;
 use serde_json::json;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
+use i_slint_backend_testing::ElementHandle;
 use slint::{ComponentHandle, Model};
 
 fn key(window: &AppWindow, text: slint::SharedString) {
@@ -29,6 +30,20 @@ fn click(window: &AppWindow, x: f32, y: f32) {
             position,
             button: PointerEventButton::Left,
         });
+}
+
+/// Click the centre of the element exposing `label`, so layout changes do not move the target.
+/// Example: `click_label(&window, "Engine executable path")`.
+fn click_label(window: &AppWindow, label: &str) {
+    let element = ElementHandle::find_by_accessible_label(window, label)
+        .next()
+        .unwrap_or_else(|| panic!("accessible label: expected an element named {label:?}"));
+    let (origin, size) = (element.absolute_position(), element.size());
+    click(
+        window,
+        origin.x + size.width / 2.,
+        origin.y + size.height / 2.,
+    );
 }
 
 fn settle(window: &AppWindow) {
@@ -75,7 +90,7 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
     settle(&window);
 
     // Source editor, then Scan, then the first checkbox in the findings list.
-    click(&window, 300., 234.);
+    click_label(&window, "Catalog source alias");
     key(&window, Key::Tab.into());
     key(&window, Key::Tab.into());
     key(&window, " ".into());
@@ -100,7 +115,7 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
     window.invoke_output_edited("/tmp/new.bin".into());
     assert_eq!(window.get_stage(), 2);
     settle(&window);
-    click(&window, 300., 194.);
+    click_label(&window, "Original firmware image path");
     key(&window, Key::End.into());
     key(&window, "x".into());
     assert_eq!(
@@ -117,9 +132,9 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
         "stage change: expected the Image editor to retain focus and receive both characters"
     );
     // Engine drafts must save on Enter and focus loss, including leaving the page.
-    click(&window, 180., 76.);
+    click_label(&window, "Sources & tools");
     settle(&window);
-    click(&window, 150., 696.);
+    click_label(&window, "Engine executable path");
     key(&window, Key::End.into());
     key(&window, "x".into());
     assert!(
@@ -138,10 +153,10 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
         Settings::load(&settings_path).unwrap().engine,
         Some("/missing/bmexy".into())
     );
-    click(&window, 150., 696.);
+    click_label(&window, "Engine executable path");
     key(&window, Key::End.into());
     key(&window, "z".into());
-    click(&window, 60., 76.);
+    click_label(&window, "Workflow");
     settle(&window);
     assert_eq!(
         Settings::load(&settings_path).unwrap().engine,

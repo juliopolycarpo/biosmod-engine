@@ -196,8 +196,8 @@ export component AppWindow inherits Window {
             padding-right: 24px;
             padding-top: 4px;
             spacing: 8px;
-            Button { text: root.page == 0 ? "• Workflow" : "Workflow"; clicked => { root.page = 0; } }
-            Button { text: root.page == 1 ? "• Sources & tools" : "Sources & tools"; clicked => { root.page = 1; } }
+            Button { text: root.page == 0 ? "• Workflow" : "Workflow"; accessible-label: "Workflow"; clicked => { root.page = 0; } }
+            Button { text: root.page == 1 ? "• Sources & tools" : "Sources & tools"; accessible-label: "Sources & tools"; clicked => { root.page = 1; } }
             Button { text: root.page == 2 ? "• Diagnostics" : "Diagnostics"; clicked => { root.page = 2; } }
             Rectangle { horizontal-stretch: 1; }
             if root.page == 0: Button { text: "Open plan"; enabled: !root.busy; clicked => { root.import-plan(); } }
