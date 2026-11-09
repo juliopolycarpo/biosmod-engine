@@ -53,6 +53,7 @@ export component PatchCard inherits Rectangle {
     // Transparent outer frame: the bottom padding is the gap between stacked cards.
     spacer := VerticalLayout {
         padding-bottom: Theme.space-sm;
+        padding-right: Theme.space-md;  // gutter for the list's overlay scrollbar
         card := Rectangle {
             background: root.patch.selected ? Theme.accent.transparentize(0.88)
                 : touch.has-hover && root.interactive ? Theme.canvas : Theme.surface;
