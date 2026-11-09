@@ -103,36 +103,27 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     padding-left: Theme.space-xl;
                     padding-right: Theme.space-xl;
-                    padding-top: Theme.space-md;
-                    padding-bottom: Theme.space-sm;
-                    spacing: Theme.space-md;
-                    Rectangle {
-                        width: 36px;
-                        height: 36px;
-                        border-radius: 9px;
-                        background: Theme.accent;
-                        Text { text: "B"; font-size: Theme.font-heading; font-weight: 700; color: Theme.accent-text; horizontal-alignment: center; vertical-alignment: center; }
-                    }
+                    spacing: Theme.space-sm;
                     VerticalLayout {
-                        spacing: Theme.space-xs;
                         alignment: center;
-                        Text { text: "BIOS Mod Engine"; font-size: Theme.font-heading; font-weight: 700; color: Theme.text; }
-                        Text { text: "Firmware workspace"; font-size: Theme.font-caption; color: Theme.muted; }
+                        Rectangle {
+                            width: 32px;
+                            height: 32px;
+                            border-radius: 8px;
+                            background: Theme.accent;
+                            Text { text: "B"; font-size: Theme.font-heading; font-weight: 700; color: Theme.accent-text; horizontal-alignment: center; vertical-alignment: center; }
+                        }
                     }
+                    if root.width > 900px: Text { text: "BIOS Mod Engine"; font-size: Theme.font-heading; font-weight: 700; color: Theme.text; vertical-alignment: center; }
+                    Rectangle { width: Theme.space-md; }
+                    NavTab { text: "Workflow"; selected: root.page == 0; activated => { root.page = 0; } }
+                    NavTab { text: "Sources & tools"; selected: root.page == 1; activated => { root.page = 1; } }
+                    NavTab { text: "Diagnostics"; selected: root.page == 2; activated => { root.page = 2; } }
                     Rectangle { horizontal-stretch: 1; }
                     VerticalLayout {
                         alignment: center;
                         Chip { text: root.engine-status; tone: root.engine-tone; }
                     }
-                }
-                HorizontalLayout {
-                    padding-left: Theme.space-xl - Theme.space-md;
-                    padding-right: Theme.space-xl;
-                    spacing: Theme.space-xs;
-                    NavTab { text: "Workflow"; selected: root.page == 0; activated => { root.page = 0; } }
-                    NavTab { text: "Sources & tools"; selected: root.page == 1; activated => { root.page = 1; } }
-                    NavTab { text: "Diagnostics"; selected: root.page == 2; activated => { root.page = 2; } }
-                    Rectangle { horizontal-stretch: 1; }
                     NavTab { text: "About"; selected: root.page == 3; activated => { root.page = 3; } }
                 }
                 Divider { }

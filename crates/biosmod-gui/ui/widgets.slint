@@ -88,7 +88,7 @@ export component NavTab inherits Rectangle {
     in property <string> text;
     in property <bool> selected;
     callback activated();
-    height: 40px;
+    min-height: 40px;
     width: label.preferred-width + 2 * Theme.space-md;
     background: touch.has-hover && !root.selected ? Theme.canvas : transparent;
     border-radius: Theme.radius;
