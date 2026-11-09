@@ -49,6 +49,8 @@ export component AppWindow inherits Window {
     in-out property <int> theme-choice: 0;
     in-out property <int> page: 0;
     in-out property <bool> paths-open;
+    // Side padding that keeps content at most Theme.content-max wide and centered.
+    private property <length> gutter: max(Theme.space-xl, (root.width - Theme.content-max) / 2);
     private property <bool> show-review;
     private property <bool> engine-dirty;
     private property <string> manual-plan-path;
@@ -102,8 +104,8 @@ export component AppWindow inherits Window {
             height: header-layout.preferred-height;
             header-layout := VerticalLayout {
                 HorizontalLayout {
-                    padding-left: Theme.space-xl;
-                    padding-right: Theme.space-xl;
+                    padding-left: root.gutter;
+                    padding-right: root.gutter;
                     spacing: Theme.space-sm;
                     VerticalLayout {
                         alignment: center;
@@ -132,8 +134,8 @@ export component AppWindow inherits Window {
             }
         }
         if root.page == 0: VerticalLayout {
-            padding-left: Theme.space-xl;
-            padding-right: Theme.space-xl;
+            padding-left: root.gutter;
+            padding-right: root.gutter;
             padding-top: Theme.space-md;
             padding-bottom: Theme.space-md;
             spacing: Theme.space-sm;
@@ -324,7 +326,10 @@ export component AppWindow inherits Window {
             }
         }
         if root.page == 1: VerticalLayout {
-            padding: Theme.space-xl;
+            padding-left: root.gutter;
+            padding-right: root.gutter;
+            padding-top: Theme.space-xl;
+            padding-bottom: Theme.space-xl;
             spacing: Theme.space-md;
             PageTitle { text: @tr("Sources & tools"); }
             Caption { text: @tr("Read-only status of the configured catalog sources and engine tools. Use the CLI to change them."); }
@@ -353,7 +358,10 @@ export component AppWindow inherits Window {
             }
         }
         if root.page == 4: VerticalLayout {
-            padding: Theme.space-xl;
+            padding-left: root.gutter;
+            padding-right: root.gutter;
+            padding-top: Theme.space-xl;
+            padding-bottom: Theme.space-xl;
             spacing: Theme.space-md;
             PageTitle { text: @tr("Settings"); }
             Caption { text: @tr("Changes are saved as you make them."); }
@@ -405,7 +413,10 @@ export component AppWindow inherits Window {
             Rectangle { vertical-stretch: 1; }
         }
         if root.page == 2: VerticalLayout {
-            padding: Theme.space-xl;
+            padding-left: root.gutter;
+            padding-right: root.gutter;
+            padding-top: Theme.space-xl;
+            padding-bottom: Theme.space-xl;
             spacing: Theme.space-md;
             PageTitle { text: @tr("Diagnostics"); }
             Caption { text: @tr("Recent operation details. Select text to copy it."); }
@@ -418,7 +429,10 @@ export component AppWindow inherits Window {
             }
         }
         if root.page == 3: VerticalLayout {
-            padding: Theme.space-xl;
+            padding-left: root.gutter;
+            padding-right: root.gutter;
+            padding-top: Theme.space-xl;
+            padding-bottom: Theme.space-xl;
             spacing: Theme.space-lg;
             alignment: start;
             Rectangle {
@@ -461,8 +475,8 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 Divider { }
                 HorizontalLayout {
-                    padding-left: Theme.space-xl;
-                    padding-right: Theme.space-xl;
+                    padding-left: root.gutter;
+                    padding-right: root.gutter;
                     spacing: Theme.space-sm;
                     if root.busy: VerticalLayout {
                         alignment: center;

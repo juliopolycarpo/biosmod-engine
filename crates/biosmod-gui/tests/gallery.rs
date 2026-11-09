@@ -178,3 +178,24 @@ fn manual_paths_keep_footer_inside_minimum_window() {
         "(footer): expected Review selected bottom <= 556 above the status bar | received: {bottom}"
     );
 }
+
+/// On a wide window the content stays in a centered column instead of stretching its rows.
+#[test]
+fn wide_window_centers_content_column() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = AppWindow::new().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1600.0, 1000.0));
+    window.show().unwrap();
+    populate(&window);
+    let button = ElementHandle::find_by_accessible_label(&window, "Review selected")
+        .next()
+        .expect("element: Review selected button | received: none");
+    let right = button.absolute_position().x + button.size().width;
+    let limit = (1600.0 + 1120.0) / 2.0;
+    assert!(
+        right <= limit + 0.5,
+        "(content column): expected Review selected right edge <= {limit} | received: {right}"
+    );
+}
