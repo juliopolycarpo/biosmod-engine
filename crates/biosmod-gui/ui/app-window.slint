@@ -2,7 +2,7 @@ import { AboutSlint, Button, ComboBox, LineEdit, ListView, Palette, Spinner, Tex
 import { PatchCard, PatchRow } from "patch-card.slint";
 import { Stepper } from "stepper.slint";
 import { Theme } from "theme.slint";
-import { Caption, Chip, Divider, FieldRow, NavTab, PageTitle, SectionTitle } from "widgets.slint";
+import { Caption, Chip, Tone, Tones, Divider, FieldRow, NavTab, PageTitle, SectionTitle } from "widgets.slint";
 import { Fact, FindingsSummary } from "facts.slint";
 
 export { Fact, PatchRow }
@@ -21,6 +21,8 @@ export component AppWindow inherits Window {
     in-out property <string> engine-path;
     in property <string> engine-status: "Checking engine…";
     in property <string> status: "Choose a firmware image to get started.";
+    in property <Tone> status-tone: Tone.quiet;
+    in property <Tone> engine-tone: Tone.attention;
     in property <[Fact]> image-facts;
     in property <[Fact]> scan-facts;
     in property <string> image-sha;
@@ -118,7 +120,10 @@ export component AppWindow inherits Window {
                         Text { text: "Firmware workspace"; font-size: Theme.font-caption; color: Theme.muted; }
                     }
                     Rectangle { horizontal-stretch: 1; }
-                    Text { text: root.engine-status; color: Theme.muted; font-size: Theme.font-caption; vertical-alignment: center; overflow: elide; }
+                    VerticalLayout {
+                        alignment: center;
+                        Chip { text: root.engine-status; tone: root.engine-tone; }
+                    }
                 }
                 HorizontalLayout {
                     padding-left: Theme.space-xl - Theme.space-md;
@@ -399,7 +404,24 @@ export component AppWindow inherits Window {
                     padding-right: Theme.space-xl;
                     spacing: Theme.space-sm;
                     if root.busy: Spinner { width: 30px; height: 30px; indeterminate: true; }
-                    Text { text: root.busy ? root.operation-label + "  " + root.elapsed : root.status; color: Theme.muted; font-size: Theme.font-caption; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                    if !root.busy && root.status-tone != Tone.quiet: VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 10px;
+                            height: 10px;
+                            border-radius: 5px;
+                            background: Tones.color(root.status-tone);
+                        }
+                    }
+                    Text {
+                        text: root.busy ? root.operation-label + "  " + root.elapsed : root.status;
+                        color: !root.busy && root.status-tone != Tone.quiet ? Tones.color(root.status-tone) : Theme.muted;
+                        font-size: Theme.font-body;
+                        font-weight: !root.busy && root.status-tone != Tone.quiet ? 600 : 400;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
                     if root.busy && root.can-cancel: Button { text: "Cancel"; clicked => { root.cancel-operation(); } }
                 }
             }

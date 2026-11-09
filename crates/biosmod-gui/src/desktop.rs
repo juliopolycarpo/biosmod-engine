@@ -676,6 +676,12 @@ fn sync(ui: &AppWindow, state: &Desktop) {
     let session = &state.session;
     ui.set_engine_status(session.engine_status.as_str().into());
     ui.set_status(session.status.as_str().into());
+    ui.set_status_tone(status_tone(session.outcome));
+    ui.set_engine_tone(if session.connected {
+        Tone::Good
+    } else {
+        Tone::Attention
+    });
     ui.set_busy(session.busy() || state.dialog_open || state.exporting);
     let stopping =
         session.busy() && !session.publishing() && session.cancel.load(Ordering::Relaxed);
@@ -795,6 +801,17 @@ fn sync_review(ui: &AppWindow, state: &Desktop) {
             .unwrap_or_default(),
     );
     *presented = state.session.review.clone();
+}
+
+/// Pick the status-bar tone that matches how the last operation ended.
+/// Example: `status_tone(Outcome::Verified)` is `Tone::Good`; a failure is `Tone::Danger`.
+pub fn status_tone(outcome: Outcome) -> Tone {
+    match outcome {
+        Outcome::Verified => Tone::Good,
+        Outcome::Failed | Outcome::PublicationIncomplete => Tone::Danger,
+        Outcome::Interrupted | Outcome::VerificationIncomplete => Tone::Attention,
+        Outcome::Idle | Outcome::Running => Tone::Quiet,
+    }
 }
 
 /// Present one scan row, enabling its checkbox only while no operation is running.

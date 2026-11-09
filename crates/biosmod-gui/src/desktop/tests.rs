@@ -805,3 +805,40 @@ fn row_sync_updates_in_place_and_replaces_foreign_models() {
         "foreign model: expected a replacement VecModel"
     );
 }
+
+#[test]
+fn status_tone_tracks_the_operation_outcome_and_engine_connection() {
+    for (outcome, tone) in [
+        (Outcome::Idle, Tone::Quiet),
+        (Outcome::Running, Tone::Quiet),
+        (Outcome::Verified, Tone::Good),
+        (Outcome::VerificationIncomplete, Tone::Attention),
+        (Outcome::Interrupted, Tone::Attention),
+        (Outcome::Failed, Tone::Danger),
+        (Outcome::PublicationIncomplete, Tone::Danger),
+    ] {
+        assert_eq!(status_tone(outcome), tone, "outcome {outcome:?}");
+    }
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    {
+        let mut state = state.lock().unwrap();
+        state.session.connected = false;
+        state.session.outcome = Outcome::Failed;
+        sync(&window, &state);
+    }
+    assert_eq!(
+        window.get_engine_tone(),
+        Tone::Attention,
+        "disconnected engine"
+    );
+    assert_eq!(window.get_status_tone(), Tone::Danger, "failed operation");
+    {
+        let mut state = state.lock().unwrap();
+        state.session.connected = true;
+        state.session.outcome = Outcome::Verified;
+        sync(&window, &state);
+    }
+    assert_eq!(window.get_engine_tone(), Tone::Good, "connected engine");
+    assert_eq!(window.get_status_tone(), Tone::Good, "verified output");
+}
