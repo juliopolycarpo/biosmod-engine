@@ -1,0 +1,23 @@
+name: Bug report
+description: bme did something wrong or unexpected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command, its output (with --json if possible) and what you expected.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: bme version
+      description: Output of `bme version`
+    validations:
+      required: true
+  - type: input
+    id: image
+    attributes:
+      label: Image SHA-256 and firmware build
+      description: Never attach vendor images; the digest and `bme scan --json` output are enough.

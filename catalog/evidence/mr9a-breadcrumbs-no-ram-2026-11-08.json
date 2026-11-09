@@ -1,0 +1,48 @@
+{
+  "schema": "bme.evidence/1",
+  "id": "mr9a-breadcrumbs-no-ram-2026-11-08",
+  "kind": "hardware-observation",
+  "date": "2026-11-08",
+  "title": "MR9A breadcrumbs: all DIMMs removed (POST 53), no failed record",
+  "board": "machinist-mr9a-pro-q87-rev-1.2",
+  "firmware": "mnx99mr9apro-230322",
+  "configuration": "MACHINIST E5-MR9A PRO V1.2 (Q87), four 16 GB DDR4 DIMMs (64 GB)",
+  "patches": [
+    {
+      "id": "B01-B06",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B02-B03",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B05",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B10",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B11",
+      "version": "1.0.0"
+    },
+    {
+      "id": "R01",
+      "version": "1.0.0"
+    },
+    {
+      "id": "MRC-BREADCRUMBS",
+      "version": "2.0.0"
+    }
+  ],
+  "image_sha256": "105d05288932ec504e88858d95da78af0c6be1d9068de981494d81db6fd62ed6",
+  "built_with": "x99-bios-fixes x99fix (Python)",
+  "observations": [
+    "All four DIMMs removed: POST 53. User reports no CMOS clear and no battery removal.",
+    "After restoring RAM, E0-E9 were identical to the first boot: A1, slot 0 BF000000, slot 1 all FF, counter zero. No failed checkpoint was retained."
+  ],
+  "limits": "Negative result for capture of the no-RAM attempt; failed-pass freezing and retention are not validated. With no CMOS snapshot from the halted attempt, a bypassed hook, inaccessible storage at that phase, or a later overwrite cannot be told apart. Root cause unresolved; does not reproduce the intermittent b0/b7 fault.",
+  "source": "x99-bios-fixes docs/hardware-tests.md at commit 765e7a80ae8337c0953dc0da41de5f28b56c5c92"
+}

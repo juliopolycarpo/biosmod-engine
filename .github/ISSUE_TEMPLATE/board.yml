@@ -1,0 +1,27 @@
+name: Board or patch submission
+description: Propose a board profile, a patch variant or a hardware observation
+labels: [catalog]
+body:
+  - type: input
+    id: board
+    attributes:
+      label: Board, revision and how the revision is known
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware build and image SHA-256
+    validations:
+      required: true
+  - type: textarea
+    id: scan
+    attributes:
+      label: bme scan --json output
+  - type: textarea
+    id: details
+    attributes:
+      label: Finding, fix or observation
+      description: How it was shown, what was flashed (digest), what was observed and what it does not establish.
+    validations:
+      required: true

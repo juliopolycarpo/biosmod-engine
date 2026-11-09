@@ -1,0 +1,125 @@
+{
+  "$defs": {
+    "Digest256": {
+      "description": "SHA-256 digest, lowercase hexadecimal",
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "EvidenceKind": {
+      "oneOf": [
+        {
+          "const": "hardware-observation",
+          "description": "Observed on physical hardware; scoped to its board, configuration and image.",
+          "type": "string"
+        },
+        {
+          "const": "offline-validation",
+          "description": "Offline analysis or emulation.",
+          "type": "string"
+        }
+      ]
+    },
+    "EvidencePatch": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/bme.evidence-1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A scoped observation about specific patch versions on specific hardware.",
+  "properties": {
+    "board": {
+      "type": "string"
+    },
+    "built_with": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "configuration": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "date": {
+      "type": "string"
+    },
+    "firmware": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "image_sha256": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Digest256"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "SHA-256 of the exact image tested, when one was flashed."
+    },
+    "kind": {
+      "$ref": "#/$defs/EvidenceKind"
+    },
+    "limits": {
+      "type": "string"
+    },
+    "observations": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "patches": {
+      "items": {
+        "$ref": "#/$defs/EvidencePatch"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "bme.evidence/1",
+      "type": "string"
+    },
+    "source": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "kind",
+    "date",
+    "title",
+    "board",
+    "firmware",
+    "patches",
+    "observations",
+    "limits"
+  ],
+  "title": "Evidence",
+  "type": "object"
+}

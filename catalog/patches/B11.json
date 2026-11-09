@@ -1,0 +1,192 @@
+{
+  "schema": "bme.patch/1",
+  "id": "B11",
+  "version": "1.0.0",
+  "title": "Copy only the reviewed public PI dispatch-context sizes",
+  "class": "correction",
+  "tier": "optional",
+  "findings": [
+    "B11"
+  ],
+  "confidence": {
+    "findings": {
+      "B11": "C0"
+    },
+    "offline_fix": "C1",
+    "physical_fix": "C2"
+  },
+  "packing": "automatic",
+  "requires": [],
+  "supersedes": [],
+  "conflicts": [],
+  "limits": "Public 4/8-byte contexts are bounded; USB/timer contexts and unverified private ABIs keep 16 bytes. Real guard-page placement and hardware SMM effects remain unobserved.",
+  "provenance": {
+    "repository": "https://github.com/juliopolycarpo/x99-bios-fixes",
+    "commit": "765e7a80ae8337c0953dc0da41de5f28b56c5c92",
+    "path": "patches/B11.json",
+    "sha256": "a838d2da72edeb4883d629e8357c477bf0b6bd4d6574d011d3a4cd4002aac37d",
+    "note": "converted by `bme catalog import-x99fix`; hunks and hashes copied verbatim"
+  },
+  "variants": {
+    "mnx99mr9apro-230322": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "PchSmiDispatcher",
+          "ffs_guid": "B0D6ED53-B844-43F5-BD2F-61095264E77E",
+          "leaf": "pe32",
+          "source_sha256": "bea0e06b2e0a6f57ddba1424959569d2c8b147cb036a8488e4f99fb352d75e80",
+          "source_size": 24960,
+          "result_sha256": "e802c4db14ef9dd0369203b930522f83f4d5c9f65f129f5e87097af5e988d29a",
+          "result_size": 24960,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 14837,
+              "before": "8b44242048897078488b442420f30f6f06f30f7f8080000000488b4424208b4bf08988c8000000486343f0488b4c2420",
+              "after": "8970788b4bf083f9067414678d51ff83fa0276050f1006eb0af30f7e06eb04660f6e060f1180800000008988c8000000",
+              "context_before": "8b4424204c8d0530f0ffff4889787048",
+              "context_after": "488d1440498b04d0488981b000000049",
+              "findings": [
+                "B11"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 14886,
+              "before": "8d1440498b04d0488981b0000000498b44d008488981b8000000498b44d010488981c0",
+              "after": "63d1488d1452410f100cd00f1188b00000004d8b4cd0104c8988c00000004c89a8a000",
+              "context_before": "8988c8000000486343f0488b4c242048",
+              "context_after": "000000488b4424204c89a8a000000048",
+              "findings": [
+                "B11"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 14923,
+              "before": "00488b4424204c89a8a0000000",
+              "after": "90909090909090909090909090",
+              "context_before": "81b8000000498b44d010488981c00000",
+              "context_after": "488b442420c700444252438b4bf0413b",
+              "findings": [
+                "B11"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 15844,
+              "before": "6f",
+              "after": "7e",
+              "context_before": "bf0900000000000080e989fdfffff30f",
+              "context_after": "06488b442420f30f7f8080000000488b",
+              "findings": [
+                "B11"
+              ],
+              "wild_before": [
+                10,
+                11,
+                12,
+                13
+              ],
+              "wild_after": [
+                10,
+                11,
+                12,
+                13
+              ]
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    },
+    "x99ha00m-20221202": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "PchSmiDispatcher",
+          "ffs_guid": "B0D6ED53-B844-43F5-BD2F-61095264E77E",
+          "leaf": "pe32",
+          "source_sha256": "88faa382dc2cc1ff99bbf24008647b86e1cf76d0000f79a4c9698cf1b94697a7",
+          "source_size": 24992,
+          "result_sha256": "89653146199aa9f4920a223e2d6e32a8e23c4e4a1a9652c2560f88f555c1b288",
+          "result_size": 24992,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 14837,
+              "before": "8b44242048897078488b442420f30f6f06f30f7f8080000000488b4424208b4bf08988c8000000486343f0488b4c2420",
+              "after": "8970788b4bf083f9067414678d51ff83fa0276050f1006eb0af30f7e06eb04660f6e060f1180800000008988c8000000",
+              "context_before": "8b4424204c8d0530f0ffff4889787048",
+              "context_after": "488d1440498b04d0488981b000000049",
+              "findings": [
+                "B11"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 14886,
+              "before": "8d1440498b04d0488981b0000000498b44d008488981b8000000498b44d010488981c0",
+              "after": "63d1488d1452410f100cd00f1188b00000004d8b4cd0104c8988c00000004c89a8a000",
+              "context_before": "8988c8000000486343f0488b4c242048",
+              "context_after": "000000488b4424204c89a8a000000048",
+              "findings": [
+                "B11"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 14923,
+              "before": "00488b4424204c89a8a0000000",
+              "after": "90909090909090909090909090",
+              "context_before": "81b8000000498b44d010488981c00000",
+              "context_after": "488b442420c700444252438b4bf0413b",
+              "findings": [
+                "B11"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 15844,
+              "before": "6f",
+              "after": "7e",
+              "context_before": "bf0900000000000080e989fdfffff30f",
+              "context_after": "06488b442420f30f7f8080000000488b",
+              "findings": [
+                "B11"
+              ],
+              "wild_before": [
+                10,
+                11,
+                12,
+                13
+              ],
+              "wild_after": [
+                10,
+                11,
+                12,
+                13
+              ]
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    }
+  }
+}

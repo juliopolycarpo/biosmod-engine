@@ -1,0 +1,395 @@
+{
+  "schema": "bme.patch/1",
+  "id": "B05",
+  "version": "1.0.0",
+  "title": "Reject stale resume after general reset in both PEI classifiers",
+  "class": "correction",
+  "tier": "optional",
+  "findings": [
+    "B05"
+  ],
+  "confidence": {
+    "findings": {
+      "B05": "C1"
+    },
+    "offline_fix": "C1",
+    "physical_fix": "C2"
+  },
+  "packing": "automatic",
+  "requires": [],
+  "supersedes": [],
+  "conflicts": [],
+  "limits": "Both modules must coexist. PlatformEarlyInit consumes sticky reset status; earlier SEC assumptions and later consumers require whole-boot validation. Genuine S3 passes the supplied-state model.",
+  "provenance": {
+    "repository": "https://github.com/juliopolycarpo/x99-bios-fixes",
+    "commit": "765e7a80ae8337c0953dc0da41de5f28b56c5c92",
+    "path": "patches/B05.json",
+    "sha256": "1c6bf1b539b3f40f489156a128a5b8a2cb223f99491b2c9722d6cd89d8d9db58",
+    "note": "converted by `bme catalog import-x99fix`; hunks and hashes copied verbatim"
+  },
+  "variants": {
+    "mnx99mr9apro-230322": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "PlatformEarlyInit",
+          "ffs_guid": "EE685731-CFF3-4EE7-9388-7E63FC5A59B0",
+          "leaf": "pe32",
+          "source_sha256": "c017b4ea3d9fd60e4290c2fb591b58640a7e0f0c611c759f91ab88b88e2c95db",
+          "source_size": 29472,
+          "result_sha256": "ccd31b0572b37d95e5b499467cbb455e5632ee2b37b53b2d009ca14603fc1c05",
+          "result_size": 29472,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 18695,
+              "before": "57ba0004",
+              "after": "e85c0900",
+              "context_before": "008b105150ff522c59595f5e5bc9c356",
+              "context_after": "000066ed0fb7f083c20466ed0fb7c88b",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [],
+              "wild_after": [
+                17,
+                18,
+                19,
+                20
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 18700,
+              "before": "0066ed",
+              "after": "05a480",
+              "context_before": "ff522c59595f5e5bc9c35657ba000400",
+              "context_after": "0fb7f083c20466ed0fb7c88bfeba0080",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 18704,
+              "before": "b7f083c20466ed0fb7c88bfeba0080000023fa7428e83e09000005a4800f00f600027519f7c60008000075118b44240c81e1001c0000668908b001eb106685ff74098bc2ba",
+              "after": "000fb73089f180e5bc80cd0288680166ba000466ed6689c166f7c60202751d80e58880fd8075156683c20466ed6625001c8b4c2408668901b0015ec366f7c10080740666b8",
+              "context_before": "595f5e5bc9c35657ba0004000066ed0f",
+              "context_after": "0004000066ef32c05f5ec3558bec83e4",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [
+                38,
+                39,
+                40,
+                41
+              ],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 18774,
+              "before": "04000066ef32c05f5ec3",
+              "after": "8066ef30c05ec3909090",
+              "context_before": "668908b001eb106685ff74098bc2ba00",
+              "context_after": "558bec83e4f883ec4c53568d44241057",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            }
+          ]
+        },
+        {
+          "name": "SBPEI",
+          "ffs_guid": "C1FBD624-27EA-40D1-AA48-94C3DC5C7E0D",
+          "leaf": "pe32",
+          "source_sha256": "005498430b074977ef99862c2415dafcb84f6df378475cf274d85b9bd6699468",
+          "source_size": 3904,
+          "result_sha256": "06cd59d879c5b708bee67e474a4ec480af4fc7621eee7da9bfea10b574f0ac44",
+          "result_size": 3904,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 456,
+              "before": "98",
+              "after": "a0",
+              "context_before": "00000000000000002e74657874000000",
+              "context_after": "0c000020020000a00c00002002000000",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 1250,
+              "before": "66a1a4800f80",
+              "after": "e8d109000090",
+              "context_before": "6898fde8ff56ff501883c42833c05ec3",
+              "context_after": "a8027539b9000400008bd166ed0fb7c0",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                22,
+                23,
+                24,
+                25
+              ],
+              "wild_after": [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                17,
+                18,
+                19,
+                20
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 1567,
+              "before": "66a1a4800f80",
+              "after": "e89408000090",
+              "context_before": "595985c07c06837dfc2074048365fc00",
+              "context_after": "a802753fb9000400008bd166ed0fb7c0",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [
+                22,
+                23,
+                24,
+                25
+              ],
+              "wild_after": [
+                17,
+                18,
+                19,
+                20
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 3768,
+              "before": "0000000000000000",
+              "after": "a1a4800f800ac4c3",
+              "context_before": "00000000000000000000000000000000",
+              "context_after": "000000006c0000007c32803284328832",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [],
+              "wild_after": [
+                21,
+                22,
+                23,
+                24
+              ]
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    },
+    "x99ha00m-20221202": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "PlatformEarlyInit",
+          "ffs_guid": "EE685731-CFF3-4EE7-9388-7E63FC5A59B0",
+          "leaf": "pe32",
+          "source_sha256": "230b2c0cb99291c63a64f29e918e1bddb416fc02b9a0a5fecd84322be33ebf15",
+          "source_size": 29408,
+          "result_sha256": "0bf147c8ed90cde6071ad4ac4913622e3ef6a44b59e5f2820b90892de761e517",
+          "result_size": 29408,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 18627,
+              "before": "57ba0004",
+              "after": "e85c0900",
+              "context_before": "008b105150ff522c59595f5e5bc9c356",
+              "context_after": "000066ed0fb7f083c20466ed0fb7c88b",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [],
+              "wild_after": [
+                17,
+                18,
+                19,
+                20
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 18632,
+              "before": "0066ed",
+              "after": "05a480",
+              "context_before": "ff522c59595f5e5bc9c35657ba000400",
+              "context_after": "0fb7f083c20466ed0fb7c88bfeba0080",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 18636,
+              "before": "b7f083c20466ed0fb7c88bfeba0080000023fa7428e83e09000005a4800f00f600027519f7c60008000075118b44240c81e1001c0000668908b001eb106685ff74098bc2ba",
+              "after": "000fb73089f180e5bc80cd0288680166ba000466ed6689c166f7c60202751d80e58880fd8075156683c20466ed6625001c8b4c2408668901b0015ec366f7c10080740666b8",
+              "context_before": "595f5e5bc9c35657ba0004000066ed0f",
+              "context_after": "0004000066ef32c05f5ec3558bec83e4",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [
+                38,
+                39,
+                40,
+                41
+              ],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 18706,
+              "before": "04000066ef32c05f5ec3",
+              "after": "8066ef30c05ec3909090",
+              "context_before": "668908b001eb106685ff74098bc2ba00",
+              "context_after": "558bec83e4f883ec4c53568d44241057",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            }
+          ]
+        },
+        {
+          "name": "SBPEI",
+          "ffs_guid": "C1FBD624-27EA-40D1-AA48-94C3DC5C7E0D",
+          "leaf": "pe32",
+          "source_sha256": "4611276c4d9273446ed0b59c8c243a3fc2da9a303902be6c71d45085fa5a7a65",
+          "source_size": 4000,
+          "result_sha256": "5394c805cbd53f721337130e103b4ac83cb3abdef19326bc456ae037680e5bed",
+          "result_size": 4000,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 456,
+              "before": "e8",
+              "after": "f0",
+              "context_before": "00000000000000002e74657874000000",
+              "context_after": "0c000020020000000d00002002000000",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [
+                17,
+                18,
+                19,
+                20
+              ],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 1227,
+              "before": "66a1a4800f80",
+              "after": "e8380a000090",
+              "context_before": "68a091e7ff56ff501883c42833c05ec3",
+              "context_after": "a8027539b9000400008bd166ed0fb7c0",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [
+                1,
+                2,
+                3,
+                4,
+                22,
+                23,
+                24,
+                25
+              ],
+              "wild_after": [
+                1,
+                2,
+                3,
+                4,
+                17,
+                18,
+                19,
+                20
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 1544,
+              "before": "66a1a4800f80",
+              "after": "e8fb08000090",
+              "context_before": "595985c07c06837dfc2074048365fc00",
+              "context_after": "a802753fb9000400008bd166ed0fb7c0",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [
+                22,
+                23,
+                24,
+                25
+              ],
+              "wild_after": [
+                17,
+                18,
+                19,
+                20
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 3848,
+              "before": "0000000000000000",
+              "after": "a1a4800f800ac4c3",
+              "context_before": "00000000000000000000000000000000",
+              "context_after": "00000000000000000000000000000000",
+              "findings": [
+                "B05"
+              ],
+              "wild_before": [],
+              "wild_after": [
+                21,
+                22,
+                23,
+                24
+              ]
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    }
+  }
+}

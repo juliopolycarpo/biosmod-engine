@@ -1,0 +1,108 @@
+{
+  "schema": "bme.patch/1",
+  "id": "S02",
+  "version": "1.0.0",
+  "title": "Preserve incoming PME_B0_EN only for PR9 S3 entry",
+  "class": "correction",
+  "tier": "optional",
+  "findings": [
+    "S02"
+  ],
+  "confidence": {
+    "findings": {
+      "S02": "C1"
+    },
+    "offline_fix": "C1",
+    "physical_fix": "C2"
+  },
+  "packing": "automatic",
+  "requires": [],
+  "supersedes": [],
+  "conflicts": [],
+  "limits": "Retains common preparation and S4/S5 policy. Physical wake needs standby power and controller routing. Existing ROM packing changes LZMA properties; the board decoder is untested.",
+  "provenance": {
+    "repository": "https://github.com/juliopolycarpo/x99-bios-fixes",
+    "commit": "765e7a80ae8337c0953dc0da41de5f28b56c5c92",
+    "path": "patches/S02.json",
+    "sha256": "9d03cf28e9e18eb39ac8194477dd01b0502cd79f8e41eea7f065316ea3d219fa",
+    "note": "converted by `bme catalog import-x99fix`; hunks and hashes copied verbatim"
+  },
+  "variants": {
+    "mnx99mr9apro-230322": {
+      "status": "not-applicable",
+      "reason": "No matching PR9-style PME_B0_EN clear is established in the MR9A S3 callback."
+    },
+    "x99ha00m-20221202": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "OemSleep",
+          "ffs_guid": "221F1D4F-034C-4BEA-B2BB-B7A9672B66D7",
+          "leaf": "pe32",
+          "source_sha256": "b1c33d6de77befa32f93c0aee93e537c874c42ef01bf54d22d7a92b49b25894b",
+          "source_size": 6048,
+          "result_sha256": "aec1efedb5b85a544c878c150fee110d2a4ea3c07f3b6ace256bab09285858e3",
+          "result_size": 6048,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 2976,
+              "before": "4883ec28e88ffeffffa1b0f5d1",
+              "after": "534883ec20833a030f94c3e888",
+              "context_before": "24604883c430415d415c5fc333c0c3cc",
+              "context_after": "fe000000000d0f010000a3b0f5d1fe00",
+              "findings": [
+                "S02"
+              ],
+              "wild_before": [
+                21,
+                22,
+                23,
+                24
+              ],
+              "wild_after": [
+                28,
+                29,
+                30,
+                31
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 2990,
+              "before": "000000000d0f010000a3b0f5d1fe00000000ba28040000ed0fbaf00def33c04883c428c3",
+              "after": "ffffb9b0f5d1fe81090f01000066ba2804ed84db75040fbaf00def31c04883c4205bc390",
+              "context_before": "c3cc4883ec28e88ffeffffa1b0f5d1fe",
+              "context_after": "cccc4883ec28e85bfeffff33c04883c4",
+              "findings": [
+                "S02"
+              ],
+              "wild_before": [
+                7,
+                8,
+                9,
+                10,
+                59,
+                60,
+                61,
+                62
+              ],
+              "wild_after": [
+                7,
+                8,
+                9,
+                10,
+                59,
+                60,
+                61,
+                62
+              ]
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    }
+  }
+}

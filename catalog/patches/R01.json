@@ -1,0 +1,368 @@
+{
+  "schema": "bme.patch/1",
+  "id": "R01",
+  "version": "1.0.0",
+  "title": "Decode physical DIMM widths from the existing raw SPD width HOB field",
+  "class": "correction",
+  "tier": "optional",
+  "findings": [
+    "R01"
+  ],
+  "confidence": {
+    "findings": {
+      "R01": "C0"
+    },
+    "offline_fix": "C1",
+    "physical_fix": "C2"
+  },
+  "packing": "automatic",
+  "requires": [],
+  "supersedes": [],
+  "conflicts": [],
+  "limits": "Reporting only. Decodes DDR3/DDR4 primary and extension widths independently of active ECC; unsupported encodings reportFFFF/FFFF and empty slots retain zero. Appends160bytes and retains an executable final section for the leaf helper. Native ABI/relocation checks pass; actual firmware loader behavior, ROM slot fit and physical boot are untested.",
+  "provenance": {
+    "repository": "https://github.com/juliopolycarpo/x99-bios-fixes",
+    "commit": "765e7a80ae8337c0953dc0da41de5f28b56c5c92",
+    "path": "patches/R01.json",
+    "sha256": "902515e8285746d34abc0febd1a64739896d48817e1a0a4a0f864dccf65940f2",
+    "note": "converted by `bme catalog import-x99fix`; hunks and hashes copied verbatim"
+  },
+  "variants": {
+    "mnx99mr9apro-230322": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "MemorySubClass",
+          "ffs_guid": "6A3DEF38-0A45-4107-A74E-ABF2B8EAED86",
+          "leaf": "pe32",
+          "source_sha256": "3655165ca3d4af7aedf152f70064f8660a16b215b5f67d05d979bd94d8299253",
+          "source_size": 12512,
+          "result_sha256": "8d2d33aa920c256944f07961f7916b653894139546eadf17c3b582d9f6564a17",
+          "result_size": 12672,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 220,
+              "before": "402c",
+              "after": "602d",
+              "context_before": "0000000000000000f00022200b020900",
+              "context_after": "00002002000000000000200d00008002",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 224,
+              "before": "20",
+              "after": "c0",
+              "context_before": "00000000f00022200b020900402c0000",
+              "context_after": "02000000000000200d00008002000000",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 272,
+              "before": "e030",
+              "after": "8031",
+              "context_before": "00000000000000000000000000000000",
+              "context_after": "000080020000000000000b0000000000",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 584,
+              "before": "6c00",
+              "after": "0801",
+              "context_before": "00000000400000422e72656c6f630000",
+              "context_after": "00006030000080000000603000000000",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 592,
+              "before": "8000",
+              "after": "2001",
+              "context_before": "2e72656c6f6300006c00000060300000",
+              "context_after": "00006030000000000000000000000000",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 612,
+              "before": "40",
+              "after": "60",
+              "context_before": "60300000000000000000000000000000",
+              "context_after": "00004200000000000000000000000000",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 615,
+              "before": "42",
+              "after": "60",
+              "context_before": "00000000000000000000000000400000",
+              "context_after": "00000000000000000000000000000000",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 6567,
+              "before": "b84800",
+              "after": "e83417",
+              "context_before": "6c2458408ab42448020000488b7c2470",
+              "context_after": "000066894424786689842488000000e9",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": [
+                17,
+                18,
+                19,
+                20
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 6572,
+              "before": "66894424786689842488000000",
+              "after": "b8480000009090909090909090",
+              "context_before": "b42448020000488b7c2470b848000000",
+              "context_after": "e986000000488b7c2470488d0dbef2ff",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [
+                30,
+                31,
+                32,
+                33
+              ],
+              "wild_after": [
+                30,
+                31,
+                32,
+                33
+              ]
+            },
+            {
+              "op": "append",
+              "offset": 12512,
+              "before": "",
+              "after": "48894c240848895424100fb644243b6bc030488b8c24480100004869c9790100004801c848034424700fb68c034302000083e90b83f901772d0fb68c0347020000f6c1e0752089ca83e10783f9037716c1ea0383fa01770eb808000000d3e0c1e20301c2eb07b8ffff000089c266899424800000006689842490000000488b542410488b4c2408c3000000000000000000000000000000000000000000000000",
+              "context_before": "00000000000000000000000000000000",
+              "context_after": "",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": [
+                67,
+                68,
+                69,
+                70
+              ]
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    },
+    "x99ha00m-20221202": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "MemorySubClass",
+          "ffs_guid": "6A3DEF38-0A45-4107-A74E-ABF2B8EAED86",
+          "leaf": "pe32",
+          "source_sha256": "069418745c9c381d332693e81943fa16caf6cfdb9bc513a76f3bdc8670ac93aa",
+          "source_size": 12448,
+          "result_sha256": "53e6ba25559cda19b1cb0e3bd027056d4769a7966c17577bcb70624b8e73d772",
+          "result_size": 12608,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 220,
+              "before": "002c",
+              "after": "202d",
+              "context_before": "0000000000000000f00022200b020900",
+              "context_after": "00002002000000000000200d00008002",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 224,
+              "before": "20",
+              "after": "c0",
+              "context_before": "00000000f00022200b020900002c0000",
+              "context_after": "02000000000000200d00008002000000",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 272,
+              "before": "a030",
+              "after": "4031",
+              "context_before": "00000000000000000000000000000000",
+              "context_after": "000080020000000000000b0000000000",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 584,
+              "before": "6c00",
+              "after": "0801",
+              "context_before": "00000000400000422e72656c6f630000",
+              "context_after": "00002030000080000000203000000000",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 592,
+              "before": "8000",
+              "after": "2001",
+              "context_before": "2e72656c6f6300006c00000020300000",
+              "context_after": "00002030000000000000000000000000",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 612,
+              "before": "40",
+              "after": "60",
+              "context_before": "20300000000000000000000000000000",
+              "context_after": "00004200000000000000000000000000",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 615,
+              "before": "42",
+              "after": "60",
+              "context_before": "00000000000000000000000000400000",
+              "context_after": "00000000000000000000000000000000",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 6541,
+              "before": "b84800",
+              "after": "e80e17",
+              "context_before": "6c2458408ab42448020000488b7c2470",
+              "context_after": "000066894424786689842488000000e9",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": [
+                17,
+                18,
+                19,
+                20
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 6546,
+              "before": "66894424786689842488000000",
+              "after": "b8480000009090909090909090",
+              "context_before": "b42448020000488b7c2470b848000000",
+              "context_after": "e986000000488b7c2470488d0dd8f2ff",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [
+                30,
+                31,
+                32,
+                33
+              ],
+              "wild_after": [
+                30,
+                31,
+                32,
+                33
+              ]
+            },
+            {
+              "op": "append",
+              "offset": 12448,
+              "before": "",
+              "after": "48894c240848895424100fb644243b6bc030488b8c24480100004869c9790100004801c848034424700fb68c034302000083e90b83f901772d0fb68c0347020000f6c1e0752089ca83e10783f9037716c1ea0383fa01770eb808000000d3e0c1e20301c2eb07b8ffff000089c266899424800000006689842490000000488b542410488b4c2408c3000000000000000000000000000000000000000000000000",
+              "context_before": "00000000000000000000000000000000",
+              "context_after": "",
+              "findings": [
+                "R01"
+              ],
+              "wild_before": [],
+              "wild_after": [
+                67,
+                68,
+                69,
+                70
+              ]
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    }
+  }
+}

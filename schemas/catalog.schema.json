@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "Digest256": {
+      "description": "SHA-256 digest, lowercase hexadecimal",
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "FileEntry": {
+      "additionalProperties": false,
+      "description": "One indexed file.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/FileKind"
+        },
+        "length": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "length",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "FileKind": {
+      "oneOf": [
+        {
+          "enum": [
+            "board",
+            "patch",
+            "evidence"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "provenance",
+          "description": "Supporting material (assembly sources, notes); hashed, never interpreted.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/bme.catalog-1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The catalog index.",
+  "properties": {
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "engine": {
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/FileEntry"
+      },
+      "type": "array"
+    },
+    "id": {
+      "type": "string"
+    },
+    "schema": {
+      "const": "bme.catalog/1",
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "version",
+    "title",
+    "engine",
+    "files"
+  ],
+  "title": "Manifest",
+  "type": "object"
+}

@@ -1,0 +1,172 @@
+{
+  "schema": "bme.catalog/1",
+  "id": "official",
+  "version": "1.0.0",
+  "title": "Biosmod Engine official catalog",
+  "engine": "^0.1",
+  "description": "Corrections and diagnostics for the Machinist MR9A PRO (Q87) and PR9 (B85) X99 boards, converted from x99-bios-fixes.",
+  "files": [
+    {
+      "path": "boards/machinist-mr9a-pro-q87-rev-1.2.json",
+      "kind": "board",
+      "length": 1255,
+      "sha256": "356d3f2bd9fd6eb8ca8111e520e1be70cb9dc467e5174d39664763b7ba384e04"
+    },
+    {
+      "path": "boards/machinist-pr9-b85.json",
+      "kind": "board",
+      "length": 1064,
+      "sha256": "d0d5da91c492bdb236240eae2cb658b921a8b601700fc054d7782385e2c980e5"
+    },
+    {
+      "path": "evidence/mr9a-breadcrumbs-no-gpu-2026-11-08.json",
+      "kind": "evidence",
+      "length": 1537,
+      "sha256": "c7b0334f50b3b931d8265ab14324ecf793039e73cf8471a3becd453fd3328759"
+    },
+    {
+      "path": "evidence/mr9a-breadcrumbs-no-ram-2026-11-08.json",
+      "kind": "evidence",
+      "length": 1664,
+      "sha256": "6c546bae2c9f404dc197e144d2b733639a58ef0fa927ee4d400b38692b39f04a"
+    },
+    {
+      "path": "evidence/mr9a-breadcrumbs-rev2-2026-11-08.json",
+      "kind": "evidence",
+      "length": 1727,
+      "sha256": "9a2e07465fac27cd113b9bba6814f942b6b8356fcd52244cc924bb438368d267"
+    },
+    {
+      "path": "evidence/mr9a-stage1-2026-11-08.json",
+      "kind": "evidence",
+      "length": 1708,
+      "sha256": "7104797498f1a69c3e20a6989ec85ccd2d9ded108593cebbc96be716a3760aab"
+    },
+    {
+      "path": "evidence/mr9a-stage2-2026-11-08.json",
+      "kind": "evidence",
+      "length": 1799,
+      "sha256": "c56ae7c11418a846977926cc843af80a19e3b870adb81dcb7f2dc15a6db091c1"
+    },
+    {
+      "path": "patches/A02.json",
+      "kind": "patch",
+      "length": 6357,
+      "sha256": "e29b2f81a278c6cadcbb730e1daa20b9e05e883ff50d649e5e8d9033dc723477"
+    },
+    {
+      "path": "patches/A03.json",
+      "kind": "patch",
+      "length": 187634,
+      "sha256": "45c53dda73e9617435ed2a91eb6180478ff1ec7569bbb239826a8d10455fafb1"
+    },
+    {
+      "path": "patches/A07.json",
+      "kind": "patch",
+      "length": 32609,
+      "sha256": "cae6d9b3bcfb3fcd6a9a4e3ac3aeb3aa3c9e9f8983cb0e9ae2f6da9c327e5e98"
+    },
+    {
+      "path": "patches/B01-B04-B06-B08.json",
+      "kind": "patch",
+      "length": 99725,
+      "sha256": "e6f216216a677894c5b71ccfbf6f650d229b6069d99ab3aa21fddb6947a234c6"
+    },
+    {
+      "path": "patches/B01-B06.json",
+      "kind": "patch",
+      "length": 26917,
+      "sha256": "c12297cb7b67a942b58d1adec5b288f0c26911dd50d630788a887452f68b81c8"
+    },
+    {
+      "path": "patches/B02-B03.json",
+      "kind": "patch",
+      "length": 10146,
+      "sha256": "edd37305513988c3f8f66ab034dbca2641e15b60fdb3638db3089340c3450108"
+    },
+    {
+      "path": "patches/B05.json",
+      "kind": "patch",
+      "length": 12265,
+      "sha256": "4f76d2dc2e4193118136a79ae090b0c8da0ccf02f2785c8884bf3be68e0c87cb"
+    },
+    {
+      "path": "patches/B07-B08.json",
+      "kind": "patch",
+      "length": 64348,
+      "sha256": "400357bf52d9f54266ff88c344829d8eedcb40c4b641eb67e1edec60d51df041"
+    },
+    {
+      "path": "patches/B08.json",
+      "kind": "patch",
+      "length": 7095,
+      "sha256": "2100115a646b313abf65d2cb792735cd87d093e29b6bfdfb20ccd8aa98d85a61"
+    },
+    {
+      "path": "patches/B09.json",
+      "kind": "patch",
+      "length": 90186,
+      "sha256": "783225e7f27bd13e9cc96d8c58adfb0672462b882222be5a7e159e5b4a93ad51"
+    },
+    {
+      "path": "patches/B10.json",
+      "kind": "patch",
+      "length": 8086,
+      "sha256": "06059ce218c5b8f61b46812ab766d557b6528a9dc94232172a8800e34fafd961"
+    },
+    {
+      "path": "patches/B11.json",
+      "kind": "patch",
+      "length": 6573,
+      "sha256": "04723fa9ef15811afcf5257ec9a37dd676f4f117aeec47e132d617b11f23208b"
+    },
+    {
+      "path": "patches/H01.json",
+      "kind": "patch",
+      "length": 2144,
+      "sha256": "31e2e0e4ee984c16e2f86ccbd308fada4df2c524359473f2e2c40256e905be76"
+    },
+    {
+      "path": "patches/H02.json",
+      "kind": "patch",
+      "length": 3012,
+      "sha256": "ef241324ec24c4eaf30d09fbc3e18b2fe08b1b1e7f812e3850ddf92383b5f7d3"
+    },
+    {
+      "path": "patches/H05.json",
+      "kind": "patch",
+      "length": 3198,
+      "sha256": "ea8bcefe2fb8018286ff2a5481b9569fed560e64614078e51367eaec9eba9106"
+    },
+    {
+      "path": "patches/MRC-BREADCRUMBS.json",
+      "kind": "patch",
+      "length": 5754,
+      "sha256": "1c407d2f7ed435a3c69f55a6cedd05078913e28b29d64cf988e85ffe5cc247af"
+    },
+    {
+      "path": "patches/R01.json",
+      "kind": "patch",
+      "length": 12064,
+      "sha256": "90c19169989ab3ea8f652e3c5bd0d432c49a07681d9dd4c6631c3d02ddceca3a"
+    },
+    {
+      "path": "patches/S01.json",
+      "kind": "patch",
+      "length": 3888,
+      "sha256": "00d5aa0271ed2d83d39f67bdc2390e4c4cd9fc545a6648e59d0fba0dd6c383ca"
+    },
+    {
+      "path": "patches/S02.json",
+      "kind": "patch",
+      "length": 3256,
+      "sha256": "87584af6398e3cafc4ce29a2e341512e9c43c7f8aae314b8e9993136451e6fbb"
+    },
+    {
+      "path": "provenance/MRC-BREADCRUMBS/mrc-breadcrumbs.asm",
+      "kind": "provenance",
+      "length": 5083,
+      "sha256": "575e1b3f996cab880a03e28653be33e09499bc3219c02e3c28c082020fb0463e"
+    }
+  ]
+}

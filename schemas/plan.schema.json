@@ -1,0 +1,348 @@
+{
+  "$defs": {
+    "Blob": {
+      "additionalProperties": false,
+      "properties": {
+        "length": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "sha256",
+        "length"
+      ],
+      "type": "object"
+    },
+    "ComponentChange": {
+      "additionalProperties": false,
+      "description": "One rebuilt (or already correct) component.",
+      "properties": {
+        "ffs_guid": {
+          "$ref": "#/$defs/Guid"
+        },
+        "file_offset": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "file_size_change": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "leaf": {
+          "$ref": "#/$defs/LeafKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "patches": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rebuilt": {
+          "type": "boolean"
+        },
+        "result_sha256": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "source_sha256": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "table_offset": {
+          "description": "Offset of the ACPI table inside its RAW section; 0 for PE32 modules.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "ffs_guid",
+        "leaf",
+        "table_offset",
+        "file_offset",
+        "patches",
+        "source_sha256",
+        "result_sha256",
+        "file_size_change",
+        "rebuilt"
+      ],
+      "type": "object"
+    },
+    "Digest256": {
+      "description": "SHA-256 digest, lowercase hexadecimal",
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "EngineId": {
+      "additionalProperties": false,
+      "properties": {
+        "codec": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "codec"
+      ],
+      "type": "object"
+    },
+    "FileEntry": {
+      "additionalProperties": false,
+      "description": "One indexed file.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/FileKind"
+        },
+        "length": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "length",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "FileKind": {
+      "oneOf": [
+        {
+          "enum": [
+            "board",
+            "patch",
+            "evidence"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "provenance",
+          "description": "Supporting material (assembly sources, notes); hashed, never interpreted.",
+          "type": "string"
+        }
+      ]
+    },
+    "Guid": {
+      "description": "EFI GUID in registry format",
+      "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
+      "type": "string"
+    },
+    "LeafKind": {
+      "oneOf": [
+        {
+          "const": "pe32",
+          "description": "The PE32 or TE image section.",
+          "type": "string"
+        },
+        {
+          "const": "acpi-table",
+          "description": "A DSDT inside a RAW section.",
+          "type": "string"
+        }
+      ]
+    },
+    "SourcePin": {
+      "additionalProperties": false,
+      "description": "The catalog snapshot a plan was made against.",
+      "properties": {
+        "alias": {
+          "type": "string"
+        },
+        "catalog_id": {
+          "type": "string"
+        },
+        "catalog_version": {
+          "type": "string"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileEntry"
+          },
+          "type": "array"
+        },
+        "location": {
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "scope": {
+          "description": "Board profile path when the catalog was loaded as a board closure.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trust": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "alias",
+        "trust",
+        "location",
+        "catalog_id",
+        "catalog_version",
+        "manifest_sha256",
+        "files"
+      ],
+      "type": "object"
+    },
+    "Span": {
+      "additionalProperties": false,
+      "description": "A byte range `[start, end)` of the image.",
+      "properties": {
+        "end": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "start": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/bme.plan-1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "allow_diagnostic": {
+      "type": "boolean"
+    },
+    "allow_hold": {
+      "type": "boolean"
+    },
+    "allowlist": {
+      "items": {
+        "$ref": "#/$defs/Span"
+      },
+      "type": "array"
+    },
+    "boards": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "carried": {
+      "description": "Fixes already present and preserved.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "changed": {
+      "items": {
+        "$ref": "#/$defs/Span"
+      },
+      "type": "array"
+    },
+    "components": {
+      "items": {
+        "$ref": "#/$defs/ComponentChange"
+      },
+      "type": "array"
+    },
+    "engine": {
+      "$ref": "#/$defs/EngineId"
+    },
+    "facts": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "firmware": {
+      "type": "string"
+    },
+    "identical_to_observed_images": {
+      "description": "Evidence ids whose recorded image digest equals this output.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "input": {
+      "$ref": "#/$defs/Blob"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "output": {
+      "$ref": "#/$defs/Blob"
+    },
+    "requested": {
+      "description": "Selection as requested, qualified as `alias::id@version`.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "bme.plan/1",
+      "type": "string"
+    },
+    "selected": {
+      "description": "Application units after supersession.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "source": {
+      "$ref": "#/$defs/SourcePin"
+    }
+  },
+  "required": [
+    "schema",
+    "engine",
+    "input",
+    "source",
+    "firmware",
+    "boards",
+    "requested",
+    "selected",
+    "carried",
+    "facts",
+    "allow_hold",
+    "allow_diagnostic",
+    "components",
+    "notes",
+    "allowlist",
+    "changed",
+    "output",
+    "identical_to_observed_images"
+  ],
+  "title": "PlanDocument",
+  "type": "object"
+}

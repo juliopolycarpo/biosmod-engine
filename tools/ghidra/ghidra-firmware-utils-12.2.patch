@@ -1,0 +1,26 @@
+diff --git a/src/main/java/firmware/cbfs/CBFSFileSystem.java b/src/main/java/firmware/cbfs/CBFSFileSystem.java
+index 217b4e9..ade8def 100644
+--- a/src/main/java/firmware/cbfs/CBFSFileSystem.java
++++ b/src/main/java/firmware/cbfs/CBFSFileSystem.java
+@@ -54,7 +54,7 @@ public class CBFSFileSystem implements GFileSystem {
+ 		monitor.setMessage("Mounting CBFS");
+ 		// Read each CBFS file.
+ 		while (reader.length() - reader.getPointerIndex() > 0) {
+-			monitor.checkCanceled();
++			monitor.checkCancelled();
+ 			monitor.setProgress(reader.getPointerIndex());
+ 
+ 			CBFSFile cbfsFile = new CBFSFile(reader);
+diff --git a/src/main/java/firmware/uefi_fv/UEFIFirmwareVolumeHeader.java b/src/main/java/firmware/uefi_fv/UEFIFirmwareVolumeHeader.java
+index 319b47b..369dd5b 100644
+--- a/src/main/java/firmware/uefi_fv/UEFIFirmwareVolumeHeader.java
++++ b/src/main/java/firmware/uefi_fv/UEFIFirmwareVolumeHeader.java
+@@ -104,7 +104,7 @@ public class UEFIFirmwareVolumeHeader implements UEFIFile {
+ 		long eofPos = provider.length() - UEFIFirmwareVolumeConstants.UEFI_FV_SIGNATURE_LEN;
+ 		long signaturePosition;
+ 		while ((signaturePosition = reader.getPointerIndex()) < eofPos) {
+-			monitor.checkCanceled();
++			monitor.checkCancelled();
+ 			monitor.setProgress(signaturePosition);
+ 
+ 			int signature = reader.readNextInt();

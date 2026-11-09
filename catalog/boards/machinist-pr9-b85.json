@@ -1,0 +1,48 @@
+{
+  "schema": "bme.board/1",
+  "id": "machinist-pr9-b85",
+  "vendor": "Machinist",
+  "model": "PR9",
+  "chipset": "Intel B85",
+  "revision": {
+    "status": "unknown",
+    "note": "Only a chip dump was reviewed; the physical revision was not recorded."
+  },
+  "description": "Second reference board for the x99-bios-fixes PR9 records. No hardware observations are recorded.",
+  "firmware": [
+    {
+      "id": "x99ha00m-20221202",
+      "title": "X99HA00M 2022-12-02",
+      "version_string": "X99H BIOS Date: 12/02/2022 Ver: X99HA00M",
+      "image_size": 16777216
+    }
+  ],
+  "facts": [
+    {
+      "id": "superio-nct5532d",
+      "statement": "The board carries a Nuvoton NCT5532D Super I/O (read the chip marking). The H01/H02 analysis uses that chip's datasheet."
+    }
+  ],
+  "patches": [
+    "A02",
+    "A03",
+    "A07",
+    "B01-B04-B06-B08",
+    "B01-B06",
+    "B02-B03",
+    "B05",
+    "B07-B08",
+    "B08",
+    "B09",
+    "B10",
+    "B11",
+    "H01",
+    "H02",
+    "H05",
+    "MRC-BREADCRUMBS",
+    "R01",
+    "S01",
+    "S02"
+  ],
+  "evidence": []
+}

@@ -1,0 +1,418 @@
+//! `bme`: inspect firmware images, plan guarded patches, build verified copies.
+//!
+//! Nothing here reads or writes a flash chip. Outputs are always new files.
+
+mod commands;
+mod config;
+mod output;
+mod publish;
+mod sources;
+#[cfg(test)]
+mod testkit;
+mod toolchain;
+mod transport;
+
+use clap::{Args, Parser, Subcommand};
+use output::{Out, exit};
+use std::path::PathBuf;
+
+#[derive(Parser)]
+#[command(name = "bme", version, about = "Biosmod Engine: inspect firmware images, plan guarded patches and verify patched copies.", long_about = None)]
+#[command(
+    after_help = "Workflow: bme scan dump.bin → bme plan dump.bin --select <ids> -o plan.json → bme patch dump.bin --plan plan.json -o fixed.bin → bme verify dump.bin fixed.bin\nAgents: add --json for one machine-readable document on stdout; see `bme capabilities --json`."
+)]
+pub struct Cli {
+    /// Emit one JSON document on stdout (including failures).
+    #[arg(long, global = true)]
+    json: bool,
+    /// Suppress progress notes on stderr.
+    #[arg(long, short, global = true)]
+    quiet: bool,
+    /// Forbid all network access for this invocation.
+    #[arg(long, global = true)]
+    offline: bool,
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    /// Print the engine, protocol and codec versions.
+    Version,
+    /// Describe supported commands, formats, limits and error codes.
+    Capabilities,
+    /// Print a bundled JSON Schema (or list them).
+    Schema { name: Option<String> },
+    /// Print built-in documentation (or list topics).
+    Guide { topic: Option<String> },
+    /// List firmware volumes, files and the flash layout of an image.
+    Inspect(InspectArgs),
+    /// Report known defects and patch states for an image.
+    Scan(ScanArgs),
+    /// Resolve a selection, dry-build it in memory and write a reviewable plan.
+    Plan(PlanArgs),
+    /// Build a verified patched copy from a plan or a selection.
+    Patch(PatchArgs),
+    /// Independently verify an input/output pair against its manifest.
+    Verify(VerifyArgs),
+    /// Write one module (PE32 or DSDT) to a file.
+    Extract(ExtractArgs),
+    /// Put a hand-edited module back into a copy of the image.
+    Replace(ReplaceArgs),
+    /// Draft a patch variant for another build by unique signature matching.
+    Derive(DeriveArgs),
+    /// Manage, validate and index catalogs.
+    #[command(subcommand)]
+    Catalog(CatalogCommand),
+    /// Check and install external analysis tools (Ghidra).
+    #[command(subcommand)]
+    Tools(ToolsCommand),
+    /// Diagnostics outside the correction catalog.
+    #[command(subcommand)]
+    Diag(DiagCommand),
+    /// Developer helpers.
+    #[command(subcommand)]
+    Dev(DevCommand),
+}
+
+#[derive(Args)]
+pub struct SourceArgs {
+    /// Catalog alias, catalog directory or board profile file (repeatable; default: official).
+    #[arg(long = "catalog", value_name = "SOURCE")]
+    pub catalogs: Vec<String>,
+    /// Accept an unregistered, unsigned local catalog path.
+    #[arg(long)]
+    pub allow_unsigned_local: bool,
+    /// Firmware build id, instead of detecting it.
+    #[arg(long)]
+    pub firmware: Option<String>,
+}
+
+#[derive(Args)]
+pub struct InspectArgs {
+    pub rom: PathBuf,
+    /// List every FFS file.
+    #[arg(long)]
+    pub files: bool,
+}
+
+#[derive(Args)]
+pub struct ScanArgs {
+    pub rom: PathBuf,
+    #[command(flatten)]
+    pub source: SourceArgs,
+}
+
+#[derive(Args, Clone)]
+pub struct SelectArgs {
+    /// Patch ids: ID, ALIAS::ID or ALIAS::ID@VERSION; `recommended` selects plannable tier-1 corrections.
+    #[arg(long, num_args = 1.., value_delimiter = ',')]
+    pub select: Vec<String>,
+    /// Assert a hardware fact confirmed on the physical board (repeatable).
+    #[arg(long = "assert", value_name = "FACT")]
+    pub facts: Vec<String>,
+    /// Include records on hold (unknown hardware effect).
+    #[arg(long)]
+    pub allow_hold: bool,
+    /// Include diagnostic patches.
+    #[arg(long)]
+    pub allow_diagnostic: bool,
+}
+
+#[derive(Args)]
+pub struct PlanArgs {
+    pub rom: PathBuf,
+    #[command(flatten)]
+    pub select: SelectArgs,
+    #[command(flatten)]
+    pub source: SourceArgs,
+    /// Plan file to create (must not exist).
+    #[arg(short, long)]
+    pub output: PathBuf,
+}
+
+#[derive(Args)]
+pub struct PatchArgs {
+    pub rom: PathBuf,
+    /// A plan from `bme plan`; all inputs are revalidated against it.
+    #[arg(long, conflicts_with = "select")]
+    pub plan: Option<PathBuf>,
+    #[command(flatten)]
+    pub select: SelectArgs,
+    #[command(flatten)]
+    pub source: SourceArgs,
+    /// Output image (must not exist); the manifest goes to <output>.manifest.json.
+    #[arg(short, long)]
+    pub output: PathBuf,
+}
+
+#[derive(Args)]
+pub struct VerifyArgs {
+    pub input: PathBuf,
+    pub output: PathBuf,
+    /// Output manifest (default: <output>.manifest.json).
+    #[arg(long)]
+    pub manifest: Option<PathBuf>,
+    /// The plan the manifest must embed.
+    #[arg(long)]
+    pub plan: Option<PathBuf>,
+}
+
+#[derive(Args)]
+pub struct ExtractArgs {
+    pub rom: PathBuf,
+    #[arg(long)]
+    pub guid: String,
+    #[arg(long, value_enum, default_value = "pe32")]
+    pub leaf: commands::Leaf,
+    #[arg(short, long)]
+    pub output: PathBuf,
+}
+
+#[derive(Args)]
+pub struct ReplaceArgs {
+    pub rom: PathBuf,
+    #[arg(long)]
+    pub guid: String,
+    #[arg(long, value_enum, default_value = "pe32")]
+    pub leaf: commands::Leaf,
+    /// The edited module.
+    #[arg(long)]
+    pub input: PathBuf,
+    /// Allow a different module size (files may move; XIP files never do).
+    #[arg(long)]
+    pub allow_resize: bool,
+    #[arg(short, long)]
+    pub output: PathBuf,
+}
+
+#[derive(Args)]
+pub struct DeriveArgs {
+    #[arg(long)]
+    pub patch: String,
+    /// Firmware build the record was made for.
+    #[arg(long)]
+    pub from_firmware: String,
+    #[arg(long)]
+    pub component: String,
+    /// The module extracted from the other build.
+    #[arg(long)]
+    pub module: PathBuf,
+    #[command(flatten)]
+    pub source: SourceArgs,
+}
+
+#[derive(Subcommand)]
+pub enum CatalogCommand {
+    /// Validate a catalog directory (or board file) without registering it.
+    Validate { path: PathBuf },
+    /// Regenerate catalog.json's file index (lengths and hashes).
+    Index {
+        path: PathBuf,
+        /// Only report whether the index is current.
+        #[arg(long)]
+        check: bool,
+    },
+    /// Register a local directory or HTTPS catalog under an alias.
+    Add {
+        alias: String,
+        location: String,
+        /// Minisign public key (file or base64) that must sign catalog.json.
+        #[arg(long)]
+        trust_key: Option<String>,
+        /// Accept an unsigned local directory.
+        #[arg(long)]
+        allow_unsigned_local: bool,
+    },
+    /// List registered sources and their snapshots.
+    List,
+    /// Remove a registered source (cached snapshots are kept until `--purge`).
+    Remove {
+        alias: String,
+        #[arg(long)]
+        purge: bool,
+    },
+    /// Download and verify a new snapshot of a remote source.
+    Update { alias: String },
+    /// Summarize boards, firmware builds and patches of a source.
+    Show {
+        #[command(flatten)]
+        source: SourceArgs,
+    },
+    /// Convert x99-bios-fixes schema-1 records into bme.patch/1 files.
+    #[command(name = "import-x99fix")]
+    ImportX99fix {
+        /// The reference repository's patches/ directory.
+        dir: PathBuf,
+        /// Board-to-firmware mapping, e.g. mr9a=mnx99mr9apro-230322 (repeatable).
+        #[arg(long = "map", required = true)]
+        maps: Vec<String>,
+        /// Reference commit the records come from.
+        #[arg(long)]
+        commit: String,
+        #[arg(
+            long,
+            default_value = "https://github.com/juliopolycarpo/x99-bios-fixes"
+        )]
+        repository: String,
+        /// Output directory (the catalog's patches/ directory).
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ToolsCommand {
+    /// Read-only check of Ghidra, JDK and extension compatibility.
+    Doctor {
+        /// Also start Ghidra headless and import a tiny file.
+        #[arg(long)]
+        deep: bool,
+    },
+    /// Install pinned tools (Linux only for now).
+    #[command(subcommand)]
+    Setup(SetupCommand),
+    /// Import modules into a Ghidra project and export C, assembly and JSON.
+    Analyze {
+        #[arg(long)]
+        project: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(required = true)]
+        modules: Vec<PathBuf>,
+        /// Per-file analysis timeout in seconds.
+        #[arg(long, default_value_t = 600)]
+        timeout: u64,
+    },
+    /// Print managed tool and cache locations.
+    Paths,
+}
+
+#[derive(Subcommand)]
+pub enum SetupCommand {
+    /// Ghidra with the ghidra-firmware-utils extension, from the pinned profile.
+    Ghidra(toolchain::SetupArgs),
+}
+
+#[derive(Subcommand)]
+pub enum DiagCommand {
+    /// MR9A MRC checkpoint breadcrumbs in upper-bank CMOS.
+    #[command(subcommand)]
+    Breadcrumbs(BreadcrumbCommand),
+}
+
+#[derive(Subcommand)]
+pub enum BreadcrumbCommand {
+    /// Decode the ten bytes E0-E9 given as hex.
+    Decode { hex: Vec<String> },
+    /// Read E0-E9 through ports 72h/73h on Linux (read-only; needs root).
+    Read {
+        #[arg(long, default_value = "/dev/port")]
+        device: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DevCommand {
+    /// Write a synthetic image and catalog (no vendor code) to try the workflow.
+    Synthetic {
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+}
+
+fn command_name(command: &Command) -> &'static str {
+    match command {
+        Command::Version => "version",
+        Command::Capabilities => "capabilities",
+        Command::Schema { .. } => "schema",
+        Command::Guide { .. } => "guide",
+        Command::Inspect(_) => "inspect",
+        Command::Scan(_) => "scan",
+        Command::Plan(_) => "plan",
+        Command::Patch(_) => "patch",
+        Command::Verify(_) => "verify",
+        Command::Extract(_) => "extract",
+        Command::Replace(_) => "replace",
+        Command::Derive(_) => "derive",
+        Command::Catalog(c) => match c {
+            CatalogCommand::Validate { .. } => "catalog validate",
+            CatalogCommand::Index { .. } => "catalog index",
+            CatalogCommand::Add { .. } => "catalog add",
+            CatalogCommand::List => "catalog list",
+            CatalogCommand::Remove { .. } => "catalog remove",
+            CatalogCommand::Update { .. } => "catalog update",
+            CatalogCommand::Show { .. } => "catalog show",
+            CatalogCommand::ImportX99fix { .. } => "catalog import-x99fix",
+        },
+        Command::Tools(t) => match t {
+            ToolsCommand::Doctor { .. } => "tools doctor",
+            ToolsCommand::Setup(_) => "tools setup ghidra",
+            ToolsCommand::Analyze { .. } => "tools analyze",
+            ToolsCommand::Paths => "tools paths",
+        },
+        Command::Diag(_) => "diag breadcrumbs",
+        Command::Dev(_) => "dev synthetic",
+    }
+}
+
+fn main() {
+    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let wants_json = args.iter().skip(1).any(|a| a == "--json");
+    let cli = match Cli::try_parse_from(&args) {
+        Ok(cli) => cli,
+        Err(error) => {
+            use clap::error::ErrorKind;
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp
+                    | ErrorKind::DisplayVersion
+                    | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+            ) {
+                let _ = error.print();
+                std::process::exit(
+                    if error.kind() == ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand {
+                        exit::USAGE
+                    } else {
+                        exit::OK
+                    },
+                );
+            }
+            let out = Out {
+                json: wants_json,
+                quiet: false,
+            };
+            if wants_json {
+                let message = error
+                    .kind()
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "invalid arguments".into());
+                let detail = error.to_string();
+                let first = detail
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .trim_start_matches("error: ")
+                    .to_string();
+                let failure = biosmod_core::Error::new(
+                    biosmod_core::Code::Usage,
+                    if first.is_empty() { message } else { first },
+                );
+                std::process::exit(out.failure("usage", &failure));
+            }
+            let _ = error.print();
+            std::process::exit(exit::USAGE);
+        }
+    };
+    let out = Out {
+        json: cli.json,
+        quiet: cli.quiet,
+    };
+    let name = command_name(&cli.command);
+    let code = match commands::run(cli.command, out, cli.offline) {
+        Ok(reply) => out.success(name, reply),
+        Err(error) => out.failure(name, &error),
+    };
+    std::process::exit(code);
+}

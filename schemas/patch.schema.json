@@ -1,0 +1,566 @@
+{
+  "$defs": {
+    "Checks": {
+      "additionalProperties": false,
+      "description": "Extra structural checks a component requires.",
+      "properties": {
+        "no_relocated_bytes": {
+          "default": false,
+          "description": "No changed byte may be covered by a PE base relocation.",
+          "type": "boolean"
+        },
+        "xip_image_base": {
+          "default": false,
+          "description": "The module must be uncompressed and linked at the flash address it occupies.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "Component": {
+      "additionalProperties": false,
+      "description": "One module change for one firmware build.",
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/Checks"
+        },
+        "ffs_guid": {
+          "$ref": "#/$defs/Guid"
+        },
+        "hunks": {
+          "items": {
+            "$ref": "#/$defs/Hunk"
+          },
+          "type": "array"
+        },
+        "input_sha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hash of the `layer_on` result; required with `layer_on`."
+        },
+        "layer_on": {
+          "description": "Patches whose combined result these hunks are written against.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "leaf": {
+          "$ref": "#/$defs/LeafKind"
+        },
+        "memory_failure_guard": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GuardRecipe"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "result_sha256": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "result_size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_sha256": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "source_size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "table_offset": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "ffs_guid",
+        "leaf",
+        "source_sha256",
+        "source_size",
+        "result_sha256",
+        "result_size",
+        "hunks"
+      ],
+      "type": "object"
+    },
+    "Confidence": {
+      "additionalProperties": false,
+      "description": "Confidence grades, kept separate as the reference requires.",
+      "properties": {
+        "findings": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "offline_fix": {
+          "type": "string"
+        },
+        "physical_fix": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "findings",
+        "offline_fix",
+        "physical_fix"
+      ],
+      "type": "object"
+    },
+    "ContextRequirement": {
+      "additionalProperties": false,
+      "description": "Another module whose exact content a variant requires.",
+      "properties": {
+        "ffs_guid": {
+          "$ref": "#/$defs/Guid"
+        },
+        "leaf": {
+          "$ref": "#/$defs/LeafKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "sha256_any": {
+          "items": {
+            "$ref": "#/$defs/Digest256"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "ffs_guid",
+        "leaf",
+        "sha256_any"
+      ],
+      "type": "object"
+    },
+    "Digest256": {
+      "description": "SHA-256 digest, lowercase hexadecimal",
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "GuardHeader": {
+      "additionalProperties": false,
+      "properties": {
+        "offset": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "value": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "offset",
+        "value"
+      ],
+      "type": "object"
+    },
+    "GuardRecipe": {
+      "additionalProperties": false,
+      "description": "The reversible recipe for the reference memory-failure guard.",
+      "properties": {
+        "assembly_sha256": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "displaced_prologue": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "entry_offset": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "guard_offset": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "guard_size": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "halt_fn": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "legacy_headers": {
+          "items": {
+            "$ref": "#/$defs/GuardHeader"
+          },
+          "type": "array"
+        },
+        "legacy_sha256": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "legacy_size": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revision": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "legacy_sha256",
+        "legacy_size",
+        "entry_offset",
+        "displaced_prologue",
+        "guard_offset",
+        "guard_size",
+        "halt_fn",
+        "legacy_headers",
+        "assembly_sha256"
+      ],
+      "type": "object"
+    },
+    "Guid": {
+      "description": "EFI GUID in registry format",
+      "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
+      "type": "string"
+    },
+    "HexBytes": {
+      "description": "Bytes as hexadecimal",
+      "pattern": "^([0-9a-fA-F]{2})*$",
+      "type": "string"
+    },
+    "Hunk": {
+      "additionalProperties": false,
+      "description": "A guarded byte change in component coordinates.",
+      "properties": {
+        "after": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "before": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "context_after": {
+          "$ref": "#/$defs/HexBytes",
+          "default": ""
+        },
+        "context_before": {
+          "$ref": "#/$defs/HexBytes",
+          "default": ""
+        },
+        "findings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "offset": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "op": {
+          "$ref": "#/$defs/HunkOp"
+        },
+        "wild_after": {
+          "default": [],
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "wild_before": {
+          "default": [],
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "op",
+        "offset",
+        "before",
+        "after"
+      ],
+      "type": "object"
+    },
+    "HunkOp": {
+      "oneOf": [
+        {
+          "const": "replace",
+          "description": "Replace `before` with `after` of the same length.",
+          "type": "string"
+        },
+        {
+          "const": "append",
+          "description": "Append `after` at the end of the module (`before` empty, `offset` = module size).",
+          "type": "string"
+        }
+      ]
+    },
+    "LeafKind": {
+      "oneOf": [
+        {
+          "const": "pe32",
+          "description": "The PE32 or TE image section.",
+          "type": "string"
+        },
+        {
+          "const": "acpi-table",
+          "description": "A DSDT inside a RAW section.",
+          "type": "string"
+        }
+      ]
+    },
+    "Packing": {
+      "oneOf": [
+        {
+          "enum": [
+            "automatic"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "manual",
+          "description": "Known not to fit automatically; planning refuses it.",
+          "type": "string"
+        }
+      ]
+    },
+    "PatchClass": {
+      "enum": [
+        "correction",
+        "diagnostic"
+      ],
+      "type": "string"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "description": "Where a record came from.",
+      "properties": {
+        "commit": {
+          "type": "string"
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "repository": {
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "repository",
+        "commit",
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "Tier": {
+      "oneOf": [
+        {
+          "const": "recommended",
+          "description": "Apply first (reference tier 1).",
+          "type": "string"
+        },
+        {
+          "const": "optional",
+          "description": "Reference tier 2.",
+          "type": "string"
+        },
+        {
+          "const": "hold",
+          "description": "Unknown hardware effect; refused without `--allow-hold`.",
+          "type": "string"
+        }
+      ]
+    },
+    "Variant": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "components": {
+              "items": {
+                "$ref": "#/$defs/Component"
+              },
+              "type": "array"
+            },
+            "context": {
+              "default": [],
+              "description": "Other modules whose exact content this variant's analysis depends on.",
+              "items": {
+                "$ref": "#/$defs/ContextRequirement"
+              },
+              "type": "array"
+            },
+            "requires_facts": {
+              "default": [],
+              "description": "Board facts that must be asserted before planning.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "status": {
+              "const": "applicable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "components"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "status": {
+              "const": "not-applicable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/bme.patch-1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A reusable patch with firmware-specific variants.",
+  "properties": {
+    "class": {
+      "$ref": "#/$defs/PatchClass"
+    },
+    "confidence": {
+      "$ref": "#/$defs/Confidence"
+    },
+    "conflicts": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "id": {
+      "type": "string"
+    },
+    "limits": {
+      "type": "string"
+    },
+    "packing": {
+      "$ref": "#/$defs/Packing",
+      "default": "automatic"
+    },
+    "provenance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Provenance"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "requires": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "bme.patch/1",
+      "type": "string"
+    },
+    "supersedes": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "tier": {
+      "$ref": "#/$defs/Tier"
+    },
+    "title": {
+      "type": "string"
+    },
+    "variants": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Variant"
+      },
+      "description": "Keyed by firmware build id.",
+      "type": "object"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "version",
+    "title",
+    "class",
+    "tier",
+    "findings",
+    "confidence",
+    "limits",
+    "variants"
+  ],
+  "title": "Patch",
+  "type": "object"
+}

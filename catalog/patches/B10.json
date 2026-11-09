@@ -1,0 +1,310 @@
+{
+  "schema": "bme.patch/1",
+  "id": "B10",
+  "version": "1.0.0",
+  "title": "Reject unsupported Sx-exit registration before linking its record",
+  "class": "correction",
+  "tier": "optional",
+  "findings": [
+    "B10"
+  ],
+  "confidence": {
+    "findings": {
+      "B10": "C0"
+    },
+    "offline_fix": "C1",
+    "physical_fix": "C2"
+  },
+  "packing": "automatic",
+  "requires": [],
+  "supersedes": [],
+  "conflicts": [],
+  "limits": "No exit-dispatch pass exists in the reviewed driver. Return EFI_UNSUPPORTED rather than falsely accepting the request. Actual exit clients must handle that status; none was identified.",
+  "provenance": {
+    "repository": "https://github.com/juliopolycarpo/x99-bios-fixes",
+    "commit": "765e7a80ae8337c0953dc0da41de5f28b56c5c92",
+    "path": "patches/B10.json",
+    "sha256": "da01af9231c061123c6843cfe0723e78810d50af79d1328fdbf01a34f8ce3023",
+    "note": "converted by `bme catalog import-x99fix`; hunks and hashes copied verbatim"
+  },
+  "variants": {
+    "mnx99mr9apro-230322": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "PchSmiDispatcher",
+          "ffs_guid": "B0D6ED53-B844-43F5-BD2F-61095264E77E",
+          "leaf": "pe32",
+          "source_sha256": "bea0e06b2e0a6f57ddba1424959569d2c8b147cb036a8488e4f99fb352d75e80",
+          "source_size": 24960,
+          "result_sha256": "1a1dcb0b97572631122de77970d15f1c326536c0a8c4f35ada4284d66ff14079",
+          "result_size": 24960,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 16027,
+              "before": "413bc5",
+              "after": "83f806",
+              "context_before": "e9f5000000488b5c24208b8380000000",
+              "context_after": "0f8cbdfcffff83f8060f8db4fcffff8b",
+              "findings": [
+                "B10"
+              ],
+              "wild_before": [
+                1,
+                2,
+                3,
+                4,
+                21,
+                22,
+                23,
+                24,
+                30,
+                31,
+                32,
+                33
+              ],
+              "wild_after": [
+                1,
+                2,
+                3,
+                4,
+                21,
+                22,
+                23,
+                24,
+                30,
+                31,
+                32,
+                33
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 16031,
+              "before": "8c",
+              "after": "83",
+              "context_before": "00488b5c24208b8380000000413bc50f",
+              "context_after": "bdfcffff83f8060f8db4fcffff8b8384",
+              "findings": [
+                "B10"
+              ],
+              "wild_before": [
+                17,
+                18,
+                19,
+                20,
+                26,
+                27,
+                28,
+                29
+              ],
+              "wild_after": [
+                17,
+                18,
+                19,
+                20,
+                26,
+                27,
+                28,
+                29
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 16036,
+              "before": "83f8060f8db4fcffff8b8384000000413bc50f8ca5fcffff83f8020f8d9c",
+              "after": "8b838400000085c07417ffc80f85abfcffff48bf0300000000000080e9a6",
+              "context_before": "208b8380000000413bc50f8cbdfcffff",
+              "context_after": "fcffff488d1574e9ffff488d4b084889",
+              "findings": [
+                "B10"
+              ],
+              "wild_before": [
+                12,
+                13,
+                14,
+                15,
+                21,
+                22,
+                23,
+                24,
+                36,
+                37,
+                38,
+                39,
+                45,
+                46,
+                47,
+                48,
+                54,
+                55,
+                56,
+                57
+              ],
+              "wild_after": [
+                12,
+                13,
+                14,
+                15,
+                30,
+                31,
+                32,
+                33,
+                45,
+                46,
+                47,
+                48,
+                54,
+                55,
+                56,
+                57
+              ]
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    },
+    "x99ha00m-20221202": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "PchSmiDispatcher",
+          "ffs_guid": "B0D6ED53-B844-43F5-BD2F-61095264E77E",
+          "leaf": "pe32",
+          "source_sha256": "88faa382dc2cc1ff99bbf24008647b86e1cf76d0000f79a4c9698cf1b94697a7",
+          "source_size": 24992,
+          "result_sha256": "b1db2356cc27fd68042c0fd5b6c56d8866f5b3dd83a847f2a0e3f05e06ab06fe",
+          "result_size": 24992,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 16027,
+              "before": "413bc5",
+              "after": "83f806",
+              "context_before": "e9f5000000488b5c24208b8380000000",
+              "context_after": "0f8cbdfcffff83f8060f8db4fcffff8b",
+              "findings": [
+                "B10"
+              ],
+              "wild_before": [
+                1,
+                2,
+                3,
+                4,
+                21,
+                22,
+                23,
+                24,
+                30,
+                31,
+                32,
+                33
+              ],
+              "wild_after": [
+                1,
+                2,
+                3,
+                4,
+                21,
+                22,
+                23,
+                24,
+                30,
+                31,
+                32,
+                33
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 16031,
+              "before": "8c",
+              "after": "83",
+              "context_before": "00488b5c24208b8380000000413bc50f",
+              "context_after": "bdfcffff83f8060f8db4fcffff8b8384",
+              "findings": [
+                "B10"
+              ],
+              "wild_before": [
+                17,
+                18,
+                19,
+                20,
+                26,
+                27,
+                28,
+                29
+              ],
+              "wild_after": [
+                17,
+                18,
+                19,
+                20,
+                26,
+                27,
+                28,
+                29
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 16036,
+              "before": "83f8060f8db4fcffff8b8384000000413bc50f8ca5fcffff83f8020f8d9c",
+              "after": "8b838400000085c07417ffc80f85abfcffff48bf0300000000000080e9a6",
+              "context_before": "208b8380000000413bc50f8cbdfcffff",
+              "context_after": "fcffff488d1574e9ffff488d4b084889",
+              "findings": [
+                "B10"
+              ],
+              "wild_before": [
+                12,
+                13,
+                14,
+                15,
+                21,
+                22,
+                23,
+                24,
+                36,
+                37,
+                38,
+                39,
+                45,
+                46,
+                47,
+                48,
+                54,
+                55,
+                56,
+                57
+              ],
+              "wild_after": [
+                12,
+                13,
+                14,
+                15,
+                30,
+                31,
+                32,
+                33,
+                45,
+                46,
+                47,
+                48,
+                54,
+                55,
+                56,
+                57
+              ]
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    }
+  }
+}

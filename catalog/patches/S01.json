@@ -1,0 +1,129 @@
+{
+  "schema": "bme.patch/1",
+  "id": "S01",
+  "version": "1.0.0",
+  "title": "Skip PR9's cold-boot ME/UMA completion notification on S3 restoration",
+  "class": "correction",
+  "tier": "optional",
+  "findings": [
+    "S01"
+  ],
+  "confidence": {
+    "findings": {
+      "S01": "C2"
+    },
+    "offline_fix": "C2",
+    "physical_fix": "C2"
+  },
+  "packing": "automatic",
+  "requires": [],
+  "supersedes": [],
+  "conflicts": [],
+  "limits": "PR9 resume hypothesis, C2. Preserves the ordinary-boot call. New stub extends VirtualSize inside existing raw padding. The failed resume has not been traced reaching the helper.",
+  "provenance": {
+    "repository": "https://github.com/juliopolycarpo/x99-bios-fixes",
+    "commit": "765e7a80ae8337c0953dc0da41de5f28b56c5c92",
+    "path": "patches/S01.json",
+    "sha256": "47252f341dde5136c5a2fd146f7b476b148821a98b275e86baf317546a9cef80",
+    "note": "converted by `bme catalog import-x99fix`; hunks and hashes copied verbatim"
+  },
+  "variants": {
+    "mnx99mr9apro-230322": {
+      "status": "not-applicable",
+      "reason": "The MR9A source already excludes this ME helper during S3 restoration."
+    },
+    "x99ha00m-20221202": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "UncoreInitPeim",
+          "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3",
+          "leaf": "pe32",
+          "source_sha256": "a645b2ea89779bcc66bfc96581aebb686aa9a6a15e7b6b232e333b292e59ed42",
+          "source_size": 605920,
+          "result_sha256": "917a0ad078fcc1da9e6e9a81abb4a9e0ceba5b9f9652f85f642c5e00242bd09d",
+          "result_size": 605920,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 464,
+              "before": "c8",
+              "after": "d7",
+              "context_before": "00000000000000002e74657874000000",
+              "context_after": "26090020020000e02609002002000000",
+              "findings": [
+                "S01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 588646,
+              "before": "f7e3ffff",
+              "after": "7e2d0000",
+              "context_before": "c8750756e8a80a0000595fff750c56e8",
+              "context_after": "59595e5bc9c3558bec83ec485333db57",
+              "findings": [
+                "S01"
+              ],
+              "wild_before": [
+                5,
+                6,
+                7,
+                8,
+                16,
+                17,
+                18,
+                19
+              ],
+              "wild_after": [
+                5,
+                6,
+                7,
+                8,
+                16,
+                17,
+                18,
+                19
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 600296,
+              "before": "0000000000",
+              "after": "83becc2002",
+              "context_before": "00000000000000000000000000000000",
+              "context_after": "00000000000000000000000000000000",
+              "findings": [
+                "S01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 600302,
+              "before": "000000000000000000",
+              "after": "017405e96bb6ffffc3",
+              "context_before": "00000000000000000000000000000000",
+              "context_after": "00000000000000000000000000700100",
+              "findings": [
+                "S01"
+              ],
+              "wild_before": [],
+              "wild_after": [
+                20,
+                21,
+                22,
+                23
+              ]
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    }
+  }
+}

@@ -1,0 +1,280 @@
+//! Exclusive, staged publication of an image and its manifest.
+//!
+//! Both files are written to temporary files in the output directory and
+//! synced first. The manifest is linked into place before the image, both
+//! without replacing existing files, so an image never appears without its
+//! manifest. If the image cannot be published, the manifest is removed again;
+//! if that also fails, the result is `PUBLISH_INCOMPLETE` naming what remains.
+
+use crate::config::io_error;
+use biosmod_core::{Code, Error, Result};
+use serde_json::json;
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use tempfile::NamedTempFile;
+
+/// Moves a staged file into place without replacing an existing one.
+pub trait Persist {
+    fn persist(
+        &self,
+        staged: NamedTempFile,
+        target: &Path,
+    ) -> std::result::Result<(), (NamedTempFile, std::io::Error)>;
+    fn remove(&self, path: &Path) -> std::io::Result<()>;
+}
+
+/// The real filesystem.
+pub struct Filesystem;
+
+impl Persist for Filesystem {
+    fn persist(
+        &self,
+        staged: NamedTempFile,
+        target: &Path,
+    ) -> std::result::Result<(), (NamedTempFile, std::io::Error)> {
+        staged
+            .persist_noclobber(target)
+            .map(|_| ())
+            .map_err(|e| (e.file, e.error))
+    }
+
+    fn remove(&self, path: &Path) -> std::io::Result<()> {
+        fs::remove_file(path)
+    }
+}
+
+/// The manifest path for an output image: `<output>.manifest.json`.
+pub fn manifest_path(output: &Path) -> PathBuf {
+    let mut name = output
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    name.push(".manifest.json");
+    output.with_file_name(name)
+}
+
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => false,
+    }
+}
+
+/// Refuse outputs that exist (including dangling symlinks) or alias an input.
+pub fn check_outputs(outputs: &[&Path], inputs: &[&Path]) -> Result<()> {
+    for (i, output) in outputs.iter().enumerate() {
+        if fs::symlink_metadata(output).is_ok() {
+            return Err(Error::new(
+                Code::OutputExists,
+                format!(
+                    "{}: already exists; choose a new output name",
+                    output.display()
+                ),
+            ));
+        }
+        if inputs
+            .iter()
+            .any(|input| same_file(input, output) || input == output)
+            || outputs[..i].contains(output)
+        {
+            return Err(Error::new(
+                Code::OutputExists,
+                format!("{}: aliases an input or another output", output.display()),
+            ));
+        }
+        let parent = output
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        if !parent.is_dir() {
+            return Err(Error::new(
+                Code::Io,
+                format!("{}: output directory does not exist", parent.display()),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn stage(target: &Path, bytes: &[u8]) -> Result<NamedTempFile> {
+    let parent = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut staged = tempfile::Builder::new()
+        .prefix(".bme-staging-")
+        .tempfile_in(parent)
+        .map_err(|e| io_error(parent, e))?;
+    staged
+        .write_all(bytes)
+        .and_then(|()| staged.as_file().sync_all())
+        .map_err(|e| io_error(staged.path(), e))?;
+    Ok(staged)
+}
+
+fn persist_error(target: &Path, error: std::io::Error) -> Error {
+    if error.kind() == std::io::ErrorKind::AlreadyExists {
+        Error::new(
+            Code::OutputExists,
+            format!(
+                "{}: appeared during publication; nothing was replaced",
+                target.display()
+            ),
+        )
+    } else {
+        io_error(target, error)
+    }
+}
+
+/// Publish `image` at `output` and `manifest` at its manifest path.
+pub fn publish(persist: &dyn Persist, output: &Path, image: &[u8], manifest: &[u8]) -> Result<()> {
+    let manifest_target = manifest_path(output);
+    let staged_manifest = stage(&manifest_target, manifest)?;
+    let staged_image = stage(output, image)?;
+    persist
+        .persist(staged_manifest, &manifest_target)
+        .map_err(|(_, e)| persist_error(&manifest_target, e))?;
+    let Err((staged_image, error)) = persist.persist(staged_image, output) else {
+        sync_parent(output);
+        return Ok(());
+    };
+    let cause = persist_error(output, error);
+    if persist.remove(&manifest_target).is_ok() {
+        return Err(cause);
+    }
+    // Keep the verified image bytes recoverable and report every leftover.
+    let kept = staged_image
+        .keep()
+        .map(|(_, p)| p.display().to_string())
+        .unwrap_or_default();
+    Err(Error::new(
+        Code::PublishIncomplete,
+        format!(
+            "{}; the manifest {} was published but could not be removed",
+            cause.message,
+            manifest_target.display()
+        ),
+    )
+    .with_details(json!({"manifest": manifest_target, "staged_image": kept, "cause": cause.code})))
+}
+
+fn sync_parent(path: &Path) {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty())
+        && let Ok(dir) = fs::File::open(parent)
+    {
+        let _ = dir.sync_all();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    /// Fails to persist the image (the second call); optionally also fails removal.
+    struct FailingImage {
+        calls: Cell<u32>,
+        removal_fails: bool,
+    }
+
+    impl Persist for FailingImage {
+        fn persist(
+            &self,
+            staged: NamedTempFile,
+            target: &Path,
+        ) -> std::result::Result<(), (NamedTempFile, std::io::Error)> {
+            self.calls.set(self.calls.get() + 1);
+            if self.calls.get() == 2 {
+                return Err((staged, std::io::Error::other("simulated disk failure")));
+            }
+            Filesystem.persist(staged, target)
+        }
+
+        fn remove(&self, path: &Path) -> std::io::Result<()> {
+            if self.removal_fails {
+                Err(std::io::Error::other("simulated removal failure"))
+            } else {
+                fs::remove_file(path)
+            }
+        }
+    }
+
+    #[test]
+    fn publishes_both_files_exclusively() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("out.rom");
+        publish(&Filesystem, &out, b"image", b"{}").unwrap();
+        assert_eq!(fs::read(&out).unwrap(), b"image");
+        assert_eq!(fs::read(manifest_path(&out)).unwrap(), b"{}");
+        let error = publish(&Filesystem, &out, b"other", b"{}").unwrap_err();
+        assert_eq!(error.code, Code::OutputExists, "{error}");
+        assert_eq!(fs::read(&out).unwrap(), b"image");
+    }
+
+    #[test]
+    fn image_failure_rolls_back_the_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("out.rom");
+        let error = publish(
+            &FailingImage {
+                calls: Cell::new(0),
+                removal_fails: false,
+            },
+            &out,
+            b"image",
+            b"{}",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, Code::Io, "{error}");
+        assert!(!out.exists() && !manifest_path(&out).exists());
+        assert_eq!(
+            fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "staged files are cleaned up"
+        );
+    }
+
+    #[test]
+    fn failed_rollback_reports_incomplete_with_recoverable_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("out.rom");
+        let error = publish(
+            &FailingImage {
+                calls: Cell::new(0),
+                removal_fails: true,
+            },
+            &out,
+            b"image",
+            b"{}",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, Code::PublishIncomplete, "{error}");
+        let details = error.details.unwrap();
+        let staged = PathBuf::from(details["staged_image"].as_str().unwrap());
+        assert_eq!(fs::read(staged).unwrap(), b"image");
+        assert!(manifest_path(&out).exists() && !out.exists());
+    }
+
+    #[test]
+    fn outputs_must_be_new_and_distinct_from_inputs() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("in.rom");
+        fs::write(&input, b"x").unwrap();
+        assert_eq!(
+            check_outputs(&[&input], &[&input]).unwrap_err().code,
+            Code::OutputExists
+        );
+        let fresh = dir.path().join("new.rom");
+        assert!(check_outputs(&[&fresh], &[&input]).is_ok());
+        #[cfg(unix)]
+        {
+            let link = dir.path().join("dangling");
+            std::os::unix::fs::symlink(dir.path().join("missing"), &link).unwrap();
+            assert_eq!(
+                check_outputs(&[&link], &[&input]).unwrap_err().code,
+                Code::OutputExists
+            );
+        }
+    }
+}

@@ -1,0 +1,364 @@
+{
+  "schema": "bme.patch/1",
+  "id": "B02-B03",
+  "version": "1.0.0",
+  "title": "Separate DIMM counters and establish page zero during Auto discovery",
+  "class": "correction",
+  "tier": "recommended",
+  "findings": [
+    "B02",
+    "B03"
+  ],
+  "confidence": {
+    "findings": {
+      "B02": "C0",
+      "B03": "C0"
+    },
+    "offline_fix": "C1",
+    "physical_fix": "C2"
+  },
+  "packing": "automatic",
+  "requires": [],
+  "supersedes": [],
+  "conflicts": [],
+  "limits": "B03 enables a path whose old counter is defective; ship with B02. Explicit Disabled remains unchanged. A page command that fails to apply can still produce wrong-page data under B04.",
+  "provenance": {
+    "repository": "https://github.com/juliopolycarpo/x99-bios-fixes",
+    "commit": "765e7a80ae8337c0953dc0da41de5f28b56c5c92",
+    "path": "patches/B02-B03.json",
+    "sha256": "bd15211c5b505514f0c270429e9ea3dd04efba19250badbee63459f03b0fe5a6",
+    "note": "converted by `bme catalog import-x99fix`; hunks and hashes copied verbatim"
+  },
+  "variants": {
+    "mnx99mr9apro-230322": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "UncoreInitPeim",
+          "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3",
+          "leaf": "pe32",
+          "source_sha256": "2582bbe3fec0f81f6e14d20a79fd062ca66694010158fcd8e42f36ea09601000",
+          "source_size": 604832,
+          "result_sha256": "5595ac531753f6c31833f5eb5018716e648da0f780ae883ccd989aae61c2e99a",
+          "result_size": 604832,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 468216,
+              "before": "20",
+              "after": "24",
+              "context_before": "c93c0c72020cff5e5b5dc3558bec83ec",
+              "context_after": "538b5d085657ff750cc645ff0053c645",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 468462,
+              "before": "f8",
+              "after": "dc",
+              "context_before": "75f4ff750c53e8aca1fbff83c40cc645",
+              "context_after": "008945f08b45f0803800747233c04066",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [
+                7,
+                8,
+                9,
+                10
+              ],
+              "wild_after": [
+                7,
+                8,
+                9,
+                10
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 468473,
+              "before": "7472",
+              "after": "9090",
+              "context_before": "83c40cc645f8008945f08b45f0803800",
+              "context_after": "33c040668945e08b45e4250f0f00000d",
+              "findings": [
+                "B03"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 468505,
+              "before": "f8",
+              "after": "dc",
+              "context_before": "000da0000000668945e48d45e050ff75",
+              "context_after": "ff75f4ff750c53e8c6a000008b45e4c1",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [
+                25,
+                26,
+                27,
+                28
+              ],
+              "wild_after": [
+                25,
+                26,
+                27,
+                28
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 468591,
+              "before": "f8",
+              "after": "dc",
+              "context_before": "5366a5e8b7a200008b75e883c418fe45",
+              "context_after": "8145f0d9040000807df8030f8272ffff",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [
+                4,
+                5,
+                6,
+                7,
+                11,
+                12,
+                13,
+                14
+              ],
+              "wild_after": [
+                4,
+                5,
+                6,
+                7,
+                11,
+                12,
+                13,
+                14
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 468601,
+              "before": "f8",
+              "after": "dc",
+              "context_before": "e883c418fe45f88145f0d9040000807d",
+              "context_after": "030f8272ffffff8d45fc506a00ff75f8",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [
+                1,
+                2,
+                3,
+                4,
+                20,
+                21,
+                22,
+                23
+              ],
+              "wild_after": [
+                1,
+                2,
+                3,
+                4,
+                20,
+                21,
+                22,
+                23
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 580773,
+              "before": "0175",
+              "after": "0074",
+              "context_before": "00eb0781665cffff7fff80bfc9170000",
+              "context_after": "09814e5c00000020eb0781665cffffff",
+              "findings": [
+                "B03"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    },
+    "x99ha00m-20221202": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "UncoreInitPeim",
+          "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3",
+          "leaf": "pe32",
+          "source_sha256": "a645b2ea89779bcc66bfc96581aebb686aa9a6a15e7b6b232e333b292e59ed42",
+          "source_size": 605920,
+          "result_sha256": "1e621310afd1cc2f39b7ae571079ddd7a58a272a80fe3a191c16b56668285dae",
+          "result_size": 605920,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 470036,
+              "before": "20",
+              "after": "24",
+              "context_before": "c93c0c72020cff5e5b5dc3558bec83ec",
+              "context_after": "538b5d085657ff750cc645ff0053c645",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 470282,
+              "before": "f8",
+              "after": "dc",
+              "context_before": "75f4ff750c53e8a8a1fbff83c40cc645",
+              "context_after": "008945f08b45f0803800747233c04066",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [
+                7,
+                8,
+                9,
+                10
+              ],
+              "wild_after": [
+                7,
+                8,
+                9,
+                10
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 470293,
+              "before": "7472",
+              "after": "9090",
+              "context_before": "83c40cc645f8008945f08b45f0803800",
+              "context_after": "33c040668945e08b45e4250f0f00000d",
+              "findings": [
+                "B03"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 470325,
+              "before": "f8",
+              "after": "dc",
+              "context_before": "000da0000000668945e48d45e050ff75",
+              "context_after": "ff75f4ff750c53e8c6a000008b45e4c1",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [
+                25,
+                26,
+                27,
+                28
+              ],
+              "wild_after": [
+                25,
+                26,
+                27,
+                28
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 470411,
+              "before": "f8",
+              "after": "dc",
+              "context_before": "5366a5e8b7a200008b75e883c418fe45",
+              "context_after": "8145f0d9040000807df8030f8272ffff",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [
+                4,
+                5,
+                6,
+                7,
+                11,
+                12,
+                13,
+                14
+              ],
+              "wild_after": [
+                4,
+                5,
+                6,
+                7,
+                11,
+                12,
+                13,
+                14
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 470421,
+              "before": "f8",
+              "after": "dc",
+              "context_before": "e883c418fe45f88145f0d9040000807d",
+              "context_after": "030f8272ffffff8d45fc506a00ff75f8",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [
+                1,
+                2,
+                3,
+                4,
+                20,
+                21,
+                22,
+                23
+              ],
+              "wild_after": [
+                1,
+                2,
+                3,
+                4,
+                20,
+                21,
+                22,
+                23
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 582366,
+              "before": "0175",
+              "after": "0074",
+              "context_before": "00eb0781665cffff7fff80bfa2170000",
+              "context_after": "09814e5c00000020eb0781665cffffff",
+              "findings": [
+                "B03"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    }
+  }
+}
