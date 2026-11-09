@@ -326,16 +326,19 @@ fn data_alignment(file: &FfsFile) -> usize {
 /// The first legal start at or after both `cursor` and the original offset.
 ///
 /// The gap after `cursor` must be zero or hold a PAD file (24+ bytes), and the
-/// file's data must meet its declared alignment.
-fn place(cursor: usize, file: &FfsFile) -> usize {
+/// file's data must meet its declared alignment. FFS alignment is relative to
+/// the volume at `base`.
+fn place(base: usize, cursor: usize, file: &FfsFile) -> usize {
     let alignment = data_alignment(file);
     let header = if file.attributes & FFS_ATTRIB_LARGE_FILE != 0 {
         32
     } else {
         24
     };
-    let mut start = align(cursor.max(file.offset), 8);
-    while !(start + header).is_multiple_of(alignment) || (start > cursor && start - cursor < 24) {
+    let mut start = base + align(cursor.max(file.offset) - base, 8);
+    while !(start - base + header).is_multiple_of(alignment)
+        || (start > cursor && start - cursor < 24)
+    {
         start += 8;
     }
     start
@@ -354,18 +357,6 @@ pub fn reflow(
     volume: &Volume,
     replaced: &[Replacement],
 ) -> Result<Vec<String>> {
-    for file in &volume.files {
-        let alignment = data_alignment(file);
-        if !volume.offset.is_multiple_of(alignment) {
-            return Err(Error::new(
-                Code::FormatUnsupported,
-                format!(
-                    "volume at {:#x}: expected its offset to be a multiple of file {} data alignment {alignment:#x} before reflow",
-                    volume.offset, file.guid
-                ),
-            ));
-        }
-    }
     let end = volume.offset + volume.length;
     let base = volume.offset;
     let mut buffer = out[base..end].to_vec();
@@ -381,7 +372,7 @@ pub fn reflow(
             continue;
         }
         let data = replacement.unwrap_or(&image.bytes[file.offset..file.offset + file.size]);
-        let start = place(cursor, file);
+        let start = place(base, cursor, file);
         if start != file.offset {
             if let Some(reason) = immovable(image, file) {
                 return Err(Error::new(
@@ -414,7 +405,7 @@ pub fn reflow(
             buffer[cursor - base..start - base].copy_from_slice(&pad_file(start - cursor)?);
         }
         buffer[start - base..start - base + data.len()].copy_from_slice(data);
-        cursor = align(start + data.len(), 8);
+        cursor = base + align(start + data.len() - base, 8);
     }
     out[base..end].copy_from_slice(&buffer);
     Ok(notes)
@@ -494,20 +485,35 @@ mod tests {
     }
 
     #[test]
-    fn reflow_refuses_volume_base_incompatible_with_file_alignment() {
-        use crate::synthetic::{DXE_GUID, ffs, section, volume};
-        let file = ffs(DXE_GUID, 0x07, &section(SECTION_PE32, &[1; 20]), 1 << 3);
+    fn reflow_aligns_file_data_relative_to_the_volume() {
+        use crate::synthetic::{DXE_GUID, NEXT_GUID, ffs, section, volume};
+        let grown = ffs(DXE_GUID, 0x07, &section(SECTION_RAW, &[1; 20]), 0);
+        let aligned = ffs(NEXT_GUID, 0x07, &section(SECTION_RAW, &[2; 20]), 1 << 3);
         let mut bytes = vec![0xff; 8];
-        bytes.extend(volume(&[file], 0x1000));
+        bytes.extend(volume(&[grown, aligned], 0x1000));
         let image = Image::parse(bytes).expect("volume parses");
-        let mut out = image.bytes.clone();
         let vol = &image.volumes[0];
-        let error =
-            reflow(&image, &mut out, vol, &[]).expect_err("relative alignment must not be guessed");
-        assert_eq!(error.code, Code::FormatUnsupported, "{error}");
-        assert!(error.message.contains("0x8"), "{error}");
-        assert!(error.message.contains("alignment"), "{error}");
-        assert_eq!(out, image.bytes);
+        let mut out = image.bytes.clone();
+        let notes = reflow(&image, &mut out, vol, &[]).expect("unchanged volume reflows");
+        assert!(
+            notes.is_empty(),
+            "expected no moved files | received {notes:?}"
+        );
+        assert_eq!(out, image.bytes, "expected an unchanged volume");
+
+        let bigger = ffs(DXE_GUID, 0x07, &section(SECTION_RAW, &[1; 60]), 0);
+        reflow(&image, &mut out, vol, &[(0, bigger)]).expect("grown volume reflows");
+        let rebuilt = Image::parse(out).expect("rebuilt volume parses");
+        let moved = rebuilt.volumes[0]
+            .files
+            .iter()
+            .find(|f| f.guid == NEXT_GUID)
+            .expect("aligned file survives");
+        let data = moved.offset - rebuilt.volumes[0].offset + moved.header_size;
+        assert!(
+            data.is_multiple_of(16),
+            "expected volume-relative data offset aligned to 0x10 | received {data:#x}"
+        );
     }
 
     #[test]

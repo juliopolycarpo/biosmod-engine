@@ -398,12 +398,6 @@ fn parse_volume(
             free_start: offset + header_size,
         }));
     }
-    if !offset.is_multiple_of(8) {
-        return Err(Error::new(
-            Code::FormatUnsupported,
-            format!("FFS volume at {offset:#x}: expected an 8-byte aligned volume offset"),
-        ));
-    }
     if depth >= MAX_DEPTH {
         return Err(Error::new(
             Code::FormatUnsupported,
@@ -428,7 +422,7 @@ fn parse_volume(
         start = start.max(ext_end);
     }
     let (files, free_start) =
-        parse_files(buffer, align(start, 8), offset + length, depth + 1, budget)?;
+        parse_files(buffer, offset, start, offset + length, depth + 1, budget)?;
     Ok(Some(Volume {
         offset,
         length,
@@ -439,15 +433,17 @@ fn parse_volume(
     }))
 }
 
+/// Parse files from `start`, aligning each to 8 bytes relative to the volume at `base`.
 fn parse_files(
     buffer: &[u8],
+    base: usize,
     start: usize,
     end: usize,
     depth: usize,
     budget: &mut Budget,
 ) -> Result<(Vec<FfsFile>, usize)> {
     let mut files = Vec::new();
-    let mut cursor = start;
+    let mut cursor = base + align(start - base, 8);
     while cursor + 24 <= end {
         let header = &buffer[cursor..cursor + 24];
         if header.iter().all(|b| *b == 0xFF) {
@@ -517,7 +513,7 @@ fn parse_files(
             sections,
             opaque,
         });
-        cursor = align(cursor + size, 8);
+        cursor = base + align(cursor + size - base, 8);
     }
     Ok((files, cursor))
 }
@@ -712,14 +708,21 @@ mod unaligned_volume_regression {
     use crate::synthetic::{DXE_GUID, ffs, section, volume};
 
     #[test]
-    fn rejects_unaligned_volume_before_interpreting_file_offsets() {
-        let file = ffs(DXE_GUID, 0x07, &section(SECTION_PE32, &[1; 20]), 0);
+    fn unaligned_volume_aligns_file_offsets_relative_to_the_volume() {
+        // 0x1c-byte files leave a 4-byte gap before the next volume-relative
+        // 8-byte boundary, which absolute alignment at 0x1001 would miss.
+        let first = ffs(DXE_GUID, 0x07, &section(SECTION_RAW, &[1]), 0);
+        let second = ffs(DXE_GUID, 0x07, &section(SECTION_RAW, &[2]), 0);
+        assert_eq!(first.len(), 0x1d);
         let mut bytes = vec![0xff; 0x1001];
-        bytes.extend(volume(&[file], 0x1000));
-        let error = Image::parse(bytes).expect_err("unaligned volume must be refused");
-        assert_eq!(error.code, Code::FormatUnsupported, "{error}");
-        assert!(error.message.contains("0x1001"), "{error}");
-        assert!(error.message.contains("8-byte aligned"), "{error}");
+        bytes.extend(volume(&[first, second], 0x1000));
+        let image = Image::parse(bytes).expect("unaligned volume parses");
+        let offsets: Vec<usize> = image.volumes[0].files.iter().map(|f| f.offset).collect();
+        assert_eq!(
+            offsets,
+            [0x1001 + 0x48, 0x1001 + 0x68],
+            "expected volume-relative 8-byte file offsets"
+        );
     }
 }
 

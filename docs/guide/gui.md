@@ -61,7 +61,7 @@ Read-only operations can be cancelled. Building a copy cannot be safely cancelle
 
 ## Firmware limits
 
-The engine refuses FFS volumes whose image offsets are not eight-byte aligned and refuses reflow when the volume base conflicts with a file's declared alignment. In descriptor images it keeps uncompressed executable files in place because their flash mapping is not established. Different ACPI table offsets sharing one file identity are unsupported for scan and planning. TE relocation coverage checks are explicitly unsupported. These safeguards do not complete the investigations in [#3](https://github.com/juliopolycarpo/biosmod-engine/issues/3), [#5](https://github.com/juliopolycarpo/biosmod-engine/issues/5), [#6](https://github.com/juliopolycarpo/biosmod-engine/issues/6) and [#7](https://github.com/juliopolycarpo/biosmod-engine/issues/7).
+The engine aligns FFS files relative to their volume, so volumes at any image offset parse and reflow. In descriptor images, flash addresses map the end of the BIOS region to 4 GiB. Different ACPI table offsets sharing one file identity are unsupported for scan and planning. TE relocation coverage checks are explicitly unsupported. These safeguards do not complete the investigations in [#5](https://github.com/juliopolycarpo/biosmod-engine/issues/5) and [#6](https://github.com/juliopolycarpo/biosmod-engine/issues/6).
 
 When independent verification cannot finish, the CLI reports `VERIFICATION_INCOMPLETE` with the partial report in error details. The GUI keeps incomplete results separate from verified results.
 
