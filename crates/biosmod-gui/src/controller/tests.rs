@@ -85,6 +85,17 @@ fn semantic_incomplete_verification_is_not_reported_as_verified() {
 }
 
 #[test]
+fn bounded_regular_file_read_refuses_oversized_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plan.json");
+    std::fs::write(&path, b"12345").unwrap();
+    assert_eq!(read_regular_file(&path, 5).unwrap(), b"12345");
+    let error = read_regular_file(&path, 4).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData, "{error}");
+    assert!(error.to_string().contains("at most 4 bytes"), "{error}");
+}
+
+#[test]
 fn verification_does_not_trust_complete_without_required_checks() {
     let mut session = Session::new().unwrap();
     let data = json!({"complete": true, "checks": [], "skipped": [], "notice": "offline"});

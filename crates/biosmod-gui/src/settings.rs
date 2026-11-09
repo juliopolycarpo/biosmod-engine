@@ -1,7 +1,8 @@
 //! Presentation settings are separate from engine configuration and source trust.
 
+use crate::controller::read_regular_file;
 use serde::{Deserialize, Serialize};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -16,20 +17,13 @@ impl Settings {
     /// Read a bounded settings file, returning defaults when it has not been created.
     /// Example: `Settings::load(Path::new("/tmp/gui.json"))?`.
     pub fn load(path: &Path) -> Result<Self, String> {
-        let file = match std::fs::File::open(path) {
-            Ok(file) => file,
+        let bytes = match read_regular_file(path, 64 * 1024) {
+            Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Self::default());
             }
             Err(error) => return Err(format!("settings {}: {error}", path.display())),
         };
-        let mut bytes = Vec::new();
-        file.take(64 * 1024 + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|e| e.to_string())?;
-        if bytes.len() > 64 * 1024 {
-            return Err("settings: expected at most 64 KiB".into());
-        }
         let settings: Self =
             serde_json::from_slice(&bytes).map_err(|e| format!("settings: {e}"))?;
         if settings.theme > 2 {
@@ -91,5 +85,25 @@ mod tests {
             Some("/home/test/.config/biosmod-engine/gui.json".into())
         );
         assert_eq!(settings_path(None, None), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fifo_settings_are_refused_without_blocking_startup() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("gui.json");
+        let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: name is terminated and names a file in this private test directory.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(Settings::load(&fifo));
+        });
+        let result = receiver
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("settings FIFO: expected an immediate refusal | received a blocked open");
+        let error = result.unwrap_err();
+        assert!(error.contains("regular file"), "{error}");
     }
 }

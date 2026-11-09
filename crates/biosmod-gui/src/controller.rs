@@ -724,7 +724,13 @@ impl Job {
 }
 
 fn read_plan(path: &Path) -> Result<Vec<u8>, EngineError> {
-    let mut bytes = Vec::new();
+    read_regular_file(path, PLAN_LIMIT)
+        .map_err(|e| local_error(format!("plan {}: {e}", path.display())))
+}
+
+/// Read at most `limit` bytes from a regular file without blocking on a FIFO or device.
+/// Example: `read_regular_file(Path::new("/tmp/plan.json"), 16 * 1024 * 1024)?`.
+pub(crate) fn read_regular_file(path: &Path, limit: u64) -> std::io::Result<Vec<u8>> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -732,24 +738,20 @@ fn read_plan(path: &Path) -> Result<Vec<u8>, EngineError> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NONBLOCK);
     }
-    let file = options
-        .open(path)
-        .map_err(|e| local_error(format!("plan {}: {e}", path.display())))?;
-    if !file
-        .metadata()
-        .map_err(|e| local_error(e.to_string()))?
-        .is_file()
-    {
-        return Err(local_error(format!(
-            "plan {}: expected a regular file",
-            path.display()
-        )));
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "expected a regular file",
+        ));
     }
-    file.take(PLAN_LIMIT + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| local_error(format!("plan {}: {e}", path.display())))?;
-    if bytes.len() as u64 > PLAN_LIMIT {
-        return Err(local_error("plan: expected at most 16 MiB"));
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("expected at most {limit} bytes | received more"),
+        ));
     }
     Ok(bytes)
 }
