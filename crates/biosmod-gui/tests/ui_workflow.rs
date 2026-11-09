@@ -77,7 +77,7 @@ fn parse_size(text: &str) -> slint::LogicalSize {
 
 /// Save one screenshot per non-workflow page next to the workflow captures.
 fn save_pages(window: &AppWindow, path: &Path) -> Result<(), String> {
-    for (page, name) in [(1, "sources"), (2, "diagnostics"), (3, "about")] {
+    for (page, name) in [(1, "sources"), (2, "diagnostics"), (4, "settings"), (3, "about")] {
         window.set_page(page);
         save_stage(window, Some(path), name)?;
     }

@@ -132,7 +132,7 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
         "stage change: expected the Image editor to retain focus and receive both characters"
     );
     // Engine drafts must save on Enter and focus loss, including leaving the page.
-    click_label(&window, "Sources & tools");
+    click_label(&window, "Settings");
     settle(&window);
     click_label(&window, "Engine executable path");
     key(&window, Key::End.into());

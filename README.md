@@ -45,7 +45,7 @@ cargo build --release -p biosmod-cli -p biosmod-gui
 target/release/bme-gui
 ```
 
-The desktop interface scans an image, reviews a plan, builds a new copy and independently verifies it. It follows the system light or dark theme, with a manual choice in Sources & tools. See the [desktop guide](docs/guide/gui.md) for dependencies, installation, limits and troubleshooting.
+The desktop interface scans an image, reviews a plan, builds a new copy and independently verifies it. It follows the system light or dark theme, with a manual choice in Settings. See the [desktop guide](docs/guide/gui.md) for dependencies, installation, limits and troubleshooting.
 
 ## What it does
 
