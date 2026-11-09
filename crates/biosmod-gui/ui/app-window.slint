@@ -236,35 +236,7 @@ export component AppWindow inherits Window {
                 context-layout := VerticalLayout {
                     padding: 12px;
                     spacing: 8px;
-                    if root.stage < 2: VerticalLayout {
-                        spacing: 8px;
                     HorizontalLayout {
-                        spacing: 8px;
-                        Text { text: "Image"; width: 54px; vertical-alignment: center; color: Theme.text; font-weight: 600; }
-                        LineEdit {
-                            placeholder-text: "Firmware image path";
-                            accessible-label: "Firmware image path";
-                            text <=> root.image-path;
-                            enabled: !root.busy;
-                            edited(value) => { root.image-edited(value); }
-                        }
-                        Button { text: "Browse…"; enabled: !root.busy; clicked => { root.browse-image(); } }
-                        Button { text: "Inspect"; enabled: root.can-inspect && !root.busy; clicked => { root.inspect(); } }
-                    }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        Text { text: "Source"; width: 54px; vertical-alignment: center; color: Theme.text; font-weight: 600; }
-                        LineEdit {
-                            placeholder-text: "Catalog source alias";
-                            accessible-label: "Catalog source alias";
-                            text <=> root.source;
-                            enabled: !root.busy;
-                            edited(value) => { root.source-edited(value); }
-                        }
-                        Button { text: "Scan image"; enabled: root.can-scan && !root.busy; clicked => { root.scan(); } }
-                    }
-                    }
-                    if root.stage >= 2: HorizontalLayout {
                         spacing: 8px;
                         Text { text: "Image"; width: 54px; vertical-alignment: center; color: Theme.text; font-weight: 600; }
                         LineEdit {
@@ -275,7 +247,20 @@ export component AppWindow inherits Window {
                             edited(value) => { root.image-edited(value); }
                         }
                         Button { text: "Browse…"; enabled: !root.busy; clicked => { root.browse-image(); } }
-                        Text { text: "Scan source: " + root.source; color: Theme.muted; overflow: elide; width: 132px; vertical-alignment: center; }
+                        if root.stage < 2: Button { text: "Inspect"; enabled: root.can-inspect && !root.busy; clicked => { root.inspect(); } }
+                        if root.stage >= 2: Text { text: "Scan source: " + root.source; color: Theme.muted; overflow: elide; width: 132px; vertical-alignment: center; }
+                    }
+                    if root.stage < 2: HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: "Source"; width: 54px; vertical-alignment: center; color: Theme.text; font-weight: 600; }
+                        LineEdit {
+                            placeholder-text: "Catalog source alias";
+                            accessible-label: "Catalog source alias";
+                            text <=> root.source;
+                            enabled: !root.busy;
+                            edited(value) => { root.source-edited(value); }
+                        }
+                        Button { text: "Scan image"; enabled: root.can-scan && !root.busy; clicked => { root.scan(); } }
                     }
                 }
             }

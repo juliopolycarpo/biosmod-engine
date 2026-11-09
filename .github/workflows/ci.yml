@@ -63,7 +63,7 @@ jobs:
       - name: X11 software renderer
         run: |
           env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software xvfb-run -a timeout 20s target/debug/bme-gui --smoke-test
-          env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_SCREENSHOT="$RUNNER_TEMP/gui-x11.png" xvfb-run -a cargo +1.92.0 test --locked -p biosmod-gui --test ui_workflow
+          env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_SCREENSHOT="$RUNNER_TEMP/gui-x11.png" xvfb-run -a cargo +1.92.0 test --locked -p biosmod-gui --test ui_workflow --test keyboard
       - name: Native Wayland software renderer
         shell: bash
         run: |
@@ -80,7 +80,7 @@ jobs:
           done
           test -S "$XDG_RUNTIME_DIR/bme-ci"
           env -u DISPLAY WAYLAND_DISPLAY=bme-ci SLINT_BACKEND=winit-software timeout 20s target/debug/bme-gui --smoke-test
-          env -u DISPLAY WAYLAND_DISPLAY=bme-ci SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_SCREENSHOT="$RUNNER_TEMP/gui-wayland.png" cargo +1.92.0 test --locked -p biosmod-gui --test ui_workflow
+          env -u DISPLAY WAYLAND_DISPLAY=bme-ci SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_SCREENSHOT="$RUNNER_TEMP/gui-wayland.png" cargo +1.92.0 test --locked -p biosmod-gui --test ui_workflow --test keyboard
       - name: Build Linux archive
         run: RUSTUP_TOOLCHAIN=1.92.0 ./packaging/linux/archive.sh
       - name: Smoke test packaged pair
@@ -93,7 +93,7 @@ jobs:
           package_root=${package_roots[0]}
           test -f "$package_root/share/licenses/biosmod-engine/third-party/THIRD-PARTY.txt"
           env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software xvfb-run -a timeout 20s "$package_root/bin/bme-gui" --smoke-test
-          env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_TEST_ENGINE="$package_root/bin/bme" xvfb-run -a cargo +1.92.0 test --locked -p biosmod-gui --test ui_workflow
+          env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_TEST_ENGINE="$package_root/bin/bme" xvfb-run -a cargo +1.92.0 test --locked -p biosmod-gui --test ui_workflow --test keyboard
       - uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
