@@ -25,9 +25,9 @@ component StepDot inherits Rectangle {
 /// Example: `Stepper { current: 1; }` marks Select done, Review active and Verify upcoming.
 export component Stepper inherits Rectangle {
     in property <int> current;
-    private property <[string]> names: ["Select", "Review", "Verify"];
+    private property <[string]> names: [@tr("Select"), @tr("Review"), @tr("Verify")];
     accessible-role: text;
-    accessible-label: root.current >= 3 ? "All 3 steps complete" : "Step \{root.current + 1} of 3: \{root.names[root.current]}";
+    accessible-label: root.current >= 3 ? @tr("All 3 steps complete") : @tr("Step {} of 3: {}", root.current + 1, root.names[root.current]);
     height: row.preferred-height;
     width: row.preferred-width;
     row := HorizontalLayout {

@@ -115,7 +115,7 @@ export component PatchCard inherits Rectangle {
                     Chip { text: root.patch.class; }
                     Chip { text: root.patch.tier; }
                     Caption {
-                        text: root.patch.id + "  ·  v" + root.patch.version;
+                        text: @tr("{}  ·  v{}", root.patch.id, root.patch.version);
                         wrap: no-wrap;
                         overflow: elide;
                         vertical-alignment: center;

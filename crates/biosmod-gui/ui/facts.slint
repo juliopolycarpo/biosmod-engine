@@ -50,7 +50,7 @@ export component FindingsSummary inherits Rectangle {
         if root.image-sha != "" && !root.compact: HorizontalLayout {
             spacing: Theme.space-md;
             Text {
-                text: "SHA-256";
+                text: @tr("SHA-256");
                 color: Theme.muted;
                 font-size: Theme.font-caption;
                 vertical-alignment: center;
@@ -58,7 +58,7 @@ export component FindingsSummary inherits Rectangle {
             LineEdit {
                 text: root.image-sha;
                 read-only: true;
-                accessible-label: "Image SHA-256";
+                accessible-label: @tr("Image SHA-256");
                 font-size: Theme.font-caption;
             }
         }

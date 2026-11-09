@@ -13,28 +13,28 @@ export global Tones {
     }
 }
 
-/// A 24px page heading. Example: `PageTitle { text: "Diagnostics"; }`
+/// A 24px page heading. Example: `PageTitle { text: @tr("Diagnostics"); }`
 export component PageTitle inherits Text {
     color: Theme.text;
     font-size: Theme.font-title;
     font-weight: 700;
 }
 
-/// A section heading inside a page. Example: `SectionTitle { text: "Findings"; }`
+/// A section heading inside a page. Example: `SectionTitle { text: @tr("Findings"); }`
 export component SectionTitle inherits Text {
     color: Theme.text;
     font-size: Theme.font-heading;
     font-weight: 700;
 }
 
-/// Secondary explanatory text that wraps. Example: `Caption { text: "Choose an image."; }`
+/// Secondary explanatory text that wraps. Example: `Caption { text: @tr("Choose an image."); }`
 export component Caption inherits Text {
     color: Theme.muted;
     font-size: Theme.font-caption;
     wrap: word-wrap;
 }
 
-/// A form label with a fixed column width. Example: `FieldLabel { text: "Image"; }`
+/// A form label with a fixed column width. Example: `FieldLabel { text: @tr("Image"); }`
 export component FieldLabel inherits Text {
     color: Theme.text;
     font-weight: 600;
@@ -42,7 +42,7 @@ export component FieldLabel inherits Text {
 }
 
 /// A form row: a fixed-width label followed by its controls.
-/// Example: `FieldRow { label: "Image"; LineEdit { } Button { text: "Browse…"; } }`
+/// Example: `FieldRow { label: "Image"; LineEdit { } Button { text: @tr("Browse…"); } }`
 export component FieldRow inherits HorizontalLayout {
     in property <string> label;
     spacing: Theme.space-sm;
@@ -56,7 +56,7 @@ export component Divider inherits Rectangle {
     background: Theme.border;
 }
 
-/// A small rounded label. Example: `Chip { text: "optional"; tone: Tone.quiet; }`
+/// A small rounded label. Example: `Chip { text: @tr("optional"); tone: Tone.quiet; }`
 export component Chip inherits Rectangle {
     in property <string> text;
     in property <Tone> tone: Tone.quiet;
@@ -83,7 +83,7 @@ export component Chip inherits Rectangle {
 }
 
 /// A page tab with an accent underline for the selected page.
-/// Example: `NavTab { text: "Diagnostics"; selected: page == 2; activated => { page = 2; } }`
+/// Example: `NavTab { text: @tr("Diagnostics"); selected: page == 2; activated => { page = 2; } }`
 export component NavTab inherits Rectangle {
     in property <string> text;
     in property <bool> selected;
