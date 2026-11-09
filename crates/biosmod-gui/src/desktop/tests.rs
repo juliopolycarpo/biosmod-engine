@@ -114,6 +114,31 @@ fn callbacks_invalidate_review_for_inputs_and_keep_it_for_output_choice() {
 }
 
 #[test]
+fn clearing_the_engine_path_restores_the_default_engine_choice() {
+    i_slint_backend_testing::init_no_event_loop();
+    let temp = tempfile::tempdir().unwrap();
+    let settings_path = temp.path().join("settings.json");
+    let (window, state) = bound_window(Settings::default(), Some(settings_path.clone()));
+    window.invoke_engine_edited("/tmp/custom-bme".into());
+    assert_eq!(
+        Settings::load(&settings_path).unwrap().engine,
+        Some(PathBuf::from("/tmp/custom-bme"))
+    );
+    window.invoke_engine_edited("".into());
+    let saved = Settings::load(&settings_path).unwrap().engine;
+    assert_eq!(
+        saved, None,
+        "cleared engine field: expected no saved engine | received {saved:?}"
+    );
+    let engine = state.lock().unwrap().engine_path.clone();
+    assert!(
+        engine.is_absolute() && engine.ends_with("bme"),
+        "cleared engine field: expected the absolute sibling bme | received {}",
+        engine.display()
+    );
+}
+
+#[test]
 fn imported_review_is_read_only_and_theme_choice_persists() {
     i_slint_backend_testing::init_no_event_loop();
     let temp = tempfile::tempdir().unwrap();

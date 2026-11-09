@@ -344,7 +344,7 @@ fn change(ui: &AppWindow, shared: &Shared, kind: PathKind, value: &str) {
             ui.set_output_path("".into());
         }
         PathKind::Engine => {
-            set_engine(&mut state, path.unwrap_or_default());
+            set_engine(&mut state, path);
             ui.set_output_path("".into());
         }
         PathKind::Output => {
@@ -446,7 +446,7 @@ fn apply_picked(state: &mut Desktop, kind: PathKind, path: PathBuf) {
             state.session.set_output(Some(path));
         }
         PathKind::Engine => {
-            set_engine(state, path);
+            set_engine(state, Some(path));
         }
         PathKind::ExistingOutput => state.session.open_output(path),
         PathKind::Plan | PathKind::ExportPlan => {}
@@ -462,12 +462,21 @@ fn apply_picked(state: &mut Desktop, kind: PathKind, path: PathBuf) {
 }
 
 // Switch engines: derived data and the connection belong to the previous one.
-fn set_engine(state: &mut Desktop, path: PathBuf) {
+// No path restores the packaged sibling `bme` instead of saving an empty choice.
+fn set_engine(state: &mut Desktop, path: Option<PathBuf>) {
     state.session.invalidate();
     state.session.connected = false;
-    state.engine_path = path.clone();
-    state.settings.engine = Some(path);
+    state.engine_path = path.clone().unwrap_or_else(default_engine);
+    state.settings.engine = path;
     save_settings(state);
+}
+
+/// The packaged sibling engine next to this executable.
+/// Example: `/opt/bme/bin/bme-gui` resolves `/opt/bme/bin/bme`.
+pub fn default_engine() -> PathBuf {
+    std::env::current_exe()
+        .map(|exe| exe.with_file_name("bme"))
+        .unwrap_or_else(|_| PathBuf::from("bme"))
 }
 
 fn save_settings(state: &mut Desktop) {

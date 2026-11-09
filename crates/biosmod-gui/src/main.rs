@@ -1,5 +1,5 @@
 use biosmod_gui::{
-    desktop::{Desktop, bind, connect},
+    desktop::{Desktop, bind, connect, default_engine},
     settings::{Settings, settings_path},
     ui::AppWindow,
 };
@@ -15,10 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(settings) => (settings.unwrap_or_default(), None),
         Err(error) => (Settings::default(), Some(error)),
     };
-    let mut engine = settings
-        .engine
-        .clone()
-        .unwrap_or(std::env::current_exe()?.with_file_name("bme"));
+    let mut engine = settings.engine.clone().unwrap_or_else(default_engine);
     let mut image = None;
     let mut smoke = false;
     let mut args = std::env::args_os().skip(1);
