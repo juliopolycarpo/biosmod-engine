@@ -501,11 +501,13 @@ impl Session {
             error.details.as_ref().map(pretty).unwrap_or_default(),
             error.diagnostics
         ));
-        self.result_details = error
-            .details
-            .as_ref()
-            .map(pretty)
-            .unwrap_or_else(|| error.to_string());
+        self.result_details = match &error.details {
+            Some(details) if self.outcome == Outcome::VerificationIncomplete => {
+                verification_summary(details)
+            }
+            Some(details) => pretty(details),
+            None => error.to_string(),
+        };
     }
 
     fn log(&mut self, text: &str) {

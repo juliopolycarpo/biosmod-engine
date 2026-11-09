@@ -109,6 +109,25 @@ fn apply_refused_before_launch_does_not_report_unknown_publication() {
 }
 
 #[test]
+fn engine_reported_incomplete_verification_is_summarized_not_dumped() {
+    let mut session = Session::new().unwrap();
+    let mut error = EngineError::new(ErrorKind::Engine, "verification: expected all checks");
+    error.code = Some("VERIFICATION_INCOMPLETE".into());
+    error.details = Some(
+        json!({"complete": false, "checks": [{"check": "input-digest", "ok": true}], "skipped": [{"check": "patch-states and reproduction", "reason": "catalog unavailable"}], "notice": "Offline only"}),
+    );
+    session.fail(Action::Verify, error);
+    assert_eq!(session.outcome, Outcome::VerificationIncomplete);
+    assert!(
+        session
+            .result_details
+            .contains("SKIPPED  patch-states and reproduction"),
+        "incomplete verification details: expected the check summary | received {}",
+        session.result_details
+    );
+}
+
+#[test]
 fn verification_does_not_trust_complete_without_required_checks() {
     let mut session = Session::new().unwrap();
     let data = json!({"complete": true, "checks": [], "skipped": [], "notice": "offline"});
