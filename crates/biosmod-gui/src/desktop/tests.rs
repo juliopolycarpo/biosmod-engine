@@ -627,3 +627,71 @@ fn focus_loss_can_commit_the_current_engine_without_changing_an_active_job() {
         Some("/tmp/current-bme".into())
     );
 }
+
+#[test]
+fn cancellation_and_file_operations_publish_visible_busy_feedback() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    make_reviewable(&state, true);
+    state
+        .lock()
+        .unwrap()
+        .session
+        .prepare(Action::Inspect)
+        .unwrap();
+    sync(&window, &state.lock().unwrap());
+    assert!(window.get_can_cancel());
+    window.invoke_cancel_operation();
+    assert_eq!(
+        window.get_operation_label(),
+        "Stopping operation…",
+        "Cancel: expected immediate visible acknowledgement"
+    );
+    assert!(
+        !window.get_can_cancel(),
+        "Cancel must be disabled while stopping"
+    );
+    let (window, state) = bound_window(Settings::default(), None);
+    window.set_elapsed("12s".into());
+    state.lock().unwrap().dialog_open = true;
+    sync(&window, &state.lock().unwrap());
+    assert_eq!(window.get_operation_label(), "Choosing file");
+    assert!(window.get_elapsed().is_empty());
+    state.lock().unwrap().dialog_open = false;
+    state.lock().unwrap().exporting = true;
+    sync(&window, &state.lock().unwrap());
+    assert_eq!(window.get_operation_label(), "Exporting file");
+}
+
+#[test]
+fn activity_timer_resets_elapsed_and_stops_after_completion() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    window.set_elapsed("37s".into());
+    let id = start_timer(&window, &state);
+    assert_eq!(window.get_elapsed(), "0s");
+    state.lock().unwrap().started = Instant::now() - Duration::from_secs(4);
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_secs(1));
+    assert_eq!(window.get_elapsed(), "4s");
+    stop_timer(id);
+    state.lock().unwrap().started = Instant::now() - Duration::from_secs(9);
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_secs(1));
+    assert_eq!(window.get_elapsed(), "4s");
+}
+
+#[test]
+fn opening_a_plan_resets_the_previous_operations_elapsed_time() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plan.json");
+    std::fs::write(&path, br#"{"schema":"bme.plan/1"}"#).unwrap();
+    let (window, state) = bound_window(Settings::default(), None);
+    window.set_elapsed("37s".into());
+    start_import(&window, &state, path);
+    assert_eq!(
+        window.get_elapsed(),
+        "0s",
+        "plan import: expected a fresh activity clock | received the previous operation's elapsed time"
+    );
+    assert_eq!(window.get_operation_label(), "Opening plan");
+}

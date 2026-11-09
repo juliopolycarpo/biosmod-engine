@@ -186,13 +186,17 @@ pub fn bind(ui: &AppWindow, desktop: Desktop) -> Shared {
         }
     });
     let shared = state.clone();
+    let weak = ui.as_weak();
     ui.on_cancel_operation(move || {
         let mut state = shared.lock().unwrap();
-        if state.session.publishing() {
+        if !state.session.busy() || state.session.publishing() {
             return;
         }
         state.session.cancel.store(true, Ordering::Relaxed);
         state.session.status = "Stopping operation…".into();
+        if let Some(ui) = weak.upgrade() {
+            sync(&ui, &state);
+        }
     });
     let shared = state.clone();
     let weak = ui.as_weak();
@@ -286,26 +290,7 @@ fn start(ui: &AppWindow, shared: &Shared, action: Action) {
     sync_paths(ui, &state);
     sync(ui, &state);
     drop(state);
-    let timer = slint::Timer::default();
-    let weak = ui.as_weak();
-    let ticker_state = shared.clone();
-    timer.start(
-        slint::TimerMode::Repeated,
-        Duration::from_secs(1),
-        move || {
-            if let Some(ui) = weak.upgrade() {
-                ui.set_elapsed(
-                    format!(
-                        "{}s",
-                        ticker_state.lock().unwrap().started.elapsed().as_secs()
-                    )
-                    .into(),
-                );
-            }
-        },
-    );
-    // Timer must stay on the UI thread. The callback retains it until completion.
-    let timer_id = register_timer(timer);
+    let timer_id = start_timer(ui, shared);
     let shared = shared.clone();
     let weak = ui.as_weak();
     std::thread::spawn(move || {
@@ -328,6 +313,26 @@ fn start(ui: &AppWindow, shared: &Shared, action: Action) {
             }
         });
     });
+}
+
+fn start_timer(ui: &AppWindow, shared: &Shared) -> usize {
+    ui.set_elapsed("0s".into());
+    let timer = slint::Timer::default();
+    let weak = ui.as_weak();
+    let shared = shared.clone();
+    timer.start(
+        slint::TimerMode::Repeated,
+        Duration::from_secs(1),
+        move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_elapsed(
+                    format!("{}s", shared.lock().unwrap().started.elapsed().as_secs()).into(),
+                );
+            }
+        },
+    );
+    // Timer ownership stays on the UI thread until the worker completes.
+    register_timer(timer)
 }
 
 thread_local! { static TIMERS: std::cell::RefCell<Vec<Option<slint::Timer>>> = const { std::cell::RefCell::new(Vec::new()) }; }
@@ -648,11 +653,13 @@ fn start_import(ui: &AppWindow, shared: &Shared, path: PathBuf) {
     state.started = Instant::now();
     sync(ui, &state);
     drop(state);
+    let timer_id = start_timer(ui, shared);
     let shared = shared.clone();
     let weak = ui.as_weak();
     std::thread::spawn(move || {
         let completion = job.run();
         let _ = weak.upgrade_in_event_loop(move |ui| {
+            stop_timer(timer_id);
             let mut state = shared.lock().unwrap();
             state.session.finish(completion);
             if close_if_requested(&ui, &state) {
@@ -669,7 +676,9 @@ fn sync(ui: &AppWindow, state: &Desktop) {
     ui.set_engine_status(session.engine_status.as_str().into());
     ui.set_status(session.status.as_str().into());
     ui.set_busy(session.busy() || state.dialog_open || state.exporting);
-    ui.set_can_cancel(session.busy() && !session.publishing());
+    let stopping =
+        session.busy() && !session.publishing() && session.cancel.load(Ordering::Relaxed);
+    ui.set_can_cancel(session.busy() && !session.publishing() && !stopping);
     ui.set_can_inspect(session.connected && session.image.is_some());
     ui.set_can_scan(session.connected && session.image.is_some() && !session.source.is_empty());
     ui.set_can_plan(session.scan.as_ref().is_some_and(|s| {
@@ -694,7 +703,19 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             && session.manifest.is_some()
             && session.review.is_some(),
     );
-    ui.set_operation_label(session.activity().map(Action::label).unwrap_or("").into());
+    let operation = if state.exporting {
+        "Exporting file"
+    } else if state.dialog_open {
+        "Choosing file"
+    } else if stopping {
+        "Stopping operation…"
+    } else {
+        session.activity().map(Action::label).unwrap_or("")
+    };
+    ui.set_operation_label(operation.into());
+    if state.exporting || state.dialog_open {
+        ui.set_elapsed("".into());
+    }
     ui.set_image_details(
         session
             .inspection
