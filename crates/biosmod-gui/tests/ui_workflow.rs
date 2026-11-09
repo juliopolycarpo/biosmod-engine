@@ -64,6 +64,38 @@ fn save_screenshot(window: &AppWindow, path: &Path) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Parse `WIDTHxHEIGHT` in logical pixels. Example: `parse_size("760x600")`.
+fn parse_size(text: &str) -> slint::LogicalSize {
+    let parsed = text
+        .split_once('x')
+        .and_then(|(w, h)| Some((w.parse::<f32>().ok()?, h.parse::<f32>().ok()?)));
+    let Some((width, height)) = parsed else {
+        panic!("BME_GUI_SIZE: expected WIDTHxHEIGHT such as 760x600 | received {text:?}");
+    };
+    slint::LogicalSize::new(width, height)
+}
+
+/// Save one screenshot per non-workflow page next to the workflow captures.
+fn save_pages(window: &AppWindow, path: &Path) -> Result<(), String> {
+    for (page, name) in [(1, "sources"), (2, "diagnostics"), (3, "about")] {
+        window.set_page(page);
+        save_stage(window, Some(path), name)?;
+    }
+    window.set_page(0);
+    Ok(())
+}
+
+#[test]
+fn size_argument_requires_width_and_height() {
+    let size = parse_size("760x600");
+    assert_eq!((size.width, size.height), (760., 600.));
+    let result = std::panic::catch_unwind(|| parse_size("760"));
+    assert!(
+        result.is_err(),
+        "parse_size: expected a panic for a missing height"
+    );
+}
+
 fn save_stage(window: &AppWindow, path: Option<&Path>, stage: &str) -> Result<(), String> {
     let Some(path) = path else { return Ok(()) };
     let stem = path
@@ -147,6 +179,9 @@ fn real_desktop_synthetic_workflow() {
     desktop.session.image = Some(image);
     desktop.session.source = "lab".into();
     let state = bind(&window, desktop);
+    if let Some(size) = std::env::var("BME_GUI_SIZE").ok().filter(|s| !s.is_empty()) {
+        window.window().set_size(parse_size(&size));
+    }
     window.show().unwrap();
     connect(&window, &state);
 
@@ -334,6 +369,7 @@ fn real_desktop_synthetic_workflow() {
                 } else if let Some(path) = &screenshot {
                     *tick_result.borrow_mut() = Some(
                         save_screenshot(&window, path)
+                            .and_then(|()| save_pages(&window, path))
                             .map_err(|e| format!("screenshot {}: {e}", path.display())),
                     );
                 } else {

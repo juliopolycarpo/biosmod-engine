@@ -46,7 +46,7 @@ export component AppWindow inherits Window {
     in property <bool> can-verify;
     in property <int> stage;
     in-out property <int> theme-choice: 0;
-    private property <int> page: 0;
+    in-out property <int> page: 0;
     private property <bool> paths-open;
     private property <bool> show-review;
     private property <bool> engine-dirty;
