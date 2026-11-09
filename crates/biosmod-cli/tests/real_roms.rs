@@ -4,7 +4,7 @@
 //!
 //! ```sh
 //! BME_ROM_MR9A=~/bios/MNX99MR9APRO_230322_original_90DEDD1D.bin \
-//! BME_ROM_PR9=~/bios/pr9-read1.bin cargo nextest run --locked --release --test real_roms
+//! BME_ROM_PR9=~/bios/pr9-read1.bin cargo nextest run --locked --release --test real_roms --success-output final
 //! ```
 //!
 //! Expected digests are the images built by x99-bios-fixes (Python) at commit
@@ -15,8 +15,15 @@ mod common;
 use common::{Sandbox, s};
 use std::path::PathBuf;
 
+/// Resolve the dump named by `var`, printing a skip notice when it is unset.
+///
+/// Example: `let Some(input) = rom("BME_ROM_PR9") else { return };`
 fn rom(var: &str) -> Option<PathBuf> {
-    let path = PathBuf::from(std::env::var_os(var)?);
+    let Some(path) = std::env::var_os(var) else {
+        eprintln!("skipped: {var} is not set");
+        return None;
+    };
+    let path = PathBuf::from(path);
     if path.is_file() {
         return Some(path);
     }
@@ -28,10 +35,7 @@ fn rom(var: &str) -> Option<PathBuf> {
 
 /// Build `select` from the ROM in `var` and compare the output digest.
 fn reproduces(var: &str, select: &[&str], extra: &[&str], expected: &str) {
-    let Some(input) = rom(var) else {
-        eprintln!("skipped: {var} is not set");
-        return;
-    };
+    let Some(input) = rom(var) else { return };
     let sandbox = Sandbox::new();
     let out = sandbox.path("out.bin");
     let mut args = vec!["patch", s(&input), "-o", s(&out), "--json", "--select"];
