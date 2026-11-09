@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=BIOS Mod Engine
+Comment=Inspect and build firmware image copies
+Exec=bme-gui %f
+Icon=dev.polycarpo.biosmod-engine
+Terminal=false
+Categories=Utility;
+StartupWMClass=dev.polycarpo.biosmod-engine

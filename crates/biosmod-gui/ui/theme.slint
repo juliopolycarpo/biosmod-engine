@@ -1,0 +1,38 @@
+import { Palette } from "std-widgets.slint";
+
+// Design tokens shared by every view. Spacing steps are multiples of 4px and type sizes
+// follow a four-step scale. (Globals cannot use rem, so the scale is in logical pixels.)
+export global Theme {
+    // Surfaces and text.
+    out property <brush> canvas: Palette.alternate-background;
+    out property <brush> surface: Palette.background;
+    out property <brush> border: Palette.border;
+    out property <brush> text: Palette.foreground;
+    out property <brush> muted: Palette.foreground.transparentize(0.3);
+    out property <brush> accent: Palette.accent-background;
+    out property <brush> accent-text: Palette.accent-foreground;
+
+    // Status tones. Each mixes a hue with the palette foreground, so it darkens on light
+    // surfaces and lightens on dark ones. Palette.color-scheme stays `unknown` while following
+    // the system, so it cannot choose between two fixed variants.
+    out property <color> success: #1f9d4d.mix(Palette.foreground.with-alpha(1), 0.7);
+    out property <color> warning: #b7791f.mix(Palette.foreground.with-alpha(1), 0.7);
+    out property <color> danger: #d93025.mix(Palette.foreground.with-alpha(1), 0.7);
+
+    // Spacing scale.
+    out property <length> space-xs: 4px;
+    out property <length> space-sm: 8px;
+    out property <length> space-md: 12px;
+    out property <length> space-lg: 16px;
+    out property <length> space-xl: 24px;
+    out property <length> radius: 8px;
+    // Widest the page content grows; wider windows center it instead of stretching rows.
+    out property <length> content-max: 1120px;
+    out property <length> label-width: 64px;
+
+    // Type scale.
+    out property <length> font-caption: 12px;
+    out property <length> font-body: 14px;
+    out property <length> font-heading: 17px;
+    out property <length> font-title: 24px;
+}

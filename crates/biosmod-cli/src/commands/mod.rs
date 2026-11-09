@@ -90,7 +90,14 @@ fn tools(ctx: &Ctx, command: ToolsCommand) -> Result<Reply> {
 
 /// Read a file with a size bound.
 pub fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
-    let file = fs::File::open(path).map_err(|e| io_error(path, e))?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(path).map_err(|e| io_error(path, e))?;
     let meta = file.metadata().map_err(|e| io_error(path, e))?;
     if !meta.is_file() {
         return Err(Error::new(

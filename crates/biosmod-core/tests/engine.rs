@@ -82,6 +82,29 @@ fn acpi_table_offset_near_usize_max_is_not_found_instead_of_overflowing() {
 }
 
 #[test]
+fn distinct_acpi_table_offsets_are_not_composed_as_the_same_component() {
+    use biosmod_core::catalog::Variant;
+    let mut case = Case::new();
+    let mut other = case.catalog.patches["TB"].clone();
+    other.id = "TB2".into();
+    let Variant::Applicable(variant) = other.variants.get_mut(synthetic::FIRMWARE).unwrap() else {
+        panic!("expected synthetic applicable variant");
+    };
+    variant.components[0].table_offset = 8;
+    case.catalog.patches.insert(other.id.clone(), other);
+    let error = case
+        .build(&case.image(), &["TB"])
+        .expect_err("distinct table offsets require explicit support");
+    assert_eq!(error.code, Code::FormatUnsupported, "{error}");
+    assert!(error.message.contains("table offset"), "{error}");
+    assert!(error.message.contains("0x8"), "{error}");
+    let scan = analysis::scan(&case.image(), &case.catalog, Some(synthetic::FIRMWARE));
+    let row = scan.patches.iter().find(|p| p.id == "TB").unwrap();
+    assert_eq!(row.state, State::Unsupported, "{row:?}");
+    assert!(row.detail.contains("table offset"), "{}", row.detail);
+}
+
+#[test]
 fn boards_for_lists_shipping_boards_and_is_empty_for_unknown_firmware() {
     let case = Case::new();
     assert_eq!(

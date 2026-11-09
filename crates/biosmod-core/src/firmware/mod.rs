@@ -225,9 +225,17 @@ impl Image {
         section.body(stream)
     }
 
-    /// Flash base address when the image is mapped to end at 4 GiB.
+    /// Flash address of image offset 0, with the BIOS region mapped to end at 4 GiB.
+    ///
+    /// A full SPI dump maps its descriptor BIOS region below 4 GiB; a BIOS-only
+    /// image ends at 4 GiB itself.
+    ///
+    /// Example: `let address = image.flash_base() + file.offset as u64;`
     pub fn flash_base(&self) -> u64 {
-        (1u64 << 32).wrapping_sub(self.bytes.len() as u64)
+        let end = descriptor_regions(&self.bytes)
+            .and_then(|regions| regions.into_iter().find(|r| r.name == "bios"))
+            .map_or(self.bytes.len(), |bios| bios.end);
+        (1u64 << 32).wrapping_sub(end as u64)
     }
 
     /// The UI name of a file, if it has a UI section.
@@ -414,7 +422,7 @@ fn parse_volume(
         start = start.max(ext_end);
     }
     let (files, free_start) =
-        parse_files(buffer, align(start, 8), offset + length, depth + 1, budget)?;
+        parse_files(buffer, offset, start, offset + length, depth + 1, budget)?;
     Ok(Some(Volume {
         offset,
         length,
@@ -425,15 +433,17 @@ fn parse_volume(
     }))
 }
 
+/// Parse files from `start`, aligning each to 8 bytes relative to the volume at `base`.
 fn parse_files(
     buffer: &[u8],
+    base: usize,
     start: usize,
     end: usize,
     depth: usize,
     budget: &mut Budget,
 ) -> Result<(Vec<FfsFile>, usize)> {
     let mut files = Vec::new();
-    let mut cursor = start;
+    let mut cursor = base + align(start - base, 8);
     while cursor + 24 <= end {
         let header = &buffer[cursor..cursor + 24];
         if header.iter().all(|b| *b == 0xFF) {
@@ -503,7 +513,7 @@ fn parse_files(
             sections,
             opaque,
         });
-        cursor = align(cursor + size, 8);
+        cursor = base + align(cursor + size - base, 8);
     }
     Ok((files, cursor))
 }
@@ -689,6 +699,30 @@ mod checksum_tests {
         assert_eq!(checksum16(&[0xFF, 0xFF, 2, 0]), 1, "sum wraps at 16 bits");
         assert_eq!(checksum16(&[1, 0, 9]), 1, "odd trailing byte is ignored");
         assert!(checksum16_ok(&[1, 0, 0xFF, 0xFF]));
+    }
+}
+
+#[cfg(test)]
+mod unaligned_volume_regression {
+    use super::*;
+    use crate::synthetic::{DXE_GUID, ffs, section, volume};
+
+    #[test]
+    fn unaligned_volume_aligns_file_offsets_relative_to_the_volume() {
+        // 0x1c-byte files leave a 4-byte gap before the next volume-relative
+        // 8-byte boundary, which absolute alignment at 0x1001 would miss.
+        let first = ffs(DXE_GUID, 0x07, &section(SECTION_RAW, &[1]), 0);
+        let second = ffs(DXE_GUID, 0x07, &section(SECTION_RAW, &[2]), 0);
+        assert_eq!(first.len(), 0x1d);
+        let mut bytes = vec![0xff; 0x1001];
+        bytes.extend(volume(&[first, second], 0x1000));
+        let image = Image::parse(bytes).expect("unaligned volume parses");
+        let offsets: Vec<usize> = image.volumes[0].files.iter().map(|f| f.offset).collect();
+        assert_eq!(
+            offsets,
+            [0x1001 + 0x48, 0x1001 + 0x68],
+            "expected volume-relative 8-byte file offsets"
+        );
     }
 }
 

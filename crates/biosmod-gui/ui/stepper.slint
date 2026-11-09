@@ -1,0 +1,56 @@
+import { Theme } from "theme.slint";
+
+component StepDot inherits Rectangle {
+    in property <int> index;
+    in property <int> current;
+    width: 24px;
+    height: 24px;
+    border-radius: 12px;
+    border-width: 2px;
+    border-color: root.index <= root.current ? Theme.accent : Theme.border;
+    background: root.index < root.current ? Theme.accent : root.index == root.current ? Theme.surface : transparent;
+    animate background, border-color { duration: 150ms; }
+    Text {
+        text: root.index < root.current ? "✓" : "\{root.index + 1}";
+        color: root.index < root.current ? Theme.accent-text : root.index == root.current ? Theme.accent : Theme.muted;
+        font-size: Theme.font-caption;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+/// Three-step progress for the firmware workflow; `current` is the zero-based active step,
+/// and 3 marks every step done.
+/// Example: `Stepper { current: 1; }` marks Select done, Review active and Verify upcoming.
+export component Stepper inherits Rectangle {
+    in property <int> current;
+    private property <[string]> names: [@tr("Select"), @tr("Review"), @tr("Verify")];
+    accessible-role: text;
+    accessible-label: root.current >= 3 ? @tr("All 3 steps complete") : @tr("Step {} of 3: {}", root.current + 1, root.names[root.current]);
+    height: row.preferred-height;
+    width: row.preferred-width;
+    row := HorizontalLayout {
+        spacing: Theme.space-sm;
+        for name[i] in root.names: HorizontalLayout {
+            spacing: Theme.space-sm;
+            if i > 0: VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 32px;
+                    height: 2px;
+                    background: i <= root.current ? Theme.accent : Theme.border;
+                    animate background { duration: 150ms; }
+                }
+            }
+            StepDot { index: i; current: root.current; }
+            Text {
+                text: name;
+                color: i == root.current || root.current >= 3 ? Theme.text : Theme.muted;
+                font-size: Theme.font-body;
+                font-weight: i == root.current ? 700 : 400;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

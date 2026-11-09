@@ -318,19 +318,27 @@ fn pad_file(size: usize) -> Result<Vec<u8>> {
     make_file(&header, &vec![0xFF; size - 24])
 }
 
+/// The file's declared data alignment in bytes.
+fn data_alignment(file: &FfsFile) -> usize {
+    ALIGNMENTS[usize::from((file.attributes >> 3) & 7)]
+}
+
 /// The first legal start at or after both `cursor` and the original offset.
 ///
 /// The gap after `cursor` must be zero or hold a PAD file (24+ bytes), and the
-/// file's data must meet its declared alignment.
-fn place(cursor: usize, file: &FfsFile) -> usize {
-    let alignment = ALIGNMENTS[usize::from((file.attributes >> 3) & 7)];
+/// file's data must meet its declared alignment. FFS alignment is relative to
+/// the volume at `base`.
+fn place(base: usize, cursor: usize, file: &FfsFile) -> usize {
+    let alignment = data_alignment(file);
     let header = if file.attributes & FFS_ATTRIB_LARGE_FILE != 0 {
         32
     } else {
         24
     };
-    let mut start = align(cursor.max(file.offset), 8);
-    while !(start + header).is_multiple_of(alignment) || (start > cursor && start - cursor < 24) {
+    let mut start = base + align(cursor.max(file.offset) - base, 8);
+    while !(start - base + header).is_multiple_of(alignment)
+        || (start > cursor && start - cursor < 24)
+    {
         start += 8;
     }
     start
@@ -364,7 +372,7 @@ pub fn reflow(
             continue;
         }
         let data = replacement.unwrap_or(&image.bytes[file.offset..file.offset + file.size]);
-        let start = place(cursor, file);
+        let start = place(base, cursor, file);
         if start != file.offset {
             if let Some(reason) = immovable(image, file) {
                 return Err(Error::new(
@@ -397,7 +405,7 @@ pub fn reflow(
             buffer[cursor - base..start - base].copy_from_slice(&pad_file(start - cursor)?);
         }
         buffer[start - base..start - base + data.len()].copy_from_slice(data);
-        cursor = align(start + data.len(), 8);
+        cursor = base + align(start + data.len() - base, 8);
     }
     out[base..end].copy_from_slice(&buffer);
     Ok(notes)
@@ -416,6 +424,97 @@ pub fn write_in_place(out: &mut [u8], volume: &Volume, replaced: &[Replacement])
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A 64 KiB descriptor dump whose BIOS region ends at 0xd000, holding one
+    /// uncompressed DXE driver linked at `base`.
+    fn descriptor_image(base: u32) -> Image {
+        use crate::synthetic::{DXE_GUID, ffs, section, volume};
+        let mut pe = vec![0; 256];
+        pe[..2].copy_from_slice(b"MZ");
+        pe[0x3c..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+        pe[0x40..0x44].copy_from_slice(b"PE\0\0");
+        pe[0x58..0x5a].copy_from_slice(&0x10bu16.to_le_bytes());
+        pe[0x74..0x78].copy_from_slice(&base.to_le_bytes());
+        let file = ffs(DXE_GUID, 0x07, &section(SECTION_PE32, &pe), 0);
+        let mut bytes = vec![0xff; 0x1000];
+        bytes[0x10..0x14].copy_from_slice(&0x0ff0_a55au32.to_le_bytes());
+        bytes[0x14..0x18].copy_from_slice(&0x0004_0000u32.to_le_bytes());
+        for (index, region) in [
+            0x0000_0000u32,
+            0x000c_0001,
+            0x000f_000d,
+            0x0000_7fff,
+            0x0000_7fff,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            bytes[0x40 + index * 4..0x44 + index * 4].copy_from_slice(&region.to_le_bytes());
+        }
+        bytes.extend(volume(&[file], 0xc000));
+        bytes.resize(0x10000, 0xff);
+        let regions = super::super::descriptor_regions(&bytes).expect("valid descriptor");
+        assert!(regions.iter().any(|r| r.name == "bios" && r.end == 0xd000));
+        Image::parse(bytes).expect("descriptor fixture parses")
+    }
+
+    #[test]
+    fn descriptor_flash_base_maps_the_bios_region_end_to_4_gib() {
+        let image = descriptor_image(0);
+        assert_eq!(
+            image.flash_base(),
+            (1u64 << 32) - 0xd000,
+            "expected the BIOS region end at 4 GiB, not the dump end"
+        );
+    }
+
+    #[test]
+    fn descriptor_layout_keeps_an_executable_linked_at_its_flash_address() {
+        // The PE body starts at 0x1000 + 0x48 + 24 + 4 in the dump.
+        let image = descriptor_image(((1u64 << 32) - 0xd000 + 0x1064) as u32);
+        let reason = immovable(&image, &image.volumes[0].files[0])
+            .expect("an executable linked at its flash address must stay in place");
+        assert!(reason.contains("executes in place"), "{reason}");
+    }
+
+    #[test]
+    fn descriptor_layout_moves_an_executable_linked_elsewhere() {
+        let image = descriptor_image(0);
+        let reason = immovable(&image, &image.volumes[0].files[0]);
+        assert_eq!(reason, None, "expected a base-0 DXE driver to be movable");
+    }
+
+    #[test]
+    fn reflow_aligns_file_data_relative_to_the_volume() {
+        use crate::synthetic::{DXE_GUID, NEXT_GUID, ffs, section, volume};
+        let grown = ffs(DXE_GUID, 0x07, &section(SECTION_RAW, &[1; 20]), 0);
+        let aligned = ffs(NEXT_GUID, 0x07, &section(SECTION_RAW, &[2; 20]), 1 << 3);
+        let mut bytes = vec![0xff; 8];
+        bytes.extend(volume(&[grown, aligned], 0x1000));
+        let image = Image::parse(bytes).expect("volume parses");
+        let vol = &image.volumes[0];
+        let mut out = image.bytes.clone();
+        let notes = reflow(&image, &mut out, vol, &[]).expect("unchanged volume reflows");
+        assert!(
+            notes.is_empty(),
+            "expected no moved files | received {notes:?}"
+        );
+        assert_eq!(out, image.bytes, "expected an unchanged volume");
+
+        let bigger = ffs(DXE_GUID, 0x07, &section(SECTION_RAW, &[1; 60]), 0);
+        reflow(&image, &mut out, vol, &[(0, bigger)]).expect("grown volume reflows");
+        let rebuilt = Image::parse(out).expect("rebuilt volume parses");
+        let moved = rebuilt.volumes[0]
+            .files
+            .iter()
+            .find(|f| f.guid == NEXT_GUID)
+            .expect("aligned file survives");
+        let data = moved.offset - rebuilt.volumes[0].offset + moved.header_size;
+        assert!(
+            data.is_multiple_of(16),
+            "expected volume-relative data offset aligned to 0x10 | received {data:#x}"
+        );
+    }
 
     #[test]
     fn reflow_refuses_alignment_past_volume_end() {

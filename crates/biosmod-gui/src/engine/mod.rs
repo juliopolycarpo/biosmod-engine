@@ -1,0 +1,803 @@
+//! A subprocess client for the `bme/1` protocol. No firmware policy lives here.
+
+use serde::Deserialize;
+use serde_json::Value;
+use std::ffi::{OsStr, OsString};
+use std::fmt;
+use std::io::{self, Read};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
+use std::thread;
+use std::time::{Duration, Instant};
+
+const MAX_JSON: usize = 64 * 1024 * 1024;
+const MAX_DIAGNOSTICS: usize = 256 * 1024;
+const REQUIRED_CHECKS: &[&str] = &[
+    "input-digest",
+    "output-digest",
+    "structure",
+    "unchanged-outside-allowlist",
+    "changed-regions",
+    "patch-states",
+    "reproduced-from-catalog",
+];
+
+/// Operations supported by this client. Paths remain OS strings until passed to `bme`.
+#[derive(Debug, Clone)]
+pub enum Request {
+    Version,
+    Capabilities,
+    Inspect {
+        image: PathBuf,
+    },
+    Scan {
+        image: PathBuf,
+        source: String,
+    },
+    CatalogList,
+    CatalogShow {
+        source: String,
+    },
+    Plan {
+        image: PathBuf,
+        source: String,
+        selection: Vec<String>,
+        output: PathBuf,
+    },
+    Patch {
+        image: PathBuf,
+        plan: PathBuf,
+        output: PathBuf,
+    },
+    Verify {
+        input: PathBuf,
+        output: PathBuf,
+        plan: PathBuf,
+        manifest: PathBuf,
+    },
+    ToolsDoctor,
+    ToolsPaths,
+}
+
+impl Request {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Version => "version",
+            Self::Capabilities => "capabilities",
+            Self::Inspect { .. } => "inspect",
+            Self::Scan { .. } => "scan",
+            Self::CatalogList => "catalog list",
+            Self::CatalogShow { .. } => "catalog show",
+            Self::Plan { .. } => "plan",
+            Self::Patch { .. } => "patch",
+            Self::Verify { .. } => "verify",
+            Self::ToolsDoctor => "tools doctor",
+            Self::ToolsPaths => "tools paths",
+        }
+    }
+
+    fn args(&self, cwd: &Path) -> Result<Vec<OsString>, EngineError> {
+        let mut args: Vec<OsString> = self.name().split(' ').map(Into::into).collect();
+        let path = |p: &Path| -> OsString {
+            if p.is_absolute() {
+                p.as_os_str().to_owned()
+            } else {
+                cwd.join(p).into_os_string()
+            }
+        };
+        let option = |name: &str, value: &OsStr| -> OsString {
+            let mut arg = OsString::from(name);
+            arg.push(value);
+            arg
+        };
+        match self {
+            Self::Inspect { image } => args.push(path(image)),
+            Self::Scan { image, source } => {
+                args.push(path(image));
+                args.push(option("--catalog=", OsStr::new(source)));
+            }
+            Self::CatalogShow { source } => args.push(option("--catalog=", OsStr::new(source))),
+            Self::Plan {
+                image,
+                source,
+                selection,
+                output,
+            } => {
+                if selection.is_empty() || selection.iter().any(|s| s.is_empty() || s.contains(','))
+                {
+                    return Err(EngineError::new(
+                        ErrorKind::Configuration,
+                        "selection: expected one or more nonempty patch IDs without commas",
+                    ));
+                }
+                args.push(path(image));
+                args.push(option("--catalog=", OsStr::new(source)));
+                args.push(option("--select=", OsStr::new(&selection.join(","))));
+                args.push(option("--output=", &path(output)));
+            }
+            Self::Patch {
+                image,
+                plan,
+                output,
+            } => {
+                args.push(path(image));
+                args.push(option("--plan=", &path(plan)));
+                args.push(option("--output=", &path(output)));
+            }
+            Self::Verify {
+                input,
+                output,
+                plan,
+                manifest,
+            } => {
+                args.extend([path(input), path(output)]);
+                args.push(option("--plan=", &path(plan)));
+                args.push(option("--manifest=", &path(manifest)));
+            }
+            _ => {}
+        }
+        args.extend([OsString::from("--json"), OsString::from("--offline")]);
+        Ok(args)
+    }
+}
+
+/// Categories distinguish an engine rejection from transport and process failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorKind {
+    Configuration,
+    Launch,
+    Io,
+    Protocol,
+    OutputLimit,
+    Engine,
+    Timeout,
+    Cancelled,
+    Interrupted,
+}
+
+/// A failed operation, including the structured engine error and bounded diagnostics when available.
+#[derive(Debug, Clone)]
+pub struct EngineError {
+    pub kind: ErrorKind,
+    pub message: String,
+    pub code: Option<String>,
+    pub details: Option<Value>,
+    pub diagnostics: String,
+}
+
+impl EngineError {
+    pub(crate) fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+            code: None,
+            details: None,
+            diagnostics: String::new(),
+        }
+    }
+    fn diagnostics(mut self, diagnostics: &str) -> Self {
+        self.diagnostics = diagnostics.to_owned();
+        self
+    }
+}
+
+impl fmt::Display for EngineError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.code {
+            Some(code) => write!(f, "{code}: {}", self.message),
+            None => f.write_str(&self.message),
+        }
+    }
+}
+impl std::error::Error for EngineError {}
+
+/// A validated successful response.
+#[derive(Debug, Clone)]
+pub struct Reply {
+    pub version: String,
+    pub data: Value,
+    pub diagnostics: String,
+}
+
+#[derive(Deserialize)]
+struct Envelope {
+    product: String,
+    protocol: String,
+    version: String,
+    command: String,
+    ok: bool,
+    #[serde(default)]
+    data: Field<Value>,
+    #[serde(default)]
+    error: Field<EngineFailure>,
+}
+
+// Missing fields and explicit null are different in the protocol envelope.
+enum Field<T> {
+    Missing,
+    Present(T),
+}
+
+// Deriving Default would unnecessarily require T: Default.
+#[allow(clippy::derivable_impls)]
+impl<T> Default for Field<T> {
+    fn default() -> Self {
+        Self::Missing
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Field<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        T::deserialize(deserializer).map(Self::Present)
+    }
+}
+#[derive(Deserialize)]
+struct EngineFailure {
+    code: String,
+    message: String,
+    #[serde(default)]
+    details: Option<Value>,
+}
+
+/// Decode one full response and require agreement between the envelope and process status.
+///
+/// Example: `decode("version", 0, br#"{"product":"biosmod-engine","protocol":"bme/1","version":"1","command":"version","ok":true,"data":{}}"#, "")` returns a reply.
+pub fn decode(
+    expected: &str,
+    exit: i32,
+    bytes: &[u8],
+    diagnostics: &str,
+) -> Result<Reply, EngineError> {
+    let envelope: Envelope = serde_json::from_slice(bytes).map_err(|e| {
+        EngineError::new(
+            ErrorKind::Protocol,
+            format!("engine response: expected one complete bme/1 JSON envelope | received {e}"),
+        )
+        .diagnostics(diagnostics)
+    })?;
+    let bad =
+        |message: String| EngineError::new(ErrorKind::Protocol, message).diagnostics(diagnostics);
+    if envelope.product != "biosmod-engine"
+        || envelope.protocol != "bme/1"
+        || envelope.version.is_empty()
+    {
+        return Err(bad(format!(
+            "engine identity: expected biosmod-engine / bme/1 / nonempty version | received {} / {} / {:?}",
+            envelope.product, envelope.protocol, envelope.version
+        )));
+    }
+    let usage = envelope.command == "usage"
+        && !envelope.ok
+        && matches!(&envelope.error, Field::Present(error) if error.code == "USAGE");
+    if envelope.command != expected && !usage {
+        return Err(bad(format!(
+            "engine command: expected {expected} | received {}",
+            envelope.command
+        )));
+    }
+    if envelope.ok && exit == 0 && matches!(envelope.error, Field::Missing) {
+        return match envelope.data {
+            Field::Present(data) => Ok(Reply {
+                version: envelope.version,
+                data,
+                diagnostics: diagnostics.to_owned(),
+            }),
+            Field::Missing => Err(bad("engine response: expected data for success".into())),
+        };
+    }
+    if !envelope.ok
+        && matches!(envelope.data, Field::Missing)
+        && let Field::Present(error) = envelope.error
+    {
+        let expected_exit = match error.code.as_str() {
+            "USAGE" => 2,
+            "PUBLISH_INCOMPLETE" => 3,
+            _ => 1,
+        };
+        if exit != expected_exit
+            || error.code.is_empty()
+            || !error
+                .code
+                .bytes()
+                .all(|c| c.is_ascii_uppercase() || c == b'_')
+            || error.message.is_empty()
+        {
+            return Err(bad(format!(
+                "engine error {:?}: expected uppercase code, nonempty message and exit {expected_exit} | received exit {exit}",
+                error.code
+            )));
+        }
+        return Err(EngineError {
+            kind: ErrorKind::Engine,
+            message: error.message,
+            code: Some(error.code),
+            details: error.details,
+            diagnostics: diagnostics.to_owned(),
+        });
+    }
+    Err(bad(format!(
+        "engine result: expected success with exit 0 or a matching controlled error | received ok={} exit={exit}",
+        envelope.ok
+    )))
+}
+
+/// A semantic verification result. Incomplete or inconsistent checks are never success.
+#[derive(Debug, Clone)]
+pub struct Verification {
+    pub complete: bool,
+    pub checks: Vec<Value>,
+    pub skipped: Vec<Value>,
+    pub notice: String,
+}
+impl Verification {
+    /// Check all mandatory verification results, including skipped and duplicate checks.
+    ///
+    /// Example: `Verification::from_data(&serde_json::json!({"complete": false, "checks": [], "skipped": [], "notice": "offline"}))` returns an incomplete result.
+    pub fn from_data(data: &Value) -> Result<Self, EngineError> {
+        let invalid = || {
+            EngineError::new(
+                ErrorKind::Protocol,
+                "verification: expected complete, checks, skipped and notice with their documented types",
+            )
+        };
+        let declared = data
+            .get("complete")
+            .and_then(Value::as_bool)
+            .ok_or_else(invalid)?;
+        let checks = data
+            .get("checks")
+            .and_then(Value::as_array)
+            .ok_or_else(invalid)?
+            .clone();
+        let skipped = data
+            .get("skipped")
+            .and_then(Value::as_array)
+            .ok_or_else(invalid)?
+            .clone();
+        let notice = data
+            .get("notice")
+            .and_then(Value::as_str)
+            .ok_or_else(invalid)?
+            .to_owned();
+        let valid_checks = checks.iter().all(|check| {
+            check.get("check").and_then(Value::as_str).is_some()
+                && check.get("ok").and_then(Value::as_bool) == Some(true)
+        });
+        let required = REQUIRED_CHECKS.iter().all(|name| {
+            checks
+                .iter()
+                .filter(|c| c.get("check").and_then(Value::as_str) == Some(name))
+                .count()
+                == 1
+        });
+        Ok(Self {
+            complete: declared && skipped.is_empty() && valid_checks && required,
+            checks,
+            skipped,
+            notice,
+        })
+    }
+}
+
+/// An engine executable with a fixed, intentional working directory.
+#[derive(Debug, Clone)]
+pub struct Engine {
+    executable: PathBuf,
+    cwd: PathBuf,
+    env: Vec<(OsString, OsString)>,
+    timeout: Duration,
+}
+
+impl Engine {
+    /// Set up an engine using absolute paths, independent of the opened image's directory.
+    ///
+    /// Example: `Engine::new("/usr/bin/bme", "/tmp")` configures a sibling engine.
+    pub fn new(
+        executable: impl Into<PathBuf>,
+        cwd: impl Into<PathBuf>,
+    ) -> Result<Self, EngineError> {
+        let executable = executable.into();
+        let cwd = cwd.into();
+        if !executable.is_absolute() || !cwd.is_absolute() {
+            return Err(EngineError::new(
+                ErrorKind::Configuration,
+                format!(
+                    "engine paths: expected absolute executable and working directory | received {} and {}",
+                    executable.display(),
+                    cwd.display()
+                ),
+            ));
+        }
+        Ok(Self {
+            executable,
+            cwd,
+            env: Vec::new(),
+            timeout: Duration::from_secs(120),
+        })
+    }
+    /// Override one child environment variable, for example isolated `BME_CONFIG_HOME` in tests.
+    ///
+    /// Example: `engine.with_env("BME_CONFIG_HOME", "/tmp/config")`.
+    pub fn with_env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
+        self.env.push((key.into(), value.into()));
+        self
+    }
+    /// Set the read-only operation timeout; publication is intentionally not interrupted.
+    ///
+    /// Example: `engine.with_timeout(std::time::Duration::from_secs(30))`.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+    /// Verify protocol identity, command groups and document versions before enabling operations.
+    ///
+    /// Example: `engine.handshake(&std::sync::atomic::AtomicBool::new(false))`.
+    pub fn handshake(&self, cancel: &AtomicBool) -> Result<Reply, EngineError> {
+        let version = self.run(&Request::Version, cancel)?;
+        let capabilities = self.run(&Request::Capabilities, cancel)?;
+        validate_handshake(&version, &capabilities)?;
+        Ok(capabilities)
+    }
+    /// Run one command, draining both output streams while waiting for it to exit.
+    ///
+    /// Example: `engine.run(&Request::Version, &std::sync::atomic::AtomicBool::new(false))`.
+    pub fn run(&self, request: &Request, cancel: &AtomicBool) -> Result<Reply, EngineError> {
+        let args = request.args(&self.cwd)?;
+        let mut command = Command::new(&self.executable);
+        command
+            .args(args)
+            .current_dir(&self.cwd)
+            .envs(self.env.iter().map(|(k, v)| (k, v)))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        let mut child = command.spawn().map_err(|e| {
+            EngineError::new(
+                ErrorKind::Launch,
+                format!(
+                    "engine {}: expected executable process | received {e}",
+                    self.executable.display()
+                ),
+            )
+        })?;
+        let stdout = child.stdout.take().expect("stdout was piped");
+        let stderr = child.stderr.take().expect("stderr was piped");
+        #[cfg(unix)]
+        if let Err(error) = nonblocking(&stdout).and_then(|()| nonblocking(&stderr)) {
+            if matches!(request, Request::Patch { .. }) {
+                // Publication may already have started. Drain both pipes and wait for it
+                // rather than treating a local setup failure as safe to interrupt.
+                let out =
+                    thread::spawn(move || drain_until(stdout, MAX_JSON, &AtomicBool::new(false)));
+                let err = thread::spawn(move || {
+                    drain_until(stderr, MAX_DIAGNOSTICS, &AtomicBool::new(false))
+                });
+                let _ = child.wait();
+                let _ = out.join();
+                let _ = err.join();
+            } else {
+                terminate_group(&mut child);
+            }
+            return Err(EngineError::new(
+                ErrorKind::Io,
+                format!("engine pipes: expected nonblocking reads | received {error}"),
+            ));
+        }
+        let stop_readers = Arc::new(AtomicBool::new(false));
+        let (sender, receiver) = mpsc::channel();
+        let out_stop = stop_readers.clone();
+        let out_sender = sender.clone();
+        let out = thread::spawn(move || {
+            let _ = out_sender.send((true, drain_until(stdout, MAX_JSON, &out_stop)));
+        });
+        let err_stop = stop_readers.clone();
+        let err = thread::spawn(move || {
+            let _ = sender.send((false, drain_until(stderr, MAX_DIAGNOSTICS, &err_stop)));
+        });
+        let started = Instant::now();
+        let mut stdout = None;
+        let mut stderr = None;
+        let mut reaped_status = None;
+        let mut stopped = None;
+        let mut leader_done = false;
+        let mut process_error = None;
+        loop {
+            while let Ok((is_stdout, result)) = receiver.try_recv() {
+                if is_stdout {
+                    stdout = Some(result);
+                } else {
+                    stderr = Some(result);
+                }
+            }
+            if !leader_done {
+                match leader_exited(&mut child, &mut reaped_status) {
+                    Ok(exited) => leader_done = exited,
+                    Err(error) => {
+                        process_error = Some(error);
+                        break;
+                    }
+                }
+            }
+            if leader_done && stdout.is_some() && stderr.is_some() {
+                break;
+            }
+            if !matches!(request, Request::Patch { .. })
+                && (cancel.load(Ordering::Relaxed) || started.elapsed() >= self.timeout)
+            {
+                stopped = Some(if cancel.load(Ordering::Relaxed) {
+                    ErrorKind::Cancelled
+                } else {
+                    ErrorKind::Timeout
+                });
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        if stopped.is_some() || process_error.is_some() {
+            if matches!(request, Request::Patch { .. }) {
+                // A supervision error cannot make it safe to interrupt publication.
+                let _ = child.wait();
+            } else {
+                terminate_group(&mut child);
+            }
+            stop_readers.store(true, Ordering::Relaxed);
+            // Unix readers are nonblocking and observe the stop flag even when a descendant
+            // outside the group retains a pipe. No reader thread outlives this operation.
+            #[cfg(unix)]
+            {
+                let _ = out.join();
+                let _ = err.join();
+            }
+            for (is_stdout, result) in receiver.try_iter() {
+                if !is_stdout {
+                    stderr = Some(result);
+                }
+            }
+            let diagnostics = stderr
+                .and_then(Result::ok)
+                .map(|stderr| stderr.text())
+                .unwrap_or_default();
+            let kind = stopped.unwrap_or(ErrorKind::Io);
+            return Err(EngineError::new(
+                kind,
+                match kind {
+                    ErrorKind::Cancelled => "engine operation cancelled".to_owned(),
+                    ErrorKind::Timeout => "engine operation timed out".to_owned(),
+                    _ => format!("engine process: {}", process_error.expect("process error")),
+                },
+            )
+            .diagnostics(&diagnostics));
+        }
+        let status = match reaped_status {
+            Some(status) => Ok(status),
+            None => child.wait(),
+        };
+        let _ = out.join();
+        let _ = err.join();
+        let stdout = stdout
+            .expect("stdout finished")
+            .map_err(|e| EngineError::new(ErrorKind::Io, format!("engine stdout: {e}")))?;
+        let stderr = stderr
+            .expect("stderr finished")
+            .map_err(|e| EngineError::new(ErrorKind::Io, format!("engine stderr: {e}")))?;
+        let diagnostics = stderr.text();
+        let status = status.map_err(|e| {
+            EngineError::new(ErrorKind::Io, format!("engine process: {e}"))
+                .diagnostics(&diagnostics)
+        })?;
+        let code = status.code().ok_or_else(|| {
+            EngineError::new(
+                ErrorKind::Interrupted,
+                format!("engine process interrupted: {status}"),
+            )
+            .diagnostics(&diagnostics)
+        })?;
+        if stdout.overflow {
+            return Err(EngineError::new(
+                ErrorKind::OutputLimit,
+                format!("engine response: expected at most {MAX_JSON} bytes | received more"),
+            )
+            .diagnostics(&diagnostics));
+        }
+        decode(request.name(), code, &stdout.bytes, &diagnostics)
+    }
+}
+
+struct Drained {
+    bytes: Vec<u8>,
+    overflow: bool,
+}
+impl Drained {
+    /// Render captured stderr, marking truncation.
+    fn text(&self) -> String {
+        let mut text = String::from_utf8_lossy(&self.bytes).into_owned();
+        if self.overflow {
+            text.push_str("\n[diagnostics truncated]");
+        }
+        text
+    }
+}
+#[cfg(test)]
+fn drain(reader: impl Read, limit: usize) -> io::Result<Drained> {
+    drain_until(reader, limit, &AtomicBool::new(false))
+}
+fn drain_until(mut reader: impl Read, limit: usize, stop: &AtomicBool) -> io::Result<Drained> {
+    let mut bytes = Vec::new();
+    let mut overflow = false;
+    let mut buf = [0; 16384];
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let count = match reader.read(&mut buf) {
+            Ok(count) => count,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        if count == 0 {
+            break;
+        }
+        let keep = count.min(limit.saturating_sub(bytes.len()));
+        bytes.extend_from_slice(&buf[..keep]);
+        overflow |= keep < count;
+    }
+    Ok(Drained { bytes, overflow })
+}
+
+#[cfg(unix)]
+fn nonblocking(pipe: &impl std::os::fd::AsRawFd) -> io::Result<()> {
+    let fd = pipe.as_raw_fd();
+    // SAFETY: fd belongs to a live pipe and fcntl does not take ownership.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: F_SETFL only changes the status flags of this live pipe.
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn leader_exited(
+    child: &mut std::process::Child,
+    _: &mut Option<std::process::ExitStatus>,
+) -> io::Result<bool> {
+    // WNOWAIT preserves the leader PID until the pipes close or the group is killed.
+    // This prevents reuse of the process-group ID while we supervise descendants.
+    // SAFETY: zeroed siginfo_t is a valid output buffer for waitid.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    // SAFETY: child.id() names our live child, and info points to writable storage.
+    let result = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            child.id(),
+            &mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        )
+    };
+    if result < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: waitid initialized info; an empty result has si_pid == 0.
+    Ok(unsafe { info.si_pid() } != 0)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn leader_exited(
+    child: &mut std::process::Child,
+    status: &mut Option<std::process::ExitStatus>,
+) -> io::Result<bool> {
+    *status = child.try_wait()?;
+    Ok(status.is_some())
+}
+
+fn terminate_group(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    if let Ok(pid) = i32::try_from(child.id()) {
+        // SAFETY: each child is started in its own process group, whose ID is its PID.
+        unsafe {
+            libc::kill(-pid, libc::SIGKILL);
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn validate_handshake(version: &Reply, capabilities: &Reply) -> Result<(), EngineError> {
+    let fail = |message: String| EngineError::new(ErrorKind::Protocol, message);
+    if capabilities
+        .data
+        .get("desktop_workflow")
+        .and_then(Value::as_u64)
+        != Some(1)
+    {
+        return Err(fail(format!(
+            "engine capability desktop_workflow: expected revision 1 | received {}; use the matching bundled bme",
+            capabilities
+                .data
+                .get("desktop_workflow")
+                .unwrap_or(&Value::Null)
+        )));
+    }
+    let version_protocol = version.data.get("protocol").and_then(Value::as_str);
+    let capabilities_protocol = capabilities.data.get("protocol").and_then(Value::as_str);
+    let version_engine = version.data.get("engine").and_then(Value::as_str);
+    let capabilities_engine = capabilities.data.get("engine").and_then(Value::as_str);
+    if version_protocol != Some("bme/1")
+        || capabilities_protocol != Some("bme/1")
+        || version_engine != Some(version.version.as_str())
+        || capabilities_engine != version_engine
+        || capabilities.version != version.version
+    {
+        return Err(fail(format!(
+            "engine handshake: expected matching engine versions and bme/1 protocol | received version {} ({:?}, {:?}) and capabilities {} ({:?}, {:?})",
+            version.version,
+            version_engine,
+            version_protocol,
+            capabilities.version,
+            capabilities_engine,
+            capabilities_protocol
+        )));
+    }
+    let commands = capabilities
+        .data
+        .get("commands")
+        .and_then(Value::as_array)
+        .ok_or_else(|| fail("engine capabilities: expected commands array".into()))?;
+    for required in [
+        "inspect",
+        "scan",
+        "plan",
+        "patch",
+        "verify",
+        "catalog validate|index|show|import-x99fix",
+        "catalog add|list|remove",
+        "tools doctor|paths",
+    ] {
+        if !commands
+            .iter()
+            .any(|v| v.get("name").and_then(Value::as_str) == Some(required))
+        {
+            return Err(fail(format!(
+                "engine capabilities: expected command group {required}"
+            )));
+        }
+    }
+    let docs = capabilities
+        .data
+        .get("documents")
+        .and_then(Value::as_array)
+        .ok_or_else(|| fail("engine capabilities: expected documents array".into()))?;
+    for (name, schema) in [
+        ("plan", "bme.plan/1"),
+        ("manifest", "bme.manifest/1"),
+        ("catalog", "bme.catalog/1"),
+        ("patch", "bme.patch/1"),
+    ] {
+        if !docs.iter().any(|v| {
+            v.get("name").and_then(Value::as_str) == Some(name)
+                && v.get("schema").and_then(Value::as_str) == Some(schema)
+        }) {
+            return Err(fail(format!(
+                "engine capabilities: expected document {name} {schema}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

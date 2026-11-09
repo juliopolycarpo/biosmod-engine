@@ -247,6 +247,15 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
         }
     };
     let (chosen, mut notes) = resolve(catalog, &firmware, request)?;
+    // Related patch matching currently keys on GUID and leaf type. Refuse an
+    // ambiguous catalog before matching or composing different ACPI tables.
+    for id in &chosen {
+        for component in catalog.patches[id].components(&firmware) {
+            if let Some(message) = analysis::table_offset_conflict(catalog, &firmware, component) {
+                return Err(Error::new(Code::FormatUnsupported, message));
+            }
+        }
+    }
     let wanted: BTreeSet<String> = chosen.iter().cloned().collect();
     // Conflicts apply to the whole image, including modules we will not rebuild.
     let installed: Vec<String> = catalog

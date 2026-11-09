@@ -4,9 +4,14 @@
 
 ```sh
 cargo fmt --all --check
-cargo clippy --all-targets -- -D warnings
-cargo test --workspace
+cargo clippy -p biosmod-core -p biosmod-cli --all-targets -- -D warnings
+cargo test -p biosmod-core -p biosmod-cli
+cargo build -p biosmod-cli
+cargo clippy -p biosmod-gui --all-targets -- -D warnings
+cargo test -p biosmod-gui
 ```
+
+Core and CLI retain Rust 1.88 and Linux, Windows and macOS coverage. The Linux GUI requires Rust 1.92 and its native windowing and graphics libraries. CI checks it separately on Ubuntu 24.04, with X11 and Wayland software-renderer smoke tests. Check both desktop sessions, keyboard navigation, scaling and file dialogs when changing the interface; headless tests alone do not qualify desktop integration.
 
 - The core never does I/O; the CLI never interprets firmware on its own (see [docs/architecture.md](docs/architecture.md)).
 - Every new function gets a test. Bug fixes start with a test that fails for the reported reason.

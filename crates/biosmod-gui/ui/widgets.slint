@@ -1,0 +1,138 @@
+import { Theme } from "theme.slint";
+
+/// How prominently a label is colored.
+export enum Tone { quiet, good, attention, danger }
+
+/// The foreground color for a tone. Example: `Tones.color(Tone.good)`.
+export global Tones {
+    pure public function color(tone: Tone) -> color {
+        tone == Tone.good ? Theme.success
+            : tone == Tone.attention ? Theme.warning
+            : tone == Tone.danger ? Theme.danger
+            : Theme.text.with-alpha(0.7);
+    }
+}
+
+/// A 24px page heading. Example: `PageTitle { text: @tr("Diagnostics"); }`
+export component PageTitle inherits Text {
+    color: Theme.text;
+    font-size: Theme.font-title;
+    font-weight: 700;
+}
+
+/// A section heading inside a page. Example: `SectionTitle { text: @tr("Findings"); }`
+export component SectionTitle inherits Text {
+    color: Theme.text;
+    font-size: Theme.font-heading;
+    font-weight: 700;
+}
+
+/// Secondary explanatory text that wraps. Example: `Caption { text: @tr("Choose an image."); }`
+export component Caption inherits Text {
+    color: Theme.muted;
+    font-size: Theme.font-caption;
+    wrap: word-wrap;
+}
+
+/// A form label with a fixed column width. Example: `FieldLabel { text: @tr("Image"); }`
+export component FieldLabel inherits Text {
+    color: Theme.text;
+    font-weight: 600;
+    vertical-alignment: center;
+}
+
+/// A form row: a fixed-width label followed by its controls.
+/// Example: `FieldRow { label: "Image"; LineEdit { } Button { text: @tr("Browse…"); } }`
+export component FieldRow inherits HorizontalLayout {
+    in property <string> label;
+    spacing: Theme.space-sm;
+    FieldLabel { text: root.label; width: Theme.label-width; }
+    @children
+}
+
+/// A one-pixel rule between regions. Example: `Divider { }`
+export component Divider inherits Rectangle {
+    height: 1px;
+    background: Theme.border;
+}
+
+/// A small rounded label. Example: `Chip { text: @tr("optional"); tone: Tone.quiet; }`
+export component Chip inherits Rectangle {
+    in property <string> text;
+    in property <Tone> tone: Tone.quiet;
+    private property <color> ink: Tones.color(root.tone);
+    width: min(chip-layout.preferred-width, 240px);
+    height: chip-layout.preferred-height;
+    border-radius: self.height / 2;
+    border-width: 1px;
+    border-color: root.ink.transparentize(0.65);
+    background: root.ink.transparentize(0.9);
+    chip-layout := HorizontalLayout {
+        padding-left: Theme.space-sm;
+        padding-right: Theme.space-sm;
+        padding-top: 2px;
+        padding-bottom: 2px;
+        Text {
+            text: root.text;
+            color: root.ink;
+            font-size: Theme.font-caption;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// A page tab with an accent underline for the selected page.
+/// Example: `NavTab { text: @tr("Diagnostics"); selected: page == 2; activated => { page = 2; } }`
+export component NavTab inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback activated();
+    min-height: 40px;
+    width: label.preferred-width + 2 * Theme.space-md;
+    background: touch.has-hover && !root.selected ? Theme.canvas : transparent;
+    border-radius: Theme.radius;
+    animate background { duration: 120ms; }
+
+    scope := FocusScope {
+        accessible-role: tab;
+        accessible-label: root.text;
+        accessible-item-selectable: true;
+        accessible-item-selected: root.selected;
+        accessible-action-default => { root.activated(); }
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" {
+                root.activated();
+                return accept;
+            }
+            reject
+        }
+        touch := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => {
+                scope.focus();
+                root.activated();
+            }
+        }
+    }
+
+    label := Text {
+        text: root.text;
+        color: root.selected ? Theme.accent : Theme.text;
+        font-size: Theme.font-body;
+        font-weight: root.selected ? 700 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    // Underline for the selected tab; focus draws a full outline.
+    Rectangle {
+        y: parent.height - self.height;
+        height: 3px;
+        background: root.selected ? Theme.accent : transparent;
+    }
+    Rectangle {
+        border-color: scope.has-focus ? Theme.accent : transparent;
+        border-width: 2px;
+        border-radius: Theme.radius;
+    }
+}
