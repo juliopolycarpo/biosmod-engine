@@ -38,7 +38,8 @@ pub fn module_bytes<'a>(
             if section.kind != SECTION_RAW {
                 return None;
             }
-            let length = if body.len() >= table_offset + 8 {
+            let header_end = table_offset.checked_add(8);
+            let length = if header_end.is_some_and(|end| body.len() >= end) {
                 le32(body, table_offset + 4, "ACPI length").ok()? as usize
             } else {
                 0

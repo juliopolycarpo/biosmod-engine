@@ -57,6 +57,31 @@ fn expect_err(result: Result<Vec<u8>, Error>, code: Code, text: &str) {
 }
 
 #[test]
+fn acpi_table_offset_near_usize_max_is_not_found_instead_of_overflowing() {
+    use biosmod_core::catalog::LeafKind;
+    let image = Case::new().image();
+    let leaves: Vec<_> = image.leaves.values().flatten().collect();
+    let found = |offset: usize| {
+        leaves
+            .iter()
+            .filter(|l| analysis::module_bytes(&image, l, LeafKind::AcpiTable, offset).is_some())
+            .count()
+    };
+    assert_eq!(
+        found(0),
+        1,
+        "control: the fixture DSDT is found at offset 0"
+    );
+    for offset in [usize::MAX - 3, usize::MAX - 7, usize::MAX] {
+        assert_eq!(
+            found(offset),
+            0,
+            "table_offset {offset:#x}: expected no table"
+        );
+    }
+}
+
+#[test]
 fn boards_for_lists_shipping_boards_and_is_empty_for_unknown_firmware() {
     let case = Case::new();
     assert_eq!(
