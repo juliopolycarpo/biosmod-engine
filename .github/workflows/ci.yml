@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo run --locked --quiet -- catalog index catalog --check
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show
+      - run: cargo test --locked --workspace
+      - name: Smoke test the offline workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          export BME_CONFIG_HOME="$RUNNER_TEMP/c" BME_CACHE_HOME="$RUNNER_TEMP/k" BME_DATA_HOME="$RUNNER_TEMP/d"
+          bme() { cargo run --locked --quiet -- "$@"; }
+          bme dev synthetic -o "$RUNNER_TEMP/syn"
+          bme catalog add lab "$RUNNER_TEMP/syn/catalog" --allow-unsigned-local
+          bme scan "$RUNNER_TEMP/syn/synthetic.bin" --catalog lab --json > /dev/null
+          bme plan "$RUNNER_TEMP/syn/synthetic.bin" --select lab::PA lab::DG -o "$RUNNER_TEMP/plan.json"
+          bme patch "$RUNNER_TEMP/syn/synthetic.bin" --plan "$RUNNER_TEMP/plan.json" -o "$RUNNER_TEMP/out.bin" --offline
+          bme verify "$RUNNER_TEMP/syn/synthetic.bin" "$RUNNER_TEMP/out.bin" --plan "$RUNNER_TEMP/plan.json" --json
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install 1.88.0 --profile minimal
+      - run: cargo +1.88.0 check --locked --workspace --all-targets
