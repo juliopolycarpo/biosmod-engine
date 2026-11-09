@@ -485,7 +485,11 @@ impl Session {
             self.review = None;
         }
         self.status = error.to_string();
-        if action == Action::Apply && error.kind != ErrorKind::Engine {
+        let definite = matches!(
+            error.kind,
+            ErrorKind::Engine | ErrorKind::Configuration | ErrorKind::Launch
+        );
+        if action == Action::Apply && !definite {
             self.status = format!(
                 "Publication outcome unknown. Inspect output artifacts before retrying. {}",
                 self.status
@@ -669,14 +673,19 @@ impl Job {
 
     fn execute(&self, engine: &Engine) -> Result<Payload, EngineError> {
         if matches!(self.token.2, Action::Apply | Action::Verify) {
+            // These checks run before the engine starts, so a refusal is definite.
+            let refuse = |error: EngineError| EngineError {
+                kind: ErrorKind::Configuration,
+                ..error
+            };
             let review = self
                 .reviewed
                 .as_ref()
-                .ok_or_else(|| local_error("review: expected retained plan"))?;
-            if read_plan(&review.path)? != review.bytes {
-                return Err(local_error(
+                .ok_or_else(|| refuse(local_error("review: expected retained plan")))?;
+            if read_plan(&review.path).map_err(refuse)? != review.bytes {
+                return Err(refuse(local_error(
                     "reviewed plan changed: expected exact reviewed bytes; generate and review again",
-                ));
+                )));
             }
         }
         let reply = if self.token.2 == Action::Connect {

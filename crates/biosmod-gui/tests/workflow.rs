@@ -149,6 +149,11 @@ fn real_engine_controller_workflow_and_plan_safety() {
         "{}",
         session.status
     );
+    assert!(
+        !session.status.contains("outcome unknown"),
+        "refused before launch: expected a definite status | received {}",
+        session.status
+    );
     assert!(!output.exists());
 
     step(&mut session, &fixture.engine, Action::Plan);

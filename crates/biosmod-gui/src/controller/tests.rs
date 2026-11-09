@@ -96,6 +96,19 @@ fn bounded_regular_file_read_refuses_oversized_files() {
 }
 
 #[test]
+fn apply_refused_before_launch_does_not_report_unknown_publication() {
+    let mut session = Session::new().unwrap();
+    let mut error = EngineError::new(ErrorKind::Configuration, "reviewed plan changed");
+    error.code = None;
+    session.fail(Action::Apply, error);
+    assert!(
+        !session.status.contains("outcome unknown"),
+        "pre-launch refusal: expected a definite status | received {}",
+        session.status
+    );
+}
+
+#[test]
 fn verification_does_not_trust_complete_without_required_checks() {
     let mut session = Session::new().unwrap();
     let data = json!({"complete": true, "checks": [], "skipped": [], "notice": "offline"});
