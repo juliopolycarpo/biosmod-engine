@@ -189,6 +189,14 @@ fn handshake_requires_matching_identity_and_advertised_contract() {
         diagnostics: String::new(),
     };
     assert!(validate_handshake(&version, &cap).is_ok());
+    cap.data["engine"] = json!("0.2.0");
+    let mismatch = validate_handshake(&version, &cap).unwrap_err();
+    assert!(
+        mismatch.message.contains("0.2.0") && mismatch.message.contains("0.1.0"),
+        "handshake mismatch: expected both engine versions in the message | received {}",
+        mismatch.message
+    );
+    cap.data["engine"] = json!("0.1.0");
     cap.data.as_object_mut().unwrap().remove("desktop_workflow");
     let failure = validate_handshake(&version, &cap).unwrap_err();
     assert_eq!(failure.kind, ErrorKind::Protocol);

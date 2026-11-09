@@ -742,9 +742,15 @@ fn validate_handshake(version: &Reply, capabilities: &Reply) -> Result<(), Engin
         || capabilities_engine != version_engine
         || capabilities.version != version.version
     {
-        return Err(fail(
-            "engine handshake: expected matching engine versions and bme/1 protocol".into(),
-        ));
+        return Err(fail(format!(
+            "engine handshake: expected matching engine versions and bme/1 protocol | received version {} ({:?}, {:?}) and capabilities {} ({:?}, {:?})",
+            version.version,
+            version_engine,
+            version_protocol,
+            capabilities.version,
+            capabilities_engine,
+            capabilities_protocol
+        )));
     }
     let commands = capabilities
         .data
