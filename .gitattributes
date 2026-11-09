@@ -1,0 +1,4 @@
+# Catalog files, schemas and provenance are indexed by SHA-256; keep their bytes identical everywhere.
+* text=auto eol=lf
+*.bin binary
+*.rom binary
