@@ -1,25 +1,26 @@
 [workspace]
 resolver = "3"
-members = ["crates/biosmod-core", "crates/biosmod-cli"]
+members = ["crates/biosmod-cli", "crates/biosmod-core", "crates/biosmod-gui"]
+default-members = ["crates/biosmod-core", "crates/biosmod-cli"]
 
 [workspace.package]
 version = "0.1.0"
-edition = "2024"
-rust-version = "1.88"
-license = "MIT"
-repository = "https://github.com/juliopolycarpo/biosmod-engine"
 authors = ["Julio Polycarpo"]
+edition = "2024"
+license = "MIT"
 publish = false
+repository = "https://github.com/juliopolycarpo/biosmod-engine"
+rust-version = "1.88"
 
 [workspace.dependencies]
 biosmod-core = { path = "crates/biosmod-core" }
+crc32fast = { version = "1.5.4", default-features = false }
+liblzma = { version = "0.4.9", default-features = false, features = ["static"] }
+schemars = "1.2.3"
+semver = { version = "1.0.28", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = { version = "0.11.1", default-features = false }
-semver = { version = "1.0.28", features = ["serde"] }
-liblzma = { version = "0.4.9", default-features = false, features = ["static"] }
-crc32fast = { version = "1.5.4", default-features = false }
-schemars = "1.2.3"
 
 [profile.release]
 opt-level = 3

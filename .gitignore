@@ -1,4 +1,5 @@
 /target
+/dist
 *.rom
 *.bin
 !tests/fixtures/**/*.bin

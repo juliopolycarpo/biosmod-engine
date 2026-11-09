@@ -7,8 +7,12 @@
 <!-- Commands run and their results. Say which real-ROM checks ran and which were skipped. -->
 
 - [ ] `cargo fmt --all --check`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo test --workspace`
+- [ ] `cargo clippy -p biosmod-core -p biosmod-cli --all-targets -- -D warnings`
+- [ ] `cargo test -p biosmod-core -p biosmod-cli`
+- [ ] `cargo clippy -p biosmod-gui --all-targets -- -D warnings` (GUI changes)
+- [ ] `cargo test -p biosmod-gui` (GUI changes)
+
+<!-- For GUI changes, name the desktop sessions, renderers, dialogs, accessibility and scaling checks actually run. -->
 
 ## Catalog changes
 
