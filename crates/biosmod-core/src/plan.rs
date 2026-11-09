@@ -501,7 +501,7 @@ fn check_structure(
             if let Some(h) = component
                 .hunks
                 .iter()
-                .find(|h| (h.offset..h.offset + h.after.0.len()).any(|i| covered.contains(&i)))
+                .find(|h| touches_relocation(h, &covered))
             {
                 return Err(Error::new(
                     Code::PatchSourceMismatch,
@@ -514,6 +514,15 @@ fn check_structure(
         }
     }
     Ok(())
+}
+
+/// Whether a hunk's original or replacement bytes overlap a relocated byte.
+///
+/// Example: a hunk at 4 with 3 `before` bytes touches a relocation at offset 6.
+fn touches_relocation(hunk: &crate::catalog::Hunk, covered: &BTreeSet<usize>) -> bool {
+    let len = hunk.before.0.len().max(hunk.after.0.len());
+    let end = hunk.offset.saturating_add(len);
+    covered.range(hunk.offset..end).next().is_some()
 }
 
 /// Re-parse the output and confirm states and untouched bytes.
@@ -795,5 +804,34 @@ pub mod document {
         pub plan: PlanDocument,
         pub verification: Verification,
         pub notice: String,
+    }
+}
+
+#[cfg(test)]
+mod relocation_tests {
+    use super::*;
+    use crate::catalog::{Hunk, HunkOp};
+    use crate::util::HexBytes;
+
+    fn hunk(offset: usize, before: &[u8], after: &[u8]) -> Hunk {
+        Hunk {
+            op: HunkOp::Replace,
+            offset,
+            before: HexBytes(before.to_vec()),
+            after: HexBytes(after.to_vec()),
+            context_before: HexBytes::default(),
+            context_after: HexBytes::default(),
+            findings: vec![],
+            wild_before: vec![],
+            wild_after: vec![],
+        }
+    }
+
+    #[test]
+    fn relocation_check_covers_the_longer_of_before_and_after() {
+        let covered: BTreeSet<usize> = [6].into();
+        assert!(touches_relocation(&hunk(4, &[1, 2, 3], &[9]), &covered));
+        assert!(touches_relocation(&hunk(6, &[1], &[9, 9]), &covered));
+        assert!(!touches_relocation(&hunk(0, &[1, 2], &[9, 9]), &covered));
     }
 }
