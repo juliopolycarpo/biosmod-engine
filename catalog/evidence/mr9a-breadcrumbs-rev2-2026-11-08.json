@@ -1,0 +1,49 @@
+{
+  "schema": "bme.evidence/1",
+  "id": "mr9a-breadcrumbs-rev2-2026-11-08",
+  "kind": "hardware-observation",
+  "date": "2026-11-08",
+  "title": "MR9A breadcrumb diagnostic revision 2: first boot",
+  "board": "machinist-mr9a-pro-q87-rev-1.2",
+  "firmware": "mnx99mr9apro-230322",
+  "configuration": "MACHINIST E5-MR9A PRO V1.2 (Q87), four 16 GB DDR4 DIMMs (64 GB)",
+  "patches": [
+    {
+      "id": "B01-B06",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B02-B03",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B05",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B10",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B11",
+      "version": "1.0.0"
+    },
+    {
+      "id": "R01",
+      "version": "1.0.0"
+    },
+    {
+      "id": "MRC-BREADCRUMBS",
+      "version": "2.0.0"
+    }
+  ],
+  "image_sha256": "105d05288932ec504e88858d95da78af0c6be1d9068de981494d81db6fd62ed6",
+  "built_with": "x99-bios-fixes x99fix (Python)",
+  "observations": [
+    "Added to the stage-2 bundle from two matching fresh backups; the image preserved NVRAM settings and changed 173 bytes across three 4 KiB sectors. Write verified and an exact full-chip readback matched.",
+    "After reboot, the read-only CMOS reader returned A1: armed, slot 0, pass ended, BF/00 location 0000, failed-pass count 0.",
+    "DIMM widths (72/64), 2400 MT/s and PCI inventory unchanged; EDAC counters zero; no matching hardware, memory or I/O errors."
+  ],
+  "limits": "One boot and successful-pass logging observation. Does not validate a cold boot, failed-pass freezing or retention across recovery, every setup setting, or memory stability.",
+  "source": "x99-bios-fixes docs/hardware-tests.md at commit 765e7a80ae8337c0953dc0da41de5f28b56c5c92"
+}

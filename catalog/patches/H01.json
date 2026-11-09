@@ -1,0 +1,69 @@
+{
+  "schema": "bme.patch/1",
+  "id": "H01",
+  "version": "1.0.0",
+  "title": "Clear MR9A's documented Super I/O test-mode bit",
+  "class": "correction",
+  "tier": "hold",
+  "findings": [
+    "H01"
+  ],
+  "confidence": {
+    "findings": {
+      "H01": "C1"
+    },
+    "offline_fix": "C1",
+    "physical_fix": "C2"
+  },
+  "packing": "automatic",
+  "requires": [],
+  "supersedes": [],
+  "conflicts": [],
+  "limits": "HOLD: physical package, wiring and possible vendor workaround are unresolved. Native I/O execution proves the one-bit difference, not pin behavior or safe physical deployment.",
+  "provenance": {
+    "repository": "https://github.com/juliopolycarpo/x99-bios-fixes",
+    "commit": "765e7a80ae8337c0953dc0da41de5f28b56c5c92",
+    "path": "patches/H01.json",
+    "sha256": "8259ca9c6d68eeadee8034be418fea61a8841b67704d65ff0fe2a6439d84e885",
+    "note": "converted by `bme catalog import-x99fix`; hunks and hashes copied verbatim"
+  },
+  "variants": {
+    "mnx99mr9apro-230322": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "NCT5532DPeiInit",
+          "ffs_guid": "9029F23E-E1EE-40D1-9382-36DD61A63EAA",
+          "leaf": "pe32",
+          "source_sha256": "ac8cf5be93fc018e115418cad5fd635f3f52c6c2d327c195dd324fae61a144e1",
+          "source_size": 2144,
+          "result_sha256": "67bae0ab3d53ae9728fca4d99b99b71ac2e31f96323505c1e67355885cb8a609",
+          "result_size": 2144,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 551,
+              "before": "02",
+              "after": "00",
+              "context_before": "002e0000872e0000872e00002f2f00bd",
+              "context_after": "2e00001a2f003f002e00001b2f00ef10",
+              "findings": [
+                "H01"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            }
+          ]
+        }
+      ],
+      "requires_facts": [
+        "superio-nct5532d"
+      ],
+      "context": []
+    },
+    "x99ha00m-20221202": {
+      "status": "not-applicable",
+      "reason": "The PR9 source already clears TEST_MODE1 at this initialization row."
+    }
+  }
+}

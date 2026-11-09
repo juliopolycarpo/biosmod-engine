@@ -1,0 +1,94 @@
+{
+  "schema": "bme.patch/1",
+  "id": "H05",
+  "version": "1.0.0",
+  "title": "Select the indexed I/O register before reading it for a masked write",
+  "class": "correction",
+  "tier": "optional",
+  "findings": [
+    "H05"
+  ],
+  "confidence": {
+    "findings": {
+      "H05": "C0"
+    },
+    "offline_fix": "C1",
+    "physical_fix": "C2"
+  },
+  "packing": "automatic",
+  "requires": [],
+  "supersedes": [],
+  "conflicts": [],
+  "limits": "Restores target-register RMW semantics in actual tables. Vendor register values, physical pins, sensor wiring and later overwrites remain separate questions.",
+  "provenance": {
+    "repository": "https://github.com/juliopolycarpo/x99-bios-fixes",
+    "commit": "765e7a80ae8337c0953dc0da41de5f28b56c5c92",
+    "path": "patches/H05.json",
+    "sha256": "b427b48557cb54e743a3ece28e8fb93b4bdc741ed0a725b7c8b68078df29877b",
+    "note": "converted by `bme catalog import-x99fix`; hunks and hashes copied verbatim"
+  },
+  "variants": {
+    "mnx99mr9apro-230322": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "SioDxeInit",
+          "ffs_guid": "4E82091E-32A1-4689-8A00-CDE41ED63CDD",
+          "leaf": "pe32",
+          "source_sha256": "8e8827a64c9ef65d42d0ffe21a82e51062ba2c4b40b125ad525a21c229732d04",
+          "source_size": 9856,
+          "result_sha256": "752e1eb22cba549f6bbb18757d105c69f56b985bcce0a3d1b780c852842a9c20",
+          "result_size": 9856,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 5418,
+              "before": "8078ff007505418a08eb0e410fb7d3ec418a48ff22c8410a08418a40fd0fb7d3ee",
+              "after": "8a40fd0fb7d3ee418078ff007505418a08eb0e410fb7d3ec418a48ff22c8410a08",
+              "context_before": "b7d94584c9743b4983c003450fb6d141",
+              "context_after": "410fb7d38ac1ee4983c0044983ea0175",
+              "findings": [
+                "H05"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    },
+    "x99ha00m-20221202": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "SioDxeInit",
+          "ffs_guid": "4E82091E-32A1-4689-8A00-CDE41ED63CDD",
+          "leaf": "pe32",
+          "source_sha256": "85410c8f17c981ca47ad55a9785fb4356b630221b24447173c47d16a48289059",
+          "source_size": 10752,
+          "result_sha256": "fcfb34e3a6ed1cd4e7dbc854209d2f46f01a10a1d2a5e6f05d5c5fbc9eab606e",
+          "result_size": 10752,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 5614,
+              "before": "8078ff007505418a08eb0e410fb7d3ec418a48ff22c8410a08418a40fd0fb7d3ee",
+              "after": "8a40fd0fb7d3ee418078ff007505418a08eb0e410fb7d3ec418a48ff22c8410a08",
+              "context_before": "b7d94584c9743b4983c003450fb6d141",
+              "context_after": "410fb7d38ac1ee4983c0044983ea0175",
+              "findings": [
+                "H05"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    }
+  }
+}

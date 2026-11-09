@@ -1,0 +1,55 @@
+{
+  "schema": "bme.board/1",
+  "id": "machinist-mr9a-pro-q87-rev-1.2",
+  "vendor": "Machinist",
+  "model": "E5-MR9A PRO",
+  "chipset": "Intel Q87",
+  "revision": {
+    "label": "V1.2",
+    "status": "observed",
+    "note": "Read from the board of the reference hardware tests."
+  },
+  "description": "Reference board for the x99-bios-fixes MR9A records.",
+  "firmware": [
+    {
+      "id": "mnx99mr9apro-230322",
+      "title": "MNX99MR9APRO 2023-03-22 (vendor image MNX99MR9APRO_230322)",
+      "version_string": "X9R9P Ver:005 03/22/2023",
+      "image_size": 16777216
+    }
+  ],
+  "facts": [
+    {
+      "id": "superio-nct5532d",
+      "statement": "The board carries a Nuvoton NCT5532D Super I/O (read the chip marking). The H01/H02 analysis uses that chip's datasheet."
+    }
+  ],
+  "patches": [
+    "A02",
+    "A03",
+    "A07",
+    "B01-B04-B06-B08",
+    "B01-B06",
+    "B02-B03",
+    "B05",
+    "B07-B08",
+    "B08",
+    "B09",
+    "B10",
+    "B11",
+    "H01",
+    "H02",
+    "H05",
+    "MRC-BREADCRUMBS",
+    "R01",
+    "S01",
+    "S02"
+  ],
+  "evidence": [
+    "mr9a-stage1-2026-11-08",
+    "mr9a-stage2-2026-11-08",
+    "mr9a-breadcrumbs-rev2-2026-11-08",
+    "mr9a-breadcrumbs-no-ram-2026-11-08",
+    "mr9a-breadcrumbs-no-gpu-2026-11-08"
+  ]
+}

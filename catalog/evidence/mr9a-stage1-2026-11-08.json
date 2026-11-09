@@ -1,0 +1,31 @@
+{
+  "schema": "bme.evidence/1",
+  "id": "mr9a-stage1-2026-11-08",
+  "kind": "hardware-observation",
+  "date": "2026-11-08",
+  "title": "MR9A stage 1: B01-B06 + B02-B03",
+  "board": "machinist-mr9a-pro-q87-rev-1.2",
+  "firmware": "mnx99mr9apro-230322",
+  "configuration": "MACHINIST E5-MR9A PRO V1.2 (Q87), four 16 GB DDR4 DIMMs (64 GB)",
+  "patches": [
+    {
+      "id": "B01-B06",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B02-B03",
+      "version": "1.0.0"
+    }
+  ],
+  "image_sha256": "a5bdac305b59216d49ac8aac65a56056242e5fcecdaecf142d8a57d2bdb8f985",
+  "built_with": "x99-bios-fixes x99fix (Python)",
+  "observations": [
+    "Built from two matching fresh full-chip reads; flashed with write verification and a separate exact full-chip readback.",
+    "User reports normal and cold boots behave normally and boot time is unchanged, at least so far.",
+    "Three post-flash Linux boots: installed DIMM capacity, physical-memory total and PCI inventory matched the baseline; EDAC counters zero; no matching machine-check or I/O errors.",
+    "memtester 4.7.1: four parallel locked 1 GiB allocations, all default patterns, one loop, all passed; EDAC counters stayed zero.",
+    "Applied UncoreInitPeim SHA-256 95a0d4deb0d285ee4ee9ff9f59f9533f9ea14117af27fa0972343e5806a936bd."
+  ],
+  "limits": "Initial boot-compatibility evidence on one board. Exact timing and warm/cold cycle counts were not supplied. A four-pass offline Memtest86+ result was not reported. Does not prove repair of the original intermittent boot failure or validate other revisions, DIMM configurations or combinations.",
+  "source": "x99-bios-fixes docs/hardware-tests.md at commit 765e7a80ae8337c0953dc0da41de5f28b56c5c92"
+}

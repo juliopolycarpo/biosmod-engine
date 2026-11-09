@@ -1,0 +1,48 @@
+{
+  "schema": "bme.evidence/1",
+  "id": "mr9a-breadcrumbs-no-gpu-2026-11-08",
+  "kind": "hardware-observation",
+  "date": "2026-11-08",
+  "title": "MR9A breadcrumbs: no GPU (POST d6)",
+  "board": "machinist-mr9a-pro-q87-rev-1.2",
+  "firmware": "mnx99mr9apro-230322",
+  "configuration": "MACHINIST E5-MR9A PRO V1.2 (Q87), four 16 GB DDR4 DIMMs (64 GB)",
+  "patches": [
+    {
+      "id": "B01-B06",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B02-B03",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B05",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B10",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B11",
+      "version": "1.0.0"
+    },
+    {
+      "id": "R01",
+      "version": "1.0.0"
+    },
+    {
+      "id": "MRC-BREADCRUMBS",
+      "version": "2.0.0"
+    }
+  ],
+  "image_sha256": "105d05288932ec504e88858d95da78af0c6be1d9068de981494d81db6fd62ed6",
+  "built_with": "x99-bios-fixes x99fix (Python)",
+  "observations": [
+    "No-GPU attempt displayed d6, then a reboot, with no CMOS clear or battery removal.",
+    "Recovery boot: RX 550 and 64 GB present, PCI inventory matches, EDAC zero; CMOS again A1, completed BF/00 location 0000, failed count zero."
+  ],
+  "limits": "Consistent with the diagnostic's MRC-only boundary: d6 is a later console-output condition. The snapshot may have been rewritten by the recovery boot. Does not validate failed-pass retention or resolve the missing no-RAM record.",
+  "source": "x99-bios-fixes docs/hardware-tests.md at commit 765e7a80ae8337c0953dc0da41de5f28b56c5c92"
+}

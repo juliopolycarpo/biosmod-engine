@@ -1,0 +1,133 @@
+{
+  "schema": "bme.patch/1",
+  "id": "MRC-BREADCRUMBS",
+  "version": "2.0.0",
+  "title": "Keep the last MRC checkpoint in upper-bank CMOS E0-E9 and freeze it when a pass dies",
+  "class": "diagnostic",
+  "tier": "optional",
+  "findings": [],
+  "confidence": {
+    "findings": {},
+    "offline_fix": "C1",
+    "physical_fix": "C2"
+  },
+  "packing": "automatic",
+  "requires": [
+    "B01-B06",
+    "B02-B03"
+  ],
+  "supersedes": [],
+  "conflicts": [],
+  "limits": "Diagnostic, not a correction. Completed-pass logging was observed once on one MR9A PRO V1.2; retention of a failed pass is not validated (a no-RAM POST 53 attempt left no failed record, cause unresolved). Records MRC only: BF ends tracking, later errors such as no-GPU d6 are out of scope. Best effort: no checksum, not reset-atomic, not synchronized with other CMOS writers. Uses the NOP runs freed by B01-B06 and replaces the old port-80 writer, so other patches to UncoreInitPeim must be composed before it, not on top of it. Read E0-E9 with `bme diag breadcrumbs read` before clearing CMOS.",
+  "provenance": {
+    "repository": "https://github.com/juliopolycarpo/x99-bios-fixes",
+    "commit": "765e7a80ae8337c0953dc0da41de5f28b56c5c92",
+    "path": "tools/mrc-breadcrumbs.asm",
+    "sha256": "575e1b3f996cab880a03e28653be33e09499bc3219c02e3c28c082020fb0463e",
+    "note": "revision 2; hunks are the NASM output of provenance/MRC-BREADCRUMBS/mrc-breadcrumbs.asm placed by tools/build_breadcrumbs.py (r0 FFE4276C, ra FFE613A2, rb FFE61903, call site FFE0FEA9)"
+  },
+  "variants": {
+    "mnx99mr9apro-230322": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "UncoreInitPeim",
+          "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3",
+          "leaf": "pe32",
+          "source_sha256": "2582bbe3fec0f81f6e14d20a79fd062ca66694010158fcd8e42f36ea09601000",
+          "source_size": 604832,
+          "result_sha256": "ded3a8f93fd49b9b684ed4b1dd3499eb4e0344aa21fade512baa4e58c1c46666",
+          "result_size": 604832,
+          "layer_on": [
+            "B01-B06",
+            "B02-B03"
+          ],
+          "input_sha256": "95a0d4deb0d285ee4ee9ff9f59f9533f9ea14117af27fa0972343e5806a936bd",
+          "checks": {
+            "xip_image_base": true,
+            "no_relocated_bytes": true
+          },
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 176321,
+              "before": "e8be280300",
+              "after": "e8f4140500",
+              "context_before": "143a86053d0400750d5689be24210200",
+              "context_after": "596a065f57ff750856e888140100c1e8",
+              "findings": [],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 383364,
+              "before": "8b4424040fb68827210200510fb7882d0600005150e81a98fcff83c40cc3",
+              "after": "b3a166b8e900e67288e0e673c3e672e473c3b70488d8240200c004e1c3cc",
+              "context_before": "8b450883c410e874fdffff5f5e5bc9c3",
+              "context_after": "558bec807d0ce8751ae8b5bcfbffe8b8",
+              "findings": [],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 509370,
+              "before": "90909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090",
+              "after": "668b962d06000089f80fc8eeb0e0e8c413feff88c324fc3ca07405e8aa13feff89f8c1e810663d00b07505e831050000f6c3010f8553050000e89e13feff88c289f988d088cce88513feff42c1e908fecf75efe929050000",
+              "context_before": "3da086010072b9b802000000c331c0c3",
+              "context_after": "33d242663bca756f66837d1003885dff",
+              "findings": [],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 510747,
+              "before": "9090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090",
+              "after": "f6c301751780f302b0e9e8670efefffec0740988c4b0e9e8530efeff80e3fec33cbf74043caf750380cb01b0e088dce93b0efeff90",
+              "context_before": "00c745f4020000008b5d08e9a5000000",
+              "context_after": "33f646663bce756566837d1003c645ff",
+              "findings": [],
+              "wild_before": [],
+              "wild_after": []
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": [
+        {
+          "name": "CmosPei",
+          "ffs_guid": "654FE61A-2EDA-4749-A76A-56ED7ADE1CBE",
+          "leaf": "pe32",
+          "sha256_any": [
+            "8e6d83cfd262d0e2f340a5ebcd769416188246cabda1559cad4f299d102451eb"
+          ]
+        },
+        {
+          "name": "CmosDxe",
+          "ffs_guid": "3237418A-478C-4700-B59F-768E2CCBC726",
+          "leaf": "pe32",
+          "sha256_any": [
+            "7b95ca1d9f79a74cfb7463390f78de3d7d1012b0258fcef151127bd616a6beb1",
+            "7e2428bb334d0966a22c4222ea7038c282f730fae9663af8549f64129a42058d"
+          ]
+        },
+        {
+          "name": "PlatformEarlyInit",
+          "ffs_guid": "EE685731-CFF3-4EE7-9388-7E63FC5A59B0",
+          "leaf": "pe32",
+          "sha256_any": [
+            "c017b4ea3d9fd60e4290c2fb591b58640a7e0f0c611c759f91ab88b88e2c95db",
+            "ccd31b0572b37d95e5b499467cbb455e5632ee2b37b53b2d009ca14603fc1c05"
+          ]
+        }
+      ]
+    },
+    "x99ha00m-20221202": {
+      "status": "not-applicable",
+      "reason": "Written against the MR9A UncoreInitPeim and its flash address; PR9 has a different module and layout."
+    }
+  }
+}

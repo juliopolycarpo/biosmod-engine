@@ -1,0 +1,201 @@
+{
+  "schema": "bme.patch/1",
+  "id": "A02",
+  "version": "1.0.0",
+  "title": "Test the PME bit with AML bitwise AND and repair the table checksum",
+  "class": "correction",
+  "tier": "optional",
+  "findings": [
+    "A02"
+  ],
+  "confidence": {
+    "findings": {
+      "A02": "C0"
+    },
+    "offline_fix": "C1",
+    "physical_fix": "C2"
+  },
+  "packing": "automatic",
+  "requires": [],
+  "supersedes": [],
+  "conflicts": [
+    "A03",
+    "A07"
+  ],
+  "limits": "Exact extracted DSDT method and checksum only. No inventoried caller exists, and firmware table producer/runtime substitution and ROM packaging are not included.",
+  "provenance": {
+    "repository": "https://github.com/juliopolycarpo/x99-bios-fixes",
+    "commit": "765e7a80ae8337c0953dc0da41de5f28b56c5c92",
+    "path": "patches/A02.json",
+    "sha256": "6e32e8d3e0d9b5e8c280e2104061c4bb984e231d1d602f87f8bd8f87682ad39e",
+    "note": "converted by `bme catalog import-x99fix`; hunks and hashes copied verbatim"
+  },
+  "variants": {
+    "mnx99mr9apro-230322": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "DSDT",
+          "ffs_guid": "7E374E25-8E01-4FEE-87F2-390C23C606CD",
+          "leaf": "acpi-table",
+          "source_sha256": "578fc629a1e4af887d54fb3f8c91fbb74fda0d84dce0a8881c67574ff6bad67e",
+          "source_size": 210445,
+          "result_sha256": "4a15865ab81b8d065fee67be2ebf7115ba8ad7d82849675c56e51465867bc92d",
+          "result_size": 210445,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 9,
+              "before": "f8",
+              "after": "17",
+              "context_before": "445344540d36030002",
+              "context_after": "414c41534b4141204d20492000000920",
+              "findings": [
+                "A02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 209833,
+              "before": "90",
+              "after": "7b",
+              "context_before": "a00b93610cffffffffa40a00a11da018",
+              "context_after": "610c0000010057445045607b610c0000",
+              "findings": [
+                "A02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 209840,
+              "before": "57445045607b610c00",
+              "after": "0057445045607b610c",
+              "context_before": "ffffa40a00a11da01890610c00000100",
+              "context_after": "00010000a40a01a40a001043072f035f",
+              "findings": [
+                "A02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 209850,
+              "before": "0100",
+              "after": "0001",
+              "context_before": "610c0000010057445045607b610c0000",
+              "context_after": "00a40a01a40a001043072f035f53425f",
+              "findings": [
+                "A02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 209853,
+              "before": "a40a",
+              "after": "00a4",
+              "context_before": "00010057445045607b610c0000010000",
+              "context_after": "01a40a001043072f035f53425f504349",
+              "findings": [
+                "A02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    },
+    "x99ha00m-20221202": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "DSDT",
+          "ffs_guid": "7E374E25-8E01-4FEE-87F2-390C23C606CD",
+          "leaf": "acpi-table",
+          "source_sha256": "f9ac4576906895417c5a272f8ff06994e34b6d3c031546a27d3c7d16e9b609f2",
+          "source_size": 208780,
+          "result_sha256": "13b9a59e6fcbe909adbe6cf107423e12724db2ea704861b110bd76efb0707505",
+          "result_size": 208780,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 9,
+              "before": "a7",
+              "after": "c6",
+              "context_before": "445344548c2f030002",
+              "context_after": "414c41534b4141204d20492000000920",
+              "findings": [
+                "A02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 208168,
+              "before": "90",
+              "after": "7b",
+              "context_before": "a00b93610cffffffffa40a00a11da018",
+              "context_after": "610c0000010057445045607b610c0000",
+              "findings": [
+                "A02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 208175,
+              "before": "57445045607b610c00",
+              "after": "0057445045607b610c",
+              "context_before": "ffffa40a00a11da01890610c00000100",
+              "context_after": "00010000a40a01a40a001043072f035f",
+              "findings": [
+                "A02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 208185,
+              "before": "0100",
+              "after": "0001",
+              "context_before": "610c0000010057445045607b610c0000",
+              "context_after": "00a40a01a40a001043072f035f53425f",
+              "findings": [
+                "A02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 208188,
+              "before": "a40a",
+              "after": "00a4",
+              "context_before": "00010057445045607b610c0000010000",
+              "context_after": "01a40a001043072f035f53425f504349",
+              "findings": [
+                "A02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    }
+  }
+}

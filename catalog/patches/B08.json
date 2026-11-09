@@ -1,0 +1,252 @@
+{
+  "schema": "bme.patch/1",
+  "id": "B08",
+  "version": "1.0.0",
+  "title": "Restore EBX on the MRC nonlocal fatal-error return",
+  "class": "correction",
+  "tier": "optional",
+  "findings": [
+    "B08"
+  ],
+  "confidence": {
+    "findings": {
+      "B08": "C0"
+    },
+    "offline_fix": "C1",
+    "physical_fix": "C2"
+  },
+  "packing": "automatic",
+  "requires": [],
+  "supersedes": [],
+  "conflicts": [],
+  "limits": "Corrects a reachable return when training-error halt is disabled. Leaves halt policy and initial training errors unchanged; no claim that continuing after every memory failure is safe.",
+  "provenance": {
+    "repository": "https://github.com/juliopolycarpo/x99-bios-fixes",
+    "commit": "765e7a80ae8337c0953dc0da41de5f28b56c5c92",
+    "path": "patches/B08.json",
+    "sha256": "c33dff7dab7a14b57eac775afa1e5ee67c97332c3296e90ae6933cc224270b2d",
+    "note": "converted by `bme catalog import-x99fix`; hunks and hashes copied verbatim"
+  },
+  "variants": {
+    "mnx99mr9apro-230322": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "UncoreInitPeim",
+          "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3",
+          "leaf": "pe32",
+          "source_sha256": "2582bbe3fec0f81f6e14d20a79fd062ca66694010158fcd8e42f36ea09601000",
+          "source_size": 604832,
+          "result_sha256": "dfaaf8533647c3b2068f38fbedacc0035e8d82d660579bb4893d123e79dad9f0",
+          "result_size": 604832,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 389594,
+              "before": "57",
+              "after": "53",
+              "context_before": "e8da60fcff5988851ffaffff9c565755",
+              "context_after": "89a524faffff838524faffff04c745f8",
+              "findings": [
+                "B08"
+              ],
+              "wild_before": [
+                1,
+                2,
+                3,
+                4
+              ],
+              "wild_after": [
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 389607,
+              "before": "04",
+              "after": "00",
+              "context_before": "5657555789a524faffff838524faffff",
+              "context_after": "c745f8fa41e4ff5f8b45088b8d24faff",
+              "findings": [
+                "B08"
+              ],
+              "wild_before": [
+                20,
+                21,
+                22,
+                23
+              ],
+              "wild_after": [
+                20,
+                21,
+                22,
+                23
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 389615,
+              "before": "5f",
+              "after": "90",
+              "context_before": "ffff838524faffff04c745f8fa41e4ff",
+              "context_after": "8b45088b8d24faffff8988282102008b",
+              "findings": [
+                "B08"
+              ],
+              "wild_before": [
+                12,
+                13,
+                14,
+                15
+              ],
+              "wild_after": [
+                12,
+                13,
+                14,
+                15
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 390162,
+              "before": "5d5f5e9d898518faffff8b8518faffff5f5ec9c3",
+              "after": "5b5d5f5e9d5f5ec9c39090909090909090909090",
+              "context_before": "10ff7508e8f1d1fcff598b8518faffff",
+              "context_after": "558bec568b750880be68290200017509",
+              "findings": [
+                "B08"
+              ],
+              "wild_before": [
+                5,
+                6,
+                7,
+                8
+              ],
+              "wild_after": [
+                5,
+                6,
+                7,
+                8
+              ]
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    },
+    "x99ha00m-20221202": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "UncoreInitPeim",
+          "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3",
+          "leaf": "pe32",
+          "source_sha256": "a645b2ea89779bcc66bfc96581aebb686aa9a6a15e7b6b232e333b292e59ed42",
+          "source_size": 605920,
+          "result_sha256": "ec621df5a8f3815c249be682ec9cdee58db43fb37a1298aa8f269d96e75ffc2d",
+          "result_size": 605920,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 391414,
+              "before": "57",
+              "after": "53",
+              "context_before": "e8e760fcff5988851ffaffff9c565755",
+              "context_after": "89a524faffff838524faffff04c745f8",
+              "findings": [
+                "B08"
+              ],
+              "wild_before": [
+                1,
+                2,
+                3,
+                4
+              ],
+              "wild_after": [
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 391427,
+              "before": "04",
+              "after": "00",
+              "context_before": "5657555789a524faffff838524faffff",
+              "context_after": "c745f81ed8e2ff5f8b45088b8d24faff",
+              "findings": [
+                "B08"
+              ],
+              "wild_before": [
+                20,
+                21,
+                22,
+                23
+              ],
+              "wild_after": [
+                20,
+                21,
+                22,
+                23
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 391435,
+              "before": "5f",
+              "after": "90",
+              "context_before": "ffff838524faffff04c745f81ed8e2ff",
+              "context_after": "8b45088b8d24faffff8988282102008b",
+              "findings": [
+                "B08"
+              ],
+              "wild_before": [
+                12,
+                13,
+                14,
+                15
+              ],
+              "wild_after": [
+                12,
+                13,
+                14,
+                15
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 391982,
+              "before": "5d5f5e9d898518faffff8b8518faffff5f5ec9c3",
+              "after": "5b5d5f5e9d5f5ec9c39090909090909090909090",
+              "context_before": "10ff7508e8edd1fcff598b8518faffff",
+              "context_after": "558bec568b750880be68290200017509",
+              "findings": [
+                "B08"
+              ],
+              "wild_before": [
+                5,
+                6,
+                7,
+                8
+              ],
+              "wild_after": [
+                5,
+                6,
+                7,
+                8
+              ]
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
+    }
+  }
+}

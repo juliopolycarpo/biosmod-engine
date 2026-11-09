@@ -1,0 +1,46 @@
+{
+  "schema": "bme.evidence/1",
+  "id": "mr9a-stage2-2026-11-08",
+  "kind": "hardware-observation",
+  "date": "2026-11-08",
+  "title": "MR9A stage 2: stage 1 + B05 + B10 + B11 + R01",
+  "board": "machinist-mr9a-pro-q87-rev-1.2",
+  "firmware": "mnx99mr9apro-230322",
+  "configuration": "MACHINIST E5-MR9A PRO V1.2 (Q87), four 16 GB DDR4 DIMMs (64 GB)",
+  "patches": [
+    {
+      "id": "B01-B06",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B02-B03",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B05",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B10",
+      "version": "1.0.0"
+    },
+    {
+      "id": "B11",
+      "version": "1.0.0"
+    },
+    {
+      "id": "R01",
+      "version": "1.0.0"
+    }
+  ],
+  "image_sha256": "1ecbe9b09619221556d16fa36427655ca2593ab13b2e4fd7c9b79334c45d03a1",
+  "built_with": "x99-bios-fixes x99fix (Python)",
+  "observations": [
+    "Built from the fresh stage-1 backup; flashrom verification and a separate full-chip readback matched the image digest.",
+    "User reports normal and cold boots passed many times and offline memtest86 passed (counts, version and configuration not supplied).",
+    "Post-flash Linux boot: same PCI inventory, four 16 GB DIMMs, EDAC counters zero, no matching machine-check, memory or I/O errors.",
+    "R01: all four DIMMs report 72 total bits / 64 data bits, replacing the previous 72/72."
+  ],
+  "limits": "Boot and memory-test compatibility for this cumulative image on this board only. Does not validate each member's exceptional reset or SMM paths, every peripheral or wake function, other configurations, or repair of the intermittent boot failure. R01 does not establish or change ECC correction policy.",
+  "source": "x99-bios-fixes docs/hardware-tests.md at commit 765e7a80ae8337c0953dc0da41de5f28b56c5c92"
+}
