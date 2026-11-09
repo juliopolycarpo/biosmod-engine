@@ -1,75 +1,9 @@
-import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ListView, Palette, ScrollView, Spinner, TextEdit } from "std-widgets.slint";
+import { AboutSlint, Button, ComboBox, LineEdit, ListView, Palette, Spinner, TextEdit } from "std-widgets.slint";
+import { PatchCard, PatchRow } from "patch-card.slint";
+import { Theme } from "theme.slint";
+import { Caption, SectionTitle } from "widgets.slint";
 
-export struct PatchRow {
-    id: string,
-    title: string,
-    version: string,
-    class: string,
-    tier: string,
-    state: string,
-    blocker: string,
-    evidence: string,
-    selectable: bool,
-    selected: bool,
-}
-
-global Theme {
-    out property <brush> canvas: Palette.alternate-background;
-    out property <brush> surface: Palette.background;
-    out property <brush> border: Palette.border;
-    out property <brush> text: Palette.foreground;
-    out property <brush> muted: Palette.foreground.transparentize(0.3);
-    out property <brush> accent: Palette.accent-background;
-    out property <brush> accent-surface: Palette.accent-background;
-    out property <brush> accent-text: Palette.accent-foreground;
-}
-
-component SectionTitle inherits Text {
-    color: Theme.text;
-    font-size: 17px;
-    font-weight: 700;
-}
-
-component Caption inherits Text {
-    color: Theme.muted;
-    font-size: 13px;
-    wrap: word-wrap;
-}
-
-component PatchCard inherits Rectangle {
-    in property <PatchRow> patch;
-    in property <bool> enabled: true;
-    callback toggled();
-    background: Theme.surface;
-    border-color: Theme.border;
-    border-width: 1px;
-    border-radius: 8px;
-    height: patch-layout.preferred-height + 24px;
-    patch-layout := VerticalLayout {
-        padding: 12px;
-        spacing: 6px;
-        HorizontalLayout {
-            spacing: 10px;
-            CheckBox {
-                text: root.patch.title;
-                checked: root.patch.selected;
-                enabled: root.patch.selectable && root.enabled;
-                toggled => { root.toggled(); }
-                horizontal-stretch: 1;
-            }
-            Text {
-                text: root.patch.state;
-                color: Theme.accent;
-                font-size: 13px;
-                font-weight: 600;
-                vertical-alignment: center;
-            }
-        }
-        Caption { text: root.patch.id + "  ·  " + root.patch.version + "  ·  " + root.patch.class + "  ·  " + root.patch.tier; }
-        if root.patch.blocker != "": Caption { text: root.patch.blocker; }
-        if root.patch.evidence != "": Caption { text: root.patch.evidence; }
-    }
-}
+export { PatchRow }
 
 export component AppWindow inherits Window {
     title: "BIOS Mod Engine";

@@ -1,0 +1,51 @@
+import { CheckBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Caption } from "widgets.slint";
+
+export struct PatchRow {
+    id: string,
+    title: string,
+    version: string,
+    class: string,
+    tier: string,
+    state: string,
+    blocker: string,
+    evidence: string,
+    selectable: bool,
+    selected: bool,
+}
+
+export component PatchCard inherits Rectangle {
+    in property <PatchRow> patch;
+    in property <bool> enabled: true;
+    callback toggled();
+    background: Theme.surface;
+    border-color: Theme.border;
+    border-width: 1px;
+    border-radius: 8px;
+    height: patch-layout.preferred-height + 24px;
+    patch-layout := VerticalLayout {
+        padding: 12px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 10px;
+            CheckBox {
+                text: root.patch.title;
+                checked: root.patch.selected;
+                enabled: root.patch.selectable && root.enabled;
+                toggled => { root.toggled(); }
+                horizontal-stretch: 1;
+            }
+            Text {
+                text: root.patch.state;
+                color: Theme.accent;
+                font-size: 13px;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+        }
+        Caption { text: root.patch.id + "  ·  " + root.patch.version + "  ·  " + root.patch.class + "  ·  " + root.patch.tier; }
+        if root.patch.blocker != "": Caption { text: root.patch.blocker; }
+        if root.patch.evidence != "": Caption { text: root.patch.evidence; }
+    }
+}

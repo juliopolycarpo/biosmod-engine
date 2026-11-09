@@ -1,0 +1,12 @@
+import { Palette } from "std-widgets.slint";
+
+export global Theme {
+    out property <brush> canvas: Palette.alternate-background;
+    out property <brush> surface: Palette.background;
+    out property <brush> border: Palette.border;
+    out property <brush> text: Palette.foreground;
+    out property <brush> muted: Palette.foreground.transparentize(0.3);
+    out property <brush> accent: Palette.accent-background;
+    out property <brush> accent-surface: Palette.accent-background;
+    out property <brush> accent-text: Palette.accent-foreground;
+}
