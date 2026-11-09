@@ -57,7 +57,8 @@ export component PatchCard inherits Rectangle {
         card := Rectangle {
             background: root.patch.selected ? Theme.accent.transparentize(0.88)
                 : touch.has-hover && root.interactive ? Theme.canvas : Theme.surface;
-            border-color: root.patch.selected || scope.has-focus ? Theme.accent : Theme.border;
+            // Focus uses the text color so it stays distinct from the accent of a selected card.
+            border-color: scope.has-focus ? Theme.text : root.patch.selected ? Theme.accent : Theme.border;
             border-width: root.patch.selected || scope.has-focus ? 2px : 1px;
             border-radius: Theme.radius;
             animate background, border-color { duration: 120ms; }
