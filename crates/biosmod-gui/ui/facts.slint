@@ -1,0 +1,64 @@
+import { LineEdit } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export struct Fact {
+    label: string,
+    value: string,
+}
+
+/// Label and value pairs on one line; long values elide before the row wraps.
+/// Example: `FactList { facts: [{ label: "Size", value: "4 KiB" }]; }`
+export component FactList inherits HorizontalLayout {
+    in property <[Fact]> facts;
+    spacing: Theme.space-xl;
+    alignment: start;
+    for fact in root.facts: HorizontalLayout {
+        spacing: Theme.space-sm;
+        Text {
+            text: fact.label;
+            color: Theme.muted;
+            font-size: Theme.font-caption;
+            vertical-alignment: center;
+        }
+        Text {
+            text: fact.value;
+            color: Theme.text;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// Facts about the inspected image and its catalog scan, with a copyable digest.
+/// Example: `FindingsSummary { image-facts: facts; image-sha: sha; scan-facts: scan; }`
+export component FindingsSummary inherits Rectangle {
+    in property <[Fact]> image-facts;
+    in property <[Fact]> scan-facts;
+    in property <string> image-sha;
+    background: Theme.surface;
+    border-color: Theme.border;
+    border-width: 1px;
+    border-radius: Theme.radius;
+    height: summary-layout.preferred-height;
+    summary-layout := VerticalLayout {
+        padding: Theme.space-md;
+        spacing: Theme.space-sm;
+        FactList { facts: root.image-facts; }
+        FactList { facts: root.scan-facts; }
+        if root.image-sha != "": HorizontalLayout {
+            spacing: Theme.space-md;
+            Text {
+                text: "SHA-256";
+                color: Theme.muted;
+                font-size: Theme.font-caption;
+                vertical-alignment: center;
+            }
+            LineEdit {
+                text: root.image-sha;
+                read-only: true;
+                accessible-label: "Image SHA-256";
+                font-size: Theme.font-caption;
+            }
+        }
+    }
+}

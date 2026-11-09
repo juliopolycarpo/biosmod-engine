@@ -41,6 +41,15 @@ export component FieldLabel inherits Text {
     vertical-alignment: center;
 }
 
+/// A form row: a fixed-width label followed by its controls.
+/// Example: `FieldRow { label: "Image"; LineEdit { } Button { text: "Browse…"; } }`
+export component FieldRow inherits HorizontalLayout {
+    in property <string> label;
+    spacing: Theme.space-sm;
+    FieldLabel { text: root.label; width: Theme.label-width; }
+    @children
+}
+
 /// A one-pixel rule between regions. Example: `Divider { }`
 export component Divider inherits Rectangle {
     height: 1px;
@@ -52,7 +61,7 @@ export component Chip inherits Rectangle {
     in property <string> text;
     in property <Tone> tone: Tone.quiet;
     private property <color> ink: Tones.color(root.tone);
-    width: chip-layout.preferred-width;
+    width: min(chip-layout.preferred-width, 240px);
     height: chip-layout.preferred-height;
     border-radius: self.height / 2;
     border-width: 1px;

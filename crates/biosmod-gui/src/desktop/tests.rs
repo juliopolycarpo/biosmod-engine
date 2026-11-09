@@ -740,3 +740,68 @@ fn patch_rows_separate_detail_from_limits_and_gate_selection_on_idleness() {
         "No hardware observations for this patch version."
     );
 }
+
+#[test]
+fn facts_describe_the_image_and_scan_source() {
+    let inspection = json!({"length": 36864, "volumes": [{}, {}], "sha256": "abc123", "descriptor_regions": null});
+    let facts = image_facts(Some(&inspection));
+    let pairs: Vec<_> = facts
+        .iter()
+        .map(|f| (f.label.to_string(), f.value.to_string()))
+        .collect();
+    assert_eq!(
+        pairs,
+        [
+            ("Size".into(), "36,864 bytes".into()),
+            ("Volumes".into(), "2".into()),
+            ("Layout".into(), "Bare BIOS / firmware volumes".into()),
+        ],
+        "image facts"
+    );
+    assert_eq!(image_sha(Some(&inspection)), "abc123");
+    assert!(image_facts(None).is_empty() && image_sha(None).is_empty());
+
+    let scan = scan_facts(&fake_scan());
+    assert_eq!(scan[0].value, "lab · fixture 1");
+    assert_eq!(scan[2].value, "synthetic");
+    assert_eq!(scan[3].value, "none matched");
+}
+
+#[test]
+fn digit_grouping_leaves_non_numbers_alone() {
+    for (input, expected) in [
+        ("0", "0"),
+        ("999", "999"),
+        ("1000", "1,000"),
+        ("36864", "36,864"),
+        ("16777216", "16,777,216"),
+        ("null", "null"),
+        ("", ""),
+    ] {
+        assert_eq!(group_digits(input), expected, "group_digits({input:?})");
+    }
+}
+
+#[test]
+fn row_sync_updates_in_place_and_replaces_foreign_models() {
+    let row = |label: &str| Fact {
+        label: label.into(),
+        value: "v".into(),
+    };
+    let model = ModelRc::new(VecModel::from(vec![row("a"), row("b")]));
+    let kept = model.clone();
+    sync_rows(model.clone(), vec![row("a"), row("c")], |_| {
+        panic!("sync_rows: expected the existing VecModel to be updated in place")
+    });
+    assert_eq!(kept.row_data(1).unwrap().label, "c");
+    sync_rows(model, vec![row("x")], |_| panic!("resize stays in place"));
+    assert_eq!(kept.row_count(), 1);
+    let replaced = Cell::new(false);
+    sync_rows(ModelRc::default(), vec![row("n")], |m| {
+        replaced.set(m.row_count() == 1)
+    });
+    assert!(
+        replaced.get(),
+        "foreign model: expected a replacement VecModel"
+    );
+}

@@ -4,7 +4,7 @@ use crate::controller::{Action, Outcome, Review, Session, manifest_path, write_n
 use crate::engine::Engine;
 use crate::model::{Patch, StateTone};
 use crate::settings::Settings;
-use crate::ui::{AppWindow, PatchRow, Tone};
+use crate::ui::{AppWindow, Fact, PatchRow, Tone};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -717,27 +717,17 @@ fn sync(ui: &AppWindow, state: &Desktop) {
     if state.exporting || state.dialog_open {
         ui.set_elapsed("".into());
     }
-    ui.set_image_details(
-        session
-            .inspection
-            .as_ref()
-            .map(|v| {
-                format!(
-                    "{} bytes · {} volumes\nSHA-256 {}\nLayout: {}",
-                    v["length"],
-                    v["volumes"].as_array().map_or(0, Vec::len),
-                    v["sha256"].as_str().unwrap_or("unknown"),
-                    if v["descriptor_regions"].is_null() {
-                        "Bare BIOS / firmware volumes"
-                    } else {
-                        "Intel flash descriptor"
-                    }
-                )
-            })
-            .unwrap_or_default()
-            .into(),
+    sync_rows(
+        ui.get_image_facts(),
+        image_facts(session.inspection.as_ref()),
+        |m| ui.set_image_facts(m),
     );
-    ui.set_scan_details(session.scan.as_ref().map(|s| format!("{} · {} {} · {}\nFirmware: {} · Board profiles: {} (catalog information, not physical identification)", s.alias,s.catalog,s.catalog_version,s.trust,s.report.firmware.as_deref().unwrap_or("unknown or ambiguous"),s.report.boards.join(", "))).unwrap_or_default().into());
+    ui.set_image_sha(image_sha(session.inspection.as_ref()).into());
+    sync_rows(
+        ui.get_scan_facts(),
+        session.scan.as_ref().map(scan_facts).unwrap_or_default(),
+        |m| ui.set_scan_facts(m),
+    );
     let patches = session
         .scan
         .as_ref()
@@ -750,7 +740,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
                 .collect()
         })
         .unwrap_or_default();
-    sync_patches(ui, patches);
+    sync_rows(ui.get_patches(), patches, |m| ui.set_patches(m));
     sync_review(ui, state);
     ui.set_result_details(session.result_details.as_str().into());
     ui.set_result_title(
@@ -838,21 +828,103 @@ pub fn patch_row(alias: &str, patch: &Patch, idle: bool) -> PatchRow {
     }
 }
 
-fn sync_patches(ui: &AppWindow, patches: Vec<PatchRow>) {
-    let model = ui.get_patches();
-    let Some(rows) = model.as_any().downcast_ref::<VecModel<PatchRow>>() else {
-        ui.set_patches(ModelRc::new(VecModel::from(patches)));
+/// Update a Slint list in place so unchanged rows are not re-rendered.
+/// Example: `sync_rows(ui.get_patches(), rows, |model| ui.set_patches(model))`.
+fn sync_rows<T: Clone + PartialEq + 'static>(
+    current: ModelRc<T>,
+    rows: Vec<T>,
+    replace: impl FnOnce(ModelRc<T>),
+) {
+    let Some(model) = current.as_any().downcast_ref::<VecModel<T>>() else {
+        replace(ModelRc::new(VecModel::from(rows)));
         return;
     };
-    if rows.row_count() != patches.len() {
-        rows.set_vec(patches);
+    if model.row_count() != rows.len() {
+        model.set_vec(rows);
         return;
     }
-    for (index, patch) in patches.into_iter().enumerate() {
-        if rows.row_data(index).as_ref() != Some(&patch) {
-            rows.set_row_data(index, patch);
+    for (index, row) in rows.into_iter().enumerate() {
+        if model.row_data(index).as_ref() != Some(&row) {
+            model.set_row_data(index, row);
         }
     }
+}
+
+fn fact(label: &str, value: impl Into<SharedString>) -> Fact {
+    Fact {
+        label: label.into(),
+        value: value.into(),
+    }
+}
+
+/// Summarize an inspection for the findings header.
+/// Example: a 36864-byte image with two volumes reads `Size 36,864 bytes` and `Volumes 2`.
+pub fn image_facts(inspection: Option<&serde_json::Value>) -> Vec<Fact> {
+    let Some(v) = inspection else {
+        return Vec::new();
+    };
+    let layout = if v["descriptor_regions"].is_null() {
+        "Bare BIOS / firmware volumes"
+    } else {
+        "Intel flash descriptor"
+    };
+    vec![
+        fact("Size", group_digits(&v["length"].to_string()) + " bytes"),
+        fact(
+            "Volumes",
+            v["volumes"].as_array().map_or(0, Vec::len).to_string(),
+        ),
+        fact("Layout", layout),
+    ]
+}
+
+/// Return the inspected image digest, or an empty string before inspection.
+/// Example: `image_sha(Some(&json!({"sha256": "ab"})))` is `ab`.
+pub fn image_sha(inspection: Option<&serde_json::Value>) -> String {
+    inspection
+        .map(|v| v["sha256"].as_str().unwrap_or("unknown").to_owned())
+        .unwrap_or_default()
+}
+
+/// Summarize the catalog source behind a scan.
+/// Example: alias `lab` with catalog `synthetic 1.0.0` reads `lab · synthetic 1.0.0`.
+pub fn scan_facts(scan: &crate::model::SourceReport) -> Vec<Fact> {
+    let boards = if scan.report.boards.is_empty() {
+        "none matched".to_owned()
+    } else {
+        scan.report.boards.join(", ")
+    };
+    vec![
+        fact(
+            "Source",
+            format!("{} · {} {}", scan.alias, scan.catalog, scan.catalog_version),
+        ),
+        fact("Trust", scan.trust.as_str()),
+        fact(
+            "Firmware",
+            scan.report
+                .firmware
+                .as_deref()
+                .unwrap_or("unknown or ambiguous"),
+        ),
+        fact("Boards", boards),
+    ]
+}
+
+/// Insert thousands separators into a run of ASCII digits; other text passes through.
+/// Example: `group_digits("36864")` is `36,864`.
+fn group_digits(digits: &str) -> String {
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return digits.to_owned();
+    }
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
 }
 
 fn sync_paths(ui: &AppWindow, state: &Desktop) {

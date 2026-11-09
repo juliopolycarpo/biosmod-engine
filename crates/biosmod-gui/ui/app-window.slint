@@ -2,9 +2,10 @@ import { AboutSlint, Button, ComboBox, LineEdit, ListView, Palette, Spinner, Tex
 import { PatchCard, PatchRow } from "patch-card.slint";
 import { Stepper } from "stepper.slint";
 import { Theme } from "theme.slint";
-import { Caption, Divider, FieldLabel, NavTab, PageTitle, SectionTitle } from "widgets.slint";
+import { Caption, Chip, Divider, FieldRow, NavTab, PageTitle, SectionTitle } from "widgets.slint";
+import { Fact, FindingsSummary } from "facts.slint";
 
-export { PatchRow }
+export { Fact, PatchRow }
 
 export component AppWindow inherits Window {
     title: "BIOS Mod Engine";
@@ -20,8 +21,9 @@ export component AppWindow inherits Window {
     in-out property <string> engine-path;
     in property <string> engine-status: "Checking engine…";
     in property <string> status: "Choose a firmware image to get started.";
-    in property <string> image-details;
-    in property <string> scan-details;
+    in property <[Fact]> image-facts;
+    in property <[Fact]> scan-facts;
+    in property <string> image-sha;
     in property <string> plan-details;
     in property <string> result-details;
     in property <string> result-title: "Output & verification";
@@ -151,22 +153,30 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            if root.paths-open: VerticalLayout {
-                spacing: Theme.space-sm;
-                HorizontalLayout {
+            if root.paths-open: Rectangle {
+                background: Theme.surface;
+                border-color: Theme.border;
+                border-width: 1px;
+                border-radius: Theme.radius;
+                height: paths-layout.preferred-height;
+                paths-layout := VerticalLayout {
+                    padding: Theme.space-md;
                     spacing: Theme.space-sm;
-                    LineEdit { placeholder-text: "Plan file path"; accessible-label: "Plan file path"; text <=> root.manual-plan-path; enabled: !root.busy; }
-                    Button { text: "Open plan"; enabled: !root.busy && root.manual-plan-path != ""; clicked => { root.open-plan-path(root.manual-plan-path); root.paths-open = false; } }
-                }
-                HorizontalLayout {
-                    spacing: Theme.space-sm;
-                    LineEdit { placeholder-text: "Existing output image path"; accessible-label: "Existing output image path"; text <=> root.manual-output-path; enabled: !root.busy; }
-                    Button { text: "Open output"; enabled: !root.busy && root.manual-output-path != ""; clicked => { root.open-output-path(root.manual-output-path); root.paths-open = false; } }
-                }
-                HorizontalLayout {
-                    spacing: Theme.space-sm;
-                    LineEdit { placeholder-text: "New plan export path"; accessible-label: "New plan export path"; text <=> root.manual-export-path; enabled: !root.busy && root.plan-details != ""; }
-                    Button { text: "Save plan"; enabled: !root.busy && root.plan-details != "" && root.manual-export-path != ""; clicked => { root.export-plan-path(root.manual-export-path); root.paths-open = false; } }
+                    FieldRow {
+                        label: "Plan";
+                        LineEdit { placeholder-text: "Plan file path"; accessible-label: "Plan file path"; text <=> root.manual-plan-path; enabled: !root.busy; }
+                        Button { text: "Open plan"; enabled: !root.busy && root.manual-plan-path != ""; clicked => { root.open-plan-path(root.manual-plan-path); root.paths-open = false; } }
+                    }
+                    FieldRow {
+                        label: "Output";
+                        LineEdit { placeholder-text: "Existing output image path"; accessible-label: "Existing output image path"; text <=> root.manual-output-path; enabled: !root.busy; }
+                        Button { text: "Open output"; enabled: !root.busy && root.manual-output-path != ""; clicked => { root.open-output-path(root.manual-output-path); root.paths-open = false; } }
+                    }
+                    FieldRow {
+                        label: "Save as";
+                        LineEdit { placeholder-text: "New plan export path"; accessible-label: "New plan export path"; text <=> root.manual-export-path; enabled: !root.busy && root.plan-details != ""; }
+                        Button { text: "Save plan"; enabled: !root.busy && root.plan-details != "" && root.manual-export-path != ""; clicked => { root.export-plan-path(root.manual-export-path); root.paths-open = false; } }
+                    }
                 }
             }
             Rectangle {
@@ -178,9 +188,8 @@ export component AppWindow inherits Window {
                 context-layout := VerticalLayout {
                     padding: Theme.space-md;
                     spacing: Theme.space-sm;
-                    HorizontalLayout {
-                        spacing: Theme.space-sm;
-                        FieldLabel { text: "Image"; width: 54px; }
+                    FieldRow {
+                        label: "Image";
                         LineEdit {
                             placeholder-text: "Original firmware image path";
                             accessible-label: "Original firmware image path";
@@ -190,11 +199,13 @@ export component AppWindow inherits Window {
                         }
                         Button { text: "Browse…"; enabled: !root.busy; clicked => { root.browse-image(); } }
                         if root.stage < 2: Button { text: "Inspect"; enabled: root.can-inspect && !root.busy; clicked => { root.inspect(); } }
-                        if root.stage >= 2: Text { text: "Scan source: " + root.source; color: Theme.muted; overflow: elide; width: 132px; vertical-alignment: center; }
+                        if root.stage >= 2: VerticalLayout {
+                            alignment: center;
+                            Chip { text: "Source: " + root.source; }
+                        }
                     }
-                    if root.stage < 2: HorizontalLayout {
-                        spacing: Theme.space-sm;
-                        FieldLabel { text: "Source"; width: 54px; }
+                    if root.stage < 2: FieldRow {
+                        label: "Source";
                         LineEdit {
                             placeholder-text: "Catalog source alias";
                             accessible-label: "Catalog source alias";
@@ -211,10 +222,17 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     spacing: Theme.space-sm;
                     SectionTitle { text: "Findings"; vertical-alignment: center; }
+                    if root.patches.length > 0: VerticalLayout {
+                        alignment: center;
+                        Chip { text: root.patches.length == 1 ? "1 finding" : "\{root.patches.length} findings"; }
+                    }
                     Rectangle { horizontal-stretch: 1; }
                 }
-                if root.image-details != "": TextEdit { text: root.image-details; read-only: true; min-height: 42px; max-height: 60px; accessible-label: "Image details"; }
-                if root.scan-details != "": Caption { text: root.scan-details; }
+                if root.image-facts.length > 0 || root.scan-facts.length > 0: FindingsSummary {
+                    image-facts: root.image-facts;
+                    scan-facts: root.scan-facts;
+                    image-sha: root.image-sha;
+                }
                 if root.patches.length == 0: Rectangle {
                     background: Theme.surface;
                     border-color: Theme.border;
@@ -226,7 +244,7 @@ export component AppWindow inherits Window {
                         spacing: Theme.space-sm;
                         alignment: center;
                         Text { text: "No findings to show"; font-size: Theme.font-heading; font-weight: 700; color: Theme.text; horizontal-alignment: center; }
-                        Caption { text: "Scan an image with a catalog source to see findings and available corrections."; horizontal-alignment: center; }
+                        Caption { text: root.can-scan ? "Press Scan image to look for corrections in the catalog." : "Choose an image and enter a catalog source alias to enable scanning."; horizontal-alignment: center; }
                     }
                 }
                 if root.patches.length > 0: ListView {
@@ -234,7 +252,7 @@ export component AppWindow inherits Window {
                     min-height: 80px;
                     for patch[i] in root.patches: PatchCard { patch: patch; enabled: !root.busy; toggled => { root.toggle-patch(i); } }
                 }
-                Caption { text: "Hardware-dependent findings and corrections that require joint selection cannot be applied here yet."; }
+                Caption { text: (root.scan-facts.length > 0 ? "Board profiles are catalog information, not physical board identification. " : "") + "Hardware-dependent findings and corrections that require joint selection cannot be applied here yet."; }
                 HorizontalLayout {
                     spacing: Theme.space-sm;
                     Button { text: "Recommended"; enabled: root.can-recommend && !root.busy; clicked => { root.recommended(); } }
