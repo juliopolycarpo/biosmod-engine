@@ -12,6 +12,10 @@ Pass `--json` to any command. stdout then carries exactly one JSON document, for
 
 Exit codes: `0` success, `1` controlled failure (see `error.code`), `2` usage error, `3` publication incomplete (an output file may exist without its partner; `error.details` names what remains).
 
+`verify` returns exit `1` and `VERIFICATION_INCOMPLETE` when required catalog checks cannot run. Its `error.details` contains the verification report (`complete: false`, `checks`, `skipped`, and `notice`). Older engines may return this report under `data` with exit `0`; clients must always inspect completeness and the required checks before reporting verification success.
+
+`capabilities.data.desktop_workflow: 1` identifies the guarded desktop workflow: conservative firmware-layout refusals and explicit incomplete verification. The GUI requires this marker even when an older engine advertises the same protocol and package version. JSON `inspect.path`, `patch.output`, and `patch.manifest_file` are display strings; Unix paths containing non-UTF-8 bytes use replacement characters. Keep the original OS paths when invoking later operations instead of reconstructing paths from these strings.
+
 `bme capabilities --json` lists commands, whether each writes files or uses the network, supported formats, limits and every error code with its meaning.
 
 ## A safe agent loop

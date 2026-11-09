@@ -95,7 +95,7 @@ pub fn inspect(args: &InspectArgs) -> Result<Reply> {
         }));
     }
     let data = json!({
-        "path": args.rom, "length": image.bytes.len(), "sha256": sha256_hex(&image.bytes),
+        "path": args.rom.to_string_lossy(), "length": image.bytes.len(), "sha256": sha256_hex(&image.bytes),
         "flash_base": image.flash_base(), "descriptor_regions": regions, "volumes": volumes,
     });
     Ok(Reply::new(data, text))
@@ -679,7 +679,7 @@ pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
         manifest_file.display()
     );
     Ok(Reply::new(
-        json!({"output": args.output, "manifest_file": manifest_file, "manifest": manifest}),
+        json!({"output": args.output.to_string_lossy(), "manifest_file": manifest_file.to_string_lossy(), "manifest": manifest}),
         text,
     ))
 }
@@ -812,10 +812,15 @@ pub fn verify(ctx: &Ctx, args: &VerifyArgs) -> Result<Reply> {
     }
     let _ = writeln!(text, "{NOTICE}");
     let complete = skipped.is_empty();
-    Ok(Reply::new(
-        json!({"complete": complete, "checks": checks, "skipped": skipped, "identical_to_observed_images": plan.identical_to_observed_images, "notice": NOTICE}),
-        text,
-    ))
+    let report = json!({"complete": complete, "checks": checks, "skipped": skipped, "identical_to_observed_images": plan.identical_to_observed_images, "notice": NOTICE});
+    if !complete {
+        return Err(Error::new(
+            Code::VerificationIncomplete,
+            format!("verification: expected all required checks to complete\n{text}"),
+        )
+        .with_details(report));
+    }
+    Ok(Reply::new(report, text))
 }
 
 /// The single leaf of `kind` in the file with `guid`.

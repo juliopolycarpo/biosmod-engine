@@ -71,6 +71,7 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "jsonschema",
+ "libc",
  "minisign-verify",
  "semver",
  "serde",

@@ -95,6 +95,7 @@ pub fn capabilities() -> Reply {
     let data = json!({
         "engine": biosmod_core::VERSION,
         "protocol": PROTOCOL,
+        "desktop_workflow": 1,
         "codec": biosmod_core::codec::identity(),
         "commands": commands(),
         "documents": schema::NAMES.iter().map(|(name, id)| json!({"name": name, "schema": id})).collect::<Vec<_>>(),
@@ -180,4 +181,12 @@ pub fn guide(topic: Option<&str>) -> Result<Reply> {
             )
         })?;
     Ok(Reply::new(json!({"topic": topic, "markdown": body}), *body))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn capabilities_advertise_guarded_desktop_workflow() {
+        assert_eq!(super::capabilities().data["desktop_workflow"], 1);
+    }
 }

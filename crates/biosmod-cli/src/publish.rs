@@ -156,7 +156,7 @@ pub fn publish(persist: &dyn Persist, output: &Path, image: &[u8], manifest: &[u
             manifest_target.display()
         ),
     )
-    .with_details(json!({"manifest": manifest_target, "staged_image": kept, "cause": cause.code})))
+    .with_details(json!({"manifest": manifest_target.to_string_lossy(), "staged_image": kept, "cause": cause.code})))
 }
 
 fn sync_parent(path: &Path) {
@@ -254,6 +254,34 @@ mod tests {
         let staged = PathBuf::from(details["staged_image"].as_str().unwrap());
         assert_eq!(fs::read(staged).unwrap(), b"image");
         assert!(manifest_path(&out).exists() && !out.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_failed_rollback_reports_remaining_artifacts() {
+        use std::os::unix::ffi::OsStringExt;
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir
+            .path()
+            .join(std::ffi::OsString::from_vec(b"out-\xff.rom".to_vec()));
+        let error = publish(
+            &FailingImage {
+                calls: Cell::new(0),
+                removal_fails: true,
+            },
+            &out,
+            b"image",
+            b"{}",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, Code::PublishIncomplete);
+        assert!(manifest_path(&out).exists());
+        let details = error.details.unwrap();
+        assert!(details["manifest"].as_str().unwrap().contains("out-"));
+        assert_eq!(
+            fs::read(details["staged_image"].as_str().unwrap()).unwrap(),
+            b"image"
+        );
     }
 
     #[test]

@@ -29,6 +29,7 @@ pub enum Code {
     PlanInputChanged,
     OutputExists,
     OutputVerificationFailed,
+    VerificationIncomplete,
     PublishIncomplete,
     ToolUnavailable,
     ToolSetupFailed,
@@ -39,7 +40,7 @@ pub enum Code {
 
 impl Code {
     /// Every code, in documentation order.
-    pub const ALL: [Code; 26] = [
+    pub const ALL: [Code; 27] = [
         Code::Usage,
         Code::Io,
         Code::CatalogInvalid,
@@ -60,6 +61,7 @@ impl Code {
         Code::PlanInputChanged,
         Code::OutputExists,
         Code::OutputVerificationFailed,
+        Code::VerificationIncomplete,
         Code::PublishIncomplete,
         Code::ToolUnavailable,
         Code::ToolSetupFailed,
@@ -91,6 +93,7 @@ impl Code {
             Code::PlanInputChanged => "PLAN_INPUT_CHANGED",
             Code::OutputExists => "OUTPUT_EXISTS",
             Code::OutputVerificationFailed => "OUTPUT_VERIFICATION_FAILED",
+            Code::VerificationIncomplete => "VERIFICATION_INCOMPLETE",
             Code::PublishIncomplete => "PUBLISH_INCOMPLETE",
             Code::ToolUnavailable => "TOOL_UNAVAILABLE",
             Code::ToolSetupFailed => "TOOL_SETUP_FAILED",
@@ -136,6 +139,9 @@ impl Code {
             Code::OutputExists => "the output or its manifest exists or aliases an input",
             Code::OutputVerificationFailed => {
                 "the rebuilt image failed re-parsing or byte verification"
+            }
+            Code::VerificationIncomplete => {
+                "verification skipped required checks; inspect details and retry"
             }
             Code::PublishIncomplete => {
                 "publication stopped part-way; recoverable artifacts are reported"

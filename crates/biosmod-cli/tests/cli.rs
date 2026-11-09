@@ -157,6 +157,163 @@ fn plan_patch_verify_round_trip() {
 }
 
 #[test]
+fn unavailable_pinned_catalog_is_incomplete_verification_not_success() {
+    let sandbox = Sandbox::new();
+    let (image, catalog) = sandbox.synthetic();
+    let plan = sandbox.path("review.json");
+    let output = sandbox.path("output.bin");
+    let made = sandbox.run([
+        "plan",
+        s(&image),
+        "--catalog",
+        s(&catalog),
+        "--allow-unsigned-local",
+        "--select",
+        "PA",
+        "-o",
+        s(&plan),
+        "--json",
+    ]);
+    assert_eq!(made.code, 0, "{}", made.stdout);
+    let built = sandbox.run([
+        "patch",
+        s(&image),
+        "--plan",
+        s(&plan),
+        "--allow-unsigned-local",
+        "-o",
+        s(&output),
+        "--json",
+    ]);
+    assert_eq!(built.code, 0, "{}", built.stdout);
+    fs::rename(&catalog, sandbox.path("unavailable-catalog")).unwrap();
+    let verified = sandbox.run([
+        "verify",
+        s(&image),
+        s(&output),
+        "--plan",
+        s(&plan),
+        "--json",
+        "--offline",
+    ]);
+    assert_eq!(
+        verified.code, 1,
+        "verification with unavailable catalog: expected exit 1, received {}: {}",
+        verified.code, verified.stdout
+    );
+    assert_eq!(verified.error_code(), "VERIFICATION_INCOMPLETE");
+    let envelope = verified.json();
+    assert_envelope(&envelope);
+    let details = &envelope["error"]["details"];
+    assert_eq!(details["complete"], false);
+    assert_eq!(details["checks"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        details["skipped"][0]["check"],
+        "patch-states and reproduction"
+    );
+    assert!(details["notice"].as_str().unwrap().contains("Offline"));
+    assert!(
+        output.exists(),
+        "incomplete verification must preserve the output"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn json_publication_supports_non_utf8_output_paths_without_panicking() {
+    use std::os::unix::ffi::OsStringExt;
+    let sandbox = Sandbox::new();
+    let (image, catalog) = sandbox.synthetic();
+    let plan = sandbox.path("review.json");
+    let output = sandbox
+        .dir
+        .path()
+        .join(std::ffi::OsString::from_vec(b"patched-\xff.bin".to_vec()));
+    let made = sandbox.run([
+        "plan",
+        s(&image),
+        "--catalog",
+        s(&catalog),
+        "--allow-unsigned-local",
+        "--select",
+        "PA",
+        "-o",
+        s(&plan),
+        "--json",
+    ]);
+    assert_eq!(made.code, 0, "{}", made.stdout);
+    let built = sandbox.run(vec![
+        std::ffi::OsString::from("patch"),
+        image.clone().into_os_string(),
+        "--plan".into(),
+        plan.clone().into_os_string(),
+        "--allow-unsigned-local".into(),
+        "-o".into(),
+        output.clone().into_os_string(),
+        "--json".into(),
+    ]);
+    assert_eq!(
+        built.code, 0,
+        "JSON publication: expected exit 0 after publishing to an OS path | stdout {} stderr {}",
+        built.stdout, built.stderr
+    );
+    assert!(output.is_file());
+    assert_envelope(&built.json());
+    let verified = sandbox.run(vec![
+        std::ffi::OsString::from("verify"),
+        image.into_os_string(),
+        output.into_os_string(),
+        "--plan".into(),
+        plan.into_os_string(),
+        "--json".into(),
+    ]);
+    assert_eq!(verified.code, 0, "{}", verified.stdout);
+    assert_eq!(verified.json()["data"]["complete"], true);
+}
+
+#[cfg(unix)]
+#[test]
+fn firmware_fifo_is_rejected_without_waiting_for_a_writer() {
+    use std::os::unix::ffi::OsStrExt;
+    let sandbox = Sandbox::new();
+    let fifo = sandbox.path("firmware.pipe");
+    let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    // SAFETY: name is a valid, terminated path in this test's private directory.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_bme"))
+        .args(["inspect", s(&fifo), "--json"])
+        .env("BME_CONFIG_HOME", sandbox.path("config"))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let exited = loop {
+        if child.try_wait().unwrap().is_some() {
+            break true;
+        }
+        if std::time::Instant::now() >= deadline {
+            child.kill().unwrap();
+            break false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        exited,
+        "firmware FIFO: expected immediate regular-file refusal, received a blocked read"
+    );
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["error"]["code"], "IO");
+    assert!(
+        document["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("regular file")
+    );
+}
+
+#[test]
 fn plans_are_revalidated_not_trusted() {
     let sandbox = Sandbox::new();
     let (image, catalog) = sandbox.synthetic();
