@@ -120,11 +120,13 @@ fn clearing_the_engine_path_restores_the_default_engine_choice() {
     let settings_path = temp.path().join("settings.json");
     let (window, state) = bound_window(Settings::default(), Some(settings_path.clone()));
     window.invoke_engine_edited("/tmp/custom-bme".into());
+    window.invoke_engine_committed("/tmp/custom-bme".into());
     assert_eq!(
         Settings::load(&settings_path).unwrap().engine,
         Some(PathBuf::from("/tmp/custom-bme"))
     );
     window.invoke_engine_edited("".into());
+    window.invoke_engine_committed("".into());
     let saved = Settings::load(&settings_path).unwrap().engine;
     assert_eq!(
         saved, None,
@@ -538,4 +540,90 @@ fn diagnostics_export_reports_refusals_and_partial_files_and_allows_retry() {
     state.lock().unwrap().exporting = true;
     finish_export(&window, &state, path, ExportKind::Diagnostics, Ok(()));
     assert!(window.get_status().starts_with("Diagnostics exported to"));
+}
+
+#[test]
+fn partial_engine_edits_do_not_persist_through_other_preference_changes() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gui.json");
+    let settings = Settings {
+        theme: 0,
+        engine: Some("/tmp/committed-bme".into()),
+    };
+    settings.save(&path).unwrap();
+    let (window, state) = bound_window(settings, Some(path.clone()));
+    make_reviewable(&state, true);
+    window.invoke_engine_edited("/tmp/partial-b".into());
+    assert!(!state.lock().unwrap().session.connected);
+    assert!(state.lock().unwrap().session.review.is_none());
+    assert_eq!(
+        Settings::load(&path).unwrap().engine,
+        Some("/tmp/committed-bme".into()),
+        "Engine draft: expected the last committed preference | received a saved partial path"
+    );
+    window.invoke_theme_changed(2);
+    assert_eq!(
+        Settings::load(&path).unwrap().engine,
+        Some("/tmp/committed-bme".into())
+    );
+}
+
+#[test]
+fn engine_commit_keeps_a_matching_handshake_and_picker_choices_persist() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gui.json");
+    let (window, state) = bound_window(Settings::default(), Some(path.clone()));
+    window.invoke_engine_edited("/tmp/committed-bme".into());
+    state.lock().unwrap().session.connected = true;
+    window.invoke_engine_committed("/tmp/committed-bme".into());
+    assert!(
+        state.lock().unwrap().session.connected,
+        "committing an unchanged engine must retain its handshake"
+    );
+    assert_eq!(
+        Settings::load(&path).unwrap().engine,
+        Some("/tmp/committed-bme".into())
+    );
+    apply_picked(
+        &mut state.lock().unwrap(),
+        PathKind::Engine,
+        "/tmp/picked-bme".into(),
+    );
+    assert_eq!(
+        Settings::load(&path).unwrap().engine,
+        Some("/tmp/picked-bme".into())
+    );
+    assert!(!state.lock().unwrap().session.connected);
+}
+
+#[test]
+fn focus_loss_can_commit_the_current_engine_without_changing_an_active_job() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gui.json");
+    let (window, state) = bound_window(Settings::default(), Some(path.clone()));
+    window.invoke_engine_edited("/tmp/current-bme".into());
+    state
+        .lock()
+        .unwrap()
+        .session
+        .prepare(Action::Connect)
+        .unwrap();
+    window.invoke_engine_committed("/tmp/current-bme".into());
+    assert_eq!(
+        Settings::load(&path).unwrap().engine,
+        Some("/tmp/current-bme".into())
+    );
+    window.invoke_engine_committed("/tmp/different-bme".into());
+    assert_eq!(
+        state.lock().unwrap().engine_path,
+        PathBuf::from("/tmp/current-bme")
+    );
+    assert!(state.lock().unwrap().session.busy());
+    assert_eq!(
+        Settings::load(&path).unwrap().engine,
+        Some("/tmp/current-bme".into())
+    );
 }

@@ -110,14 +110,23 @@ export component AppWindow inherits Window {
     private property <int> page: 0;
     private property <bool> paths-open;
     private property <bool> show-review;
+    private property <bool> engine-dirty;
     private property <string> manual-plan-path;
     private property <string> manual-output-path;
     private property <string> manual-export-path;
+
+    changed page => {
+        if root.page != 1 && root.engine-dirty {
+            root.engine-committed(root.engine-path);
+            root.engine-dirty = false;
+        }
+    }
 
     callback image-edited(string);
     callback output-edited(string);
     callback source-edited(string);
     callback engine-edited(string);
+    callback engine-committed(string);
     callback browse-image();
     callback browse-output();
     callback browse-engine();
@@ -379,7 +388,17 @@ export component AppWindow inherits Window {
                             accessible-label: "Engine executable path";
                             text <=> root.engine-path;
                             enabled: !root.busy;
-                            edited(value) => { root.engine-edited(value); }
+                            edited(value) => { root.engine-dirty = true; root.engine-edited(value); }
+                            accepted(value) => {
+                                root.engine-committed(value);
+                                root.engine-dirty = false;
+                            }
+                            changed has-focus => {
+                                if !self.has-focus && root.engine-dirty {
+                                    root.engine-committed(self.text);
+                                    root.engine-dirty = false;
+                                }
+                            }
                         }
                         Button { text: "Browse…"; enabled: !root.busy; clicked => { root.browse-engine(); } }
                         Button { text: "Check engine"; enabled: !root.busy; clicked => { root.refresh-engine(); } }

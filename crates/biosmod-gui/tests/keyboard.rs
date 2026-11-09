@@ -49,7 +49,14 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
     } else {
         slint::BackendSelector::new().select().unwrap();
     }
-    let mut desktop = Desktop::new("/missing/bme".into(), Settings::default(), None).unwrap();
+    let preferences = tempfile::tempdir().unwrap();
+    let settings_path = preferences.path().join("gui.json");
+    let mut desktop = Desktop::new(
+        "/missing/bme".into(),
+        Settings::default(),
+        Some(settings_path.clone()),
+    )
+    .unwrap();
     desktop.session.connected = true;
     desktop.session.image = Some("/tmp/input.bin".into());
     desktop.session.scan = Some(serde_json::from_value(json!({
@@ -108,6 +115,37 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
         window.get_image_path(),
         "/tmp/input.binxy",
         "stage change: expected the Image editor to retain focus and receive both characters"
+    );
+    // Engine drafts must save on Enter and focus loss, including leaving the page.
+    click(&window, 180., 76.);
+    settle(&window);
+    click(&window, 150., 696.);
+    key(&window, Key::End.into());
+    key(&window, "x".into());
+    assert!(
+        !settings_path.exists(),
+        "partial Engine path must not be persisted"
+    );
+    key(&window, Key::Return.into());
+    assert_eq!(
+        Settings::load(&settings_path).unwrap().engine,
+        Some("/missing/bmex".into())
+    );
+    key(&window, "y".into());
+    key(&window, Key::Tab.into());
+    settle(&window);
+    assert_eq!(
+        Settings::load(&settings_path).unwrap().engine,
+        Some("/missing/bmexy".into())
+    );
+    click(&window, 150., 696.);
+    key(&window, Key::End.into());
+    key(&window, "z".into());
+    click(&window, 60., 76.);
+    settle(&window);
+    assert_eq!(
+        Settings::load(&settings_path).unwrap().engine,
+        Some("/missing/bmexyz".into())
     );
     window.hide().unwrap();
 }

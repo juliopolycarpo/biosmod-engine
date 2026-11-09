@@ -55,7 +55,7 @@ Light and dark views of the synthetic workflow:
 
 ## Settings and diagnostics
 
-The default theme follows the desktop and falls back to light. **Sources & tools** also offers explicit light and dark choices. Theme and engine-path preferences are stored in `$XDG_CONFIG_HOME/biosmod-engine/gui.json`, or `~/.config/biosmod-engine/gui.json` when `XDG_CONFIG_HOME` is unset. Image and output paths are not saved there.
+The default theme follows the desktop and falls back to light. **Sources & tools** also offers explicit light and dark choices. Theme and engine-path preferences are stored in `$XDG_CONFIG_HOME/biosmod-engine/gui.json`, or `~/.config/biosmod-engine/gui.json` when `XDG_CONFIG_HOME` is unset. Engine edits invalidate the previous connection immediately; the preference is saved on Enter or when the field loses focus. Choosing an executable with Browse saves it immediately. Image and output paths are not saved there.
 
 Read-only operations can be cancelled. Building a copy cannot be safely cancelled from the interface; let publication finish. If the process is interrupted externally, check both output paths before trying again. The Diagnostics page can copy or export bounded recent messages. Review those messages for local paths before sharing them.
 

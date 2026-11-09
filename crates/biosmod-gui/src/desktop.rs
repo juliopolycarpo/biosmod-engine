@@ -100,6 +100,26 @@ pub fn bind(ui: &AppWindow, desktop: Desktop) -> Shared {
     edit!(on_output_edited, PathKind::Output);
     edit!(on_engine_edited, PathKind::Engine);
     edit!(on_source_edited, PathKind::Source);
+    let shared = state.clone();
+    let weak = ui.as_weak();
+    ui.on_engine_committed(move |value| {
+        let mut state = shared.lock().unwrap();
+        let path = if value.is_empty() {
+            None
+        } else {
+            std::path::absolute(value.as_str()).ok()
+        };
+        let engine = path.clone().unwrap_or_else(default_engine);
+        if (state.session.busy() || state.dialog_open || state.exporting)
+            && engine != state.engine_path
+        {
+            return;
+        }
+        set_engine(&mut state, path);
+        if let Some(ui) = weak.upgrade() {
+            sync(&ui, &state);
+        }
+    });
     macro_rules! picker {
         ($callback:ident, $kind:expr) => {{
             let state = state.clone();
@@ -361,8 +381,8 @@ fn change(ui: &AppWindow, shared: &Shared, kind: PathKind, value: &str) {
             ui.set_output_path("".into());
         }
         PathKind::Engine => {
-            set_engine(&mut state, path);
-            ui.set_output_path("".into());
+            preview_engine(&mut state, path);
+            ui.set_output_path(display_path(state.session.output.as_ref()));
         }
         PathKind::Output => {
             state.session.set_output(path);
@@ -479,11 +499,22 @@ fn apply_picked(state: &mut Desktop, kind: PathKind, path: PathBuf) {
 // Switch engines: derived data and the connection belong to the previous one.
 // No path restores the packaged sibling `bme` instead of saving an empty choice.
 fn set_engine(state: &mut Desktop, path: Option<PathBuf>) {
-    state.session.invalidate();
-    state.session.connected = false;
-    state.engine_path = path.clone().unwrap_or_else(default_engine);
+    preview_engine(state, path.clone());
+    if state.settings.engine == path {
+        return;
+    }
     state.settings.engine = path;
     save_settings(state);
+}
+
+fn preview_engine(state: &mut Desktop, path: Option<PathBuf>) {
+    let engine = path.unwrap_or_else(default_engine);
+    if state.engine_path == engine {
+        return;
+    }
+    state.session.invalidate();
+    state.session.connected = false;
+    state.engine_path = engine;
 }
 
 /// The packaged sibling engine next to this executable.
