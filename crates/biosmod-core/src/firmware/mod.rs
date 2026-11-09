@@ -390,6 +390,12 @@ fn parse_volume(
             free_start: offset + header_size,
         }));
     }
+    if !offset.is_multiple_of(8) {
+        return Err(Error::new(
+            Code::FormatUnsupported,
+            format!("FFS volume at {offset:#x}: expected an 8-byte aligned volume offset"),
+        ));
+    }
     if depth >= MAX_DEPTH {
         return Err(Error::new(
             Code::FormatUnsupported,
@@ -689,6 +695,23 @@ mod checksum_tests {
         assert_eq!(checksum16(&[0xFF, 0xFF, 2, 0]), 1, "sum wraps at 16 bits");
         assert_eq!(checksum16(&[1, 0, 9]), 1, "odd trailing byte is ignored");
         assert!(checksum16_ok(&[1, 0, 0xFF, 0xFF]));
+    }
+}
+
+#[cfg(test)]
+mod unaligned_volume_regression {
+    use super::*;
+    use crate::synthetic::{DXE_GUID, ffs, section, volume};
+
+    #[test]
+    fn rejects_unaligned_volume_before_interpreting_file_offsets() {
+        let file = ffs(DXE_GUID, 0x07, &section(SECTION_PE32, &[1; 20]), 0);
+        let mut bytes = vec![0xff; 0x1001];
+        bytes.extend(volume(&[file], 0x1000));
+        let error = Image::parse(bytes).expect_err("unaligned volume must be refused");
+        assert_eq!(error.code, Code::FormatUnsupported, "{error}");
+        assert!(error.message.contains("0x1001"), "{error}");
+        assert!(error.message.contains("8-byte aligned"), "{error}");
     }
 }
 

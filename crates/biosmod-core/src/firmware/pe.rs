@@ -67,6 +67,12 @@ pub fn rva_to_offset(pe: &[u8], rva: u32) -> Result<Option<usize>> {
 
 /// File offsets of every byte covered by a HIGHLOW or DIR64 base relocation.
 pub fn relocation_offsets(pe: &[u8]) -> Result<BTreeSet<usize>> {
+    if pe.starts_with(b"VZ") {
+        return Err(Error::new(
+            Code::FormatUnsupported,
+            "TE image relocation coverage: expected a PE image; TE relocation checks are not supported",
+        ));
+    }
     let at = header(pe)?;
     let directory = at + 24 + if is_wide(pe)? { 112 } else { 96 } + 5 * 8;
     let rva = le32(pe, directory, "PE relocation directory")?;
@@ -193,6 +199,16 @@ mod tests {
         let pe = tiny_pe();
         assert!(relocation_offsets(&pe[..0x90]).is_err());
         assert_eq!(image_base(b"ab").unwrap(), None);
+    }
+
+    #[test]
+    fn te_relocation_coverage_is_explicitly_unsupported() {
+        let mut te = vec![0; 128];
+        te[..2].copy_from_slice(b"VZ");
+        let error = relocation_offsets(&te).expect_err("TE relocations must not be guessed");
+        assert_eq!(error.code, Code::FormatUnsupported);
+        assert!(error.message.contains("TE"), "{error}");
+        assert!(error.message.contains("relocation"), "{error}");
     }
 
     #[test]

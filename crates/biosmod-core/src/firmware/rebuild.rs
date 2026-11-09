@@ -227,6 +227,10 @@ pub fn xip_reason(image: &Image, file: &FfsFile) -> Option<String> {
                 ));
                 return;
             }
+            if image.bytes.get(0x10..0x14) == Some(&0x0ff0_a55au32.to_le_bytes()) {
+                reason = Some("has an uncertain flash mapping in a descriptor image".into());
+                return;
+            }
             let address = image.flash_base()
                 + (file.offset
                     + file.header_size
@@ -349,6 +353,18 @@ pub fn reflow(
     volume: &Volume,
     replaced: &[Replacement],
 ) -> Result<Vec<String>> {
+    for file in &volume.files {
+        let alignment = ALIGNMENTS[usize::from((file.attributes >> 3) & 7)];
+        if !volume.offset.is_multiple_of(alignment) {
+            return Err(Error::new(
+                Code::FormatUnsupported,
+                format!(
+                    "volume at {:#x}: expected its offset to be a multiple of file {} data alignment {alignment:#x} before reflow",
+                    volume.offset, file.guid
+                ),
+            ));
+        }
+    }
     let end = volume.offset + volume.length;
     let base = volume.offset;
     let mut buffer = out[base..end].to_vec();
@@ -416,6 +432,61 @@ pub fn write_in_place(out: &mut [u8], volume: &Volume, replaced: &[Replacement])
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn descriptor_layout_does_not_move_an_uncompressed_executable() {
+        use crate::synthetic::{DXE_GUID, ffs, section, volume};
+        let mut pe = vec![0; 256];
+        pe[..2].copy_from_slice(b"MZ");
+        pe[0x3c..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+        pe[0x40..0x44].copy_from_slice(b"PE\0\0");
+        pe[0x58..0x5a].copy_from_slice(&0x10bu16.to_le_bytes());
+        // The BIOS region ends at 0xd000, before the end of this 64 KiB dump.
+        // The PE body starts at 0x1000 + 0x48 + 24 + 4 in the dump.
+        let base = (1u64 << 32) - 0xd000 + 0x1064;
+        pe[0x74..0x78].copy_from_slice(&(base as u32).to_le_bytes());
+        let file = ffs(DXE_GUID, 0x07, &section(SECTION_PE32, &pe), 0);
+        let mut bytes = vec![0xff; 0x1000];
+        bytes[0x10..0x14].copy_from_slice(&0x0ff0_a55au32.to_le_bytes());
+        bytes[0x14..0x18].copy_from_slice(&0x0004_0000u32.to_le_bytes());
+        for (index, region) in [
+            0x0000_0000u32,
+            0x000c_0001,
+            0x000f_000d,
+            0x0000_7fff,
+            0x0000_7fff,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            bytes[0x40 + index * 4..0x44 + index * 4].copy_from_slice(&region.to_le_bytes());
+        }
+        bytes.extend(volume(&[file], 0xc000));
+        bytes.resize(0x10000, 0xff);
+        let regions = super::super::descriptor_regions(&bytes).expect("valid descriptor");
+        assert!(regions.iter().any(|r| r.name == "bios" && r.end == 0xd000));
+        let image = Image::parse(bytes).expect("descriptor fixture parses");
+        let reason = immovable(&image, &image.volumes[0].files[0])
+            .expect("unknown descriptor mapping must keep the executable in place");
+        assert!(reason.contains("descriptor"), "{reason}");
+    }
+
+    #[test]
+    fn reflow_refuses_volume_base_incompatible_with_file_alignment() {
+        use crate::synthetic::{DXE_GUID, ffs, section, volume};
+        let file = ffs(DXE_GUID, 0x07, &section(SECTION_PE32, &[1; 20]), 1 << 3);
+        let mut bytes = vec![0xff; 8];
+        bytes.extend(volume(&[file], 0x1000));
+        let image = Image::parse(bytes).expect("volume parses");
+        let mut out = image.bytes.clone();
+        let vol = &image.volumes[0];
+        let error =
+            reflow(&image, &mut out, vol, &[]).expect_err("relative alignment must not be guessed");
+        assert_eq!(error.code, Code::FormatUnsupported, "{error}");
+        assert!(error.message.contains("0x8"), "{error}");
+        assert!(error.message.contains("alignment"), "{error}");
+        assert_eq!(out, image.bytes);
+    }
 
     #[test]
     fn reflow_refuses_alignment_past_volume_end() {
