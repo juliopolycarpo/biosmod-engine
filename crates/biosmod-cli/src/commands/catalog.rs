@@ -362,6 +362,7 @@ fn import(
         ));
     }
     let mut converted = Vec::new();
+    let mut seen: BTreeMap<String, &PathBuf> = BTreeMap::new();
     for path in &sources {
         let bytes = fs::read(path).map_err(|e| io_error(path, e))?;
         let name = format!(
@@ -370,6 +371,17 @@ fn import(
         );
         let patch = legacy::import(&bytes, &name, &boards, &origin)?;
         biosmod_core::validation::identifier(&patch.id, "patch id")?;
+        if let Some(first) = seen.insert(patch.id.clone(), path) {
+            return Err(Error::new(
+                Code::CatalogInvalid,
+                format!(
+                    "patch id {:?}: expected one record per id | received {} and {}",
+                    patch.id,
+                    first.display(),
+                    path.display()
+                ),
+            ));
+        }
         converted.push((format!("{}.json", patch.id), pretty(&patch), patch.id));
     }
     fs::create_dir_all(output).map_err(|e| io_error(output, e))?;
@@ -419,5 +431,29 @@ mod tests {
             );
         }
         assert!(!dir.path().join("escaped.json").exists());
+    }
+
+    #[test]
+    fn import_rejects_duplicate_ids_before_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("input");
+        let output = dir.path().join("output");
+        fs::create_dir(&input).unwrap();
+        let record = json!({"schema": 1, "id": "same", "title": "test", "findings": [], "finding_confidence": {}, "local_fix_confidence": "", "physical_fix_confidence": "", "hardware_tested": false, "tier": 1, "supersedes": [], "conflicts": [], "limits": "", "boards": {}});
+        for name in ["a.json", "b.json"] {
+            fs::write(input.join(name), record.to_string()).unwrap();
+        }
+        let err = import(&input, &[], &"a".repeat(40), "repo", &output).unwrap_err();
+        assert_eq!(err.code, Code::CatalogInvalid);
+        assert!(
+            err.message.contains("\"same\"")
+                && err.message.contains("a.json")
+                && err.message.contains("b.json"),
+            "expected duplicate id \"same\" naming both sources | received: {err}"
+        );
+        assert!(
+            !output.join("same.json").exists(),
+            "a record was written before the duplicate was rejected"
+        );
     }
 }
