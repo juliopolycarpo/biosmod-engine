@@ -83,12 +83,12 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
         "second Space: expected the focused correction to toggle off"
     );
 
-    state.lock().unwrap().session.review = Some(Review {
-        path: "/tmp/plan.json".into(),
-        bytes: b"{}".to_vec(),
-        document: json!({"schema":"bme.plan/1"}),
-        generated: true,
-    });
+    state.lock().unwrap().session.review = Some(std::sync::Arc::new(Review::new(
+        "/tmp/plan.json".into(),
+        b"{}".to_vec(),
+        json!({"schema":"bme.plan/1"}),
+        true,
+    )));
     // Use a real callback to synchronize the generated-review screen.
     window.invoke_output_edited("/tmp/new.bin".into());
     assert_eq!(window.get_stage(), 2);

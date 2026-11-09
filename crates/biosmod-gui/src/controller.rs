@@ -64,6 +64,30 @@ pub struct Review {
     pub bytes: Vec<u8>,
     pub document: Value,
     pub generated: bool,
+    text: String,
+}
+
+impl Review {
+    /// Retain exact plan bytes and prepare its presentation on the worker.
+    /// Example: `Review::new(path, bytes, document, false)` creates a read-only import.
+    pub fn new(path: PathBuf, bytes: Vec<u8>, document: Value, generated: bool) -> Self {
+        let text = format!(
+            "{}\n\n{}",
+            if generated {
+                "Generated in this session"
+            } else {
+                "Read-only imported plan"
+            },
+            plan_summary(&document)
+        );
+        Self {
+            path,
+            bytes,
+            document,
+            generated,
+            text,
+        }
+    }
 }
 
 /// The UI owns this state. A worker receives only a prepared `Job` snapshot.
@@ -82,7 +106,7 @@ pub struct Session {
     pub inspection: Option<Value>,
     pub scan: Option<SourceReport>,
     scan_input: Option<Value>,
-    pub review: Option<Review>,
+    pub review: Option<Arc<Review>>,
     pub outcome: Outcome,
     pub status: String,
     pub result_details: String,
@@ -571,20 +595,10 @@ impl Session {
 
     /// Present the exact reviewed document and whether it is read-only.
     /// Example: imported reviews have a `Read-only imported plan` heading.
-    pub fn review_text(&self) -> String {
+    pub fn review_text(&self) -> &str {
         self.review
             .as_ref()
-            .map(|r| {
-                format!(
-                    "{}\n\n{}",
-                    if r.generated {
-                        "Generated in this session"
-                    } else {
-                        "Read-only imported plan"
-                    },
-                    plan_summary(&r.document)
-                )
-            })
+            .map(|r| r.text.as_str())
             .unwrap_or_default()
     }
 }
@@ -595,7 +609,7 @@ pub struct Job {
     cancel: Arc<AtomicBool>,
     /// Pins the session directory until the child finishes.
     _directory: Arc<TempDir>,
-    reviewed: Option<Review>,
+    reviewed: Option<Arc<Review>>,
 }
 pub struct Completion {
     token: (u64, u64, Action),
@@ -646,12 +660,7 @@ impl ImportJob {
                 diagnostics: String::new(),
             },
             extra: None,
-            review: Some(Review {
-                path,
-                bytes,
-                document,
-                generated: false,
-            }),
+            review: Some(Arc::new(Review::new(path, bytes, document, false))),
         })
     }
 }
@@ -659,7 +668,7 @@ impl ImportJob {
 struct Payload {
     reply: Reply,
     extra: Option<Value>,
-    review: Option<Review>,
+    review: Option<Arc<Review>>,
 }
 
 impl Job {
@@ -717,12 +726,7 @@ impl Job {
                     "plan file: expected the exact document returned by the engine",
                 ));
             }
-            Some(Review {
-                path: output.clone(),
-                bytes,
-                document,
-                generated: true,
-            })
+            Some(Arc::new(Review::new(output.clone(), bytes, document, true)))
         } else {
             None
         };

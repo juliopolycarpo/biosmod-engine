@@ -152,3 +152,45 @@ fn diagnostics_export_refuses_to_overwrite_and_manifest_keeps_os_path() {
         PathBuf::from("/tmp/name with spaces.bin.manifest.json")
     );
 }
+
+#[test]
+fn retained_review_reuses_its_formatted_presentation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plan.json");
+    std::fs::write(
+        &path,
+        br#"{"schema":"bme.plan/1","notes":["retained source snapshot"]}"#,
+    )
+    .unwrap();
+    let mut session = Session::new().unwrap();
+    session.import_review(&path).unwrap();
+    let first = session.review_text();
+    let second = session.review_text();
+    assert!(first.contains("Read-only imported plan"));
+    assert!(first.contains("retained source snapshot"));
+    assert_eq!(
+        first.as_ptr(),
+        second.as_ptr(),
+        "unchanged review: expected cached presentation | received a second allocation"
+    );
+}
+
+#[test]
+fn review_snapshots_share_the_retained_bytes_and_document() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plan.json");
+    std::fs::write(&path, br#"{"schema":"bme.plan/1"}"#).unwrap();
+    let mut session = Session::new().unwrap();
+    session.import_review(&path).unwrap();
+    let review = session.review.as_ref().unwrap();
+    let snapshot = review.clone();
+    assert_eq!(
+        review.bytes.as_ptr(),
+        snapshot.bytes.as_ptr(),
+        "review snapshot: expected shared immutable bytes | received a full copy"
+    );
+    assert!(
+        std::ptr::eq(&review.document, &snapshot.document),
+        "review snapshot: expected a shared immutable document"
+    );
+}

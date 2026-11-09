@@ -1,10 +1,11 @@
 //! Slint event-loop wiring. Workers never hold a strong window reference.
 
-use crate::controller::{Action, Outcome, Session, manifest_path, write_new_file};
+use crate::controller::{Action, Outcome, Review, Session, manifest_path, write_new_file};
 use crate::engine::Engine;
 use crate::settings::Settings;
 use crate::ui::{AppWindow, PatchRow};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, atomic::Ordering};
 use std::time::{Duration, Instant};
@@ -18,6 +19,7 @@ pub struct Desktop {
     dialog_open: bool,
     exporting: bool,
     closing: bool,
+    presented_review: RefCell<Option<Arc<Review>>>,
 }
 type Shared = Arc<Mutex<Desktop>>;
 
@@ -38,6 +40,7 @@ impl Desktop {
             dialog_open: false,
             exporting: false,
             closing: false,
+            presented_review: RefCell::new(None),
         })
     }
 }
@@ -507,7 +510,7 @@ fn start_export_plan(ui: &AppWindow, shared: &Shared, path: PathBuf) {
         sync(ui, &state);
         return;
     };
-    let bytes = review.bytes.clone();
+    let review = review.clone();
     state.exporting = true;
     state.session.status = "Exporting reviewed plan…".into();
     sync(ui, &state);
@@ -515,7 +518,7 @@ fn start_export_plan(ui: &AppWindow, shared: &Shared, path: PathBuf) {
     let shared = shared.clone();
     let weak = ui.as_weak();
     std::thread::spawn(move || {
-        let result = write_new_file(&path, &bytes);
+        let result = write_new_file(&path, &review.bytes);
         let _ = weak.upgrade_in_event_loop(move |ui| finish_export(&ui, &shared, &path, result));
     });
 }
@@ -635,7 +638,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
         selectable: p.selectable() && !session.busy(), selected: p.selected,
     }).collect::<Vec<_>>()).unwrap_or_default();
     sync_patches(ui, patches);
-    ui.set_plan_details(session.review_text().into());
+    sync_review(ui, state);
     ui.set_result_details(session.result_details.as_str().into());
     ui.set_result_title(
         match session.outcome {
@@ -668,6 +671,20 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             0
         },
     );
+}
+
+fn sync_review(ui: &AppWindow, state: &Desktop) {
+    let mut presented = state.presented_review.borrow_mut();
+    let unchanged = match (&*presented, &state.session.review) {
+        (Some(old), Some(new)) => Arc::ptr_eq(old, new),
+        (None, None) => true,
+        _ => false,
+    };
+    if unchanged {
+        return;
+    }
+    ui.set_plan_details(state.session.review_text().into());
+    *presented = state.session.review.clone();
 }
 
 fn sync_patches(ui: &AppWindow, patches: Vec<PatchRow>) {

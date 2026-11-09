@@ -37,13 +37,13 @@ fn incomplete_publication_shows_recovery_and_import_does_not_block_close() {
     );
 }
 
-fn fake_review(generated: bool) -> Review {
-    Review {
-        path: PathBuf::from("/tmp/reviewed-plan.json"),
-        bytes: b"{}".to_vec(),
-        document: json!({}),
+fn fake_review(generated: bool) -> Arc<Review> {
+    Arc::new(Review::new(
+        PathBuf::from("/tmp/reviewed-plan.json"),
+        b"{}".to_vec(),
+        json!({}),
         generated,
-    }
+    ))
 }
 
 fn fake_scan() -> SourceReport {
@@ -402,4 +402,32 @@ fn patch_model_survives_selection_and_unrelated_sync() {
     state.lock().unwrap().session.scan = None;
     sync(&window, &state.lock().unwrap());
     assert_eq!(model.row_count(), 0);
+}
+
+#[test]
+fn review_presentation_tracks_replacement_and_invalidation() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    make_reviewable(&state, true);
+    sync(&window, &state.lock().unwrap());
+    assert!(
+        window
+            .get_plan_details()
+            .starts_with("Generated in this session")
+    );
+    let first = window.get_plan_details();
+    window.invoke_output_edited("/tmp/other.bin".into());
+    assert_eq!(
+        first.as_str().as_ptr(),
+        window.get_plan_details().as_str().as_ptr()
+    );
+    state.lock().unwrap().session.review = Some(fake_review(false));
+    sync(&window, &state.lock().unwrap());
+    assert!(
+        window
+            .get_plan_details()
+            .starts_with("Read-only imported plan")
+    );
+    window.invoke_back_to_selection();
+    assert!(window.get_plan_details().is_empty());
 }
