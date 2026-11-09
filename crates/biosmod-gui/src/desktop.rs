@@ -4,7 +4,7 @@ use crate::controller::{Action, Outcome, Session, manifest_path, write_new_file}
 use crate::engine::Engine;
 use crate::settings::Settings;
 use crate::ui::{AppWindow, PatchRow};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, atomic::Ordering};
 use std::time::{Duration, Instant};
@@ -634,7 +634,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
         blocker: p.explanation().into(), evidence: if p.evidence.is_empty() { "No hardware observations for this patch version.".into() } else { format!("Scoped evidence: {}. See Sources & tools for image, board and scenario.",p.evidence.join(", ")).into() },
         selectable: p.selectable() && !session.busy(), selected: p.selected,
     }).collect::<Vec<_>>()).unwrap_or_default();
-    ui.set_patches(ModelRc::new(VecModel::from(patches)));
+    sync_patches(ui, patches);
     ui.set_plan_details(session.review_text().into());
     ui.set_result_details(session.result_details.as_str().into());
     ui.set_result_title(
@@ -668,6 +668,23 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             0
         },
     );
+}
+
+fn sync_patches(ui: &AppWindow, patches: Vec<PatchRow>) {
+    let model = ui.get_patches();
+    let Some(rows) = model.as_any().downcast_ref::<VecModel<PatchRow>>() else {
+        ui.set_patches(ModelRc::new(VecModel::from(patches)));
+        return;
+    };
+    if rows.row_count() != patches.len() {
+        rows.set_vec(patches);
+        return;
+    }
+    for (index, patch) in patches.into_iter().enumerate() {
+        if rows.row_data(index).as_ref() != Some(&patch) {
+            rows.set_row_data(index, patch);
+        }
+    }
 }
 
 fn sync_paths(ui: &AppWindow, state: &Desktop) {

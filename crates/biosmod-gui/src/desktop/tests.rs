@@ -377,3 +377,29 @@ fn plan_export_preserves_exact_bytes_and_refuses_existing_files() {
     );
     assert_eq!(std::fs::read(path).unwrap(), reviewed);
 }
+
+#[test]
+fn patch_model_survives_selection_and_unrelated_sync() {
+    use slint::Model;
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    make_reviewable(&state, true);
+    sync(&window, &state.lock().unwrap());
+    let model = window.get_patches();
+    window.invoke_toggle_patch(0);
+    assert!(
+        model == window.get_patches(),
+        "patch selection: expected the same model and focused row | received a replacement model"
+    );
+    assert!(model.row_data(0).unwrap().selected);
+    window.invoke_output_edited("/tmp/other.bin".into());
+    assert!(
+        model == window.get_patches(),
+        "output edit replaced the patch model"
+    );
+    window.invoke_toggle_patch(0);
+    assert!(!model.row_data(0).unwrap().selected);
+    state.lock().unwrap().session.scan = None;
+    sync(&window, &state.lock().unwrap());
+    assert_eq!(model.row_count(), 0);
+}
