@@ -842,3 +842,14 @@ fn status_tone_tracks_the_operation_outcome_and_engine_connection() {
     assert_eq!(window.get_engine_tone(), Tone::Good, "connected engine");
     assert_eq!(window.get_status_tone(), Tone::Good, "verified output");
 }
+
+#[test]
+fn binding_shows_the_package_version_on_the_about_page() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _state) = bound_window(Settings::default(), None);
+    assert_eq!(
+        window.get_app_version(),
+        env!("CARGO_PKG_VERSION"),
+        "about page: expected the crate version"
+    );
+}

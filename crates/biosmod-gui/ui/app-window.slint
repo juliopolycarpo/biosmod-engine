@@ -19,6 +19,7 @@ export component AppWindow inherits Window {
     in-out property <string> output-path;
     in-out property <string> source;
     in-out property <string> engine-path;
+    in property <string> app-version;
     in property <string> engine-status: "Checking engine…";
     in property <string> status: "Choose a firmware image to get started.";
     in property <Tone> status-tone: Tone.quiet;
@@ -406,11 +407,40 @@ export component AppWindow inherits Window {
         if root.page == 3: VerticalLayout {
             padding: Theme.space-xl;
             spacing: Theme.space-lg;
-            PageTitle { text: "About BIOS Mod Engine"; }
-            Caption { text: "Inspect firmware and build a reviewed copy using the BIOS Mod Engine command-line tool."; }
-            Caption { text: "Firmware matches and offline verification do not establish physical hardware compatibility or boot behavior."; }
-            AboutSlint { }
-            Rectangle { vertical-stretch: 1; }
+            alignment: start;
+            Rectangle {
+                background: Theme.surface;
+                border-color: Theme.border;
+                border-width: 1px;
+                border-radius: Theme.radius;
+                height: about-layout.preferred-height;
+                about-layout := VerticalLayout {
+                    padding: Theme.space-lg;
+                    spacing: Theme.space-md;
+                    HorizontalLayout {
+                        spacing: Theme.space-md;
+                        Rectangle {
+                            width: 48px;
+                            height: 48px;
+                            border-radius: 12px;
+                            background: Theme.accent;
+                            Text { text: "B"; font-size: Theme.font-title; font-weight: 700; color: Theme.accent-text; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: Theme.space-xs;
+                            SectionTitle { text: "BIOS Mod Engine"; }
+                            Caption { text: "Version " + root.app-version; }
+                        }
+                    }
+                    Caption { text: "Inspect firmware and build a reviewed copy using the BIOS Mod Engine command-line tool."; color: Theme.text; }
+                    Caption { text: "Firmware matches and offline verification do not establish physical hardware compatibility or boot behavior."; }
+                }
+            }
+            HorizontalLayout {
+                alignment: start;
+                AboutSlint { width: 320px; height: 200px; }
+            }
         }
         Rectangle {
             height: 44px;

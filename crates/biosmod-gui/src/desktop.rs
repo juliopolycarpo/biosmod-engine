@@ -64,6 +64,7 @@ impl Desktop {
 /// Example: `let state = bind(&window, desktop);` then call `connect(&window, &state)`.
 pub fn bind(ui: &AppWindow, desktop: Desktop) -> Shared {
     let state = Arc::new(Mutex::new(desktop));
+    ui.set_app_version(env!("CARGO_PKG_VERSION").into());
     ui.set_theme_choice(state.lock().unwrap().settings.theme.into());
     ui.invoke_apply_theme();
     macro_rules! action {
