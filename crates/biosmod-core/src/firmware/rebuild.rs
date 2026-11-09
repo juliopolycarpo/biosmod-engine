@@ -368,18 +368,21 @@ pub fn reflow(
                 file.guid, file.offset
             ));
         }
-        if start > cursor {
-            buffer[cursor - base..start - base].copy_from_slice(&pad_file(start - cursor)?);
-        }
-        if start + data.len() > end {
+        if start
+            .checked_add(data.len())
+            .is_none_or(|file_end| file_end > end)
+        {
             return Err(Error::new(
                 Code::PackingRefused,
                 format!(
-                    "volume at {:#x}: needs {:#x} more bytes than its free space; this change cannot be packed automatically here",
+                    "volume at {:#x}: file at {start:#x} of size {:#x} needs more bytes than its free space (volume end {end:#x}); this change cannot be packed automatically here",
                     volume.offset,
-                    start + data.len() - end
+                    data.len()
                 ),
             ));
+        }
+        if start > cursor {
+            buffer[cursor - base..start - base].copy_from_slice(&pad_file(start - cursor)?);
         }
         buffer[start - base..start - base + data.len()].copy_from_slice(data);
         cursor = align(start + data.len(), 8);
@@ -401,6 +404,37 @@ pub fn write_in_place(out: &mut [u8], volume: &Volume, replaced: &[Replacement])
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reflow_refuses_alignment_past_volume_end() {
+        let file = |offset, attributes| FfsFile {
+            offset,
+            header_size: 24,
+            size: 24,
+            guid: CRC32_GUID,
+            kind: 2,
+            attributes,
+            sections: vec![],
+            opaque: false,
+        };
+        let volume = Volume {
+            offset: 0,
+            length: 0x2000,
+            header_size: 0,
+            filesystem: CRC32_GUID,
+            files: vec![file(0, 0), file(0xfe8, 5 << 3)],
+            free_start: 0x1000,
+        };
+        let image = Image {
+            bytes: vec![0xff; 0x2000],
+            volumes: vec![],
+            leaves: Default::default(),
+        };
+        let mut out = image.bytes.clone();
+        let error = reflow(&image, &mut out, &volume, &[(0, vec![0; 0x1ff0])]).unwrap_err();
+        assert_eq!(error.code, Code::PackingRefused);
+        assert_eq!(out, image.bytes);
+    }
 
     #[test]
     fn checksums_match_the_parser_rules() {
