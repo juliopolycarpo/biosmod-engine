@@ -246,6 +246,13 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
     };
     let (chosen, mut notes) = resolve(catalog, &firmware, request)?;
     let wanted: BTreeSet<String> = chosen.iter().cloned().collect();
+    // Conflicts apply to the whole image, including modules we will not rebuild.
+    let installed: Vec<String> = catalog
+        .patches_for(&firmware)
+        .filter(|patch| analysis::patch_state(image, catalog, &firmware, patch).0 == State::Fixed)
+        .map(|patch| patch.id.clone())
+        .collect();
+    carried_fixes(catalog, &installed, &wanted)?;
     let covered = included(catalog, &chosen);
     for id in &chosen {
         for need in &catalog.patches[id].requires {

@@ -155,6 +155,58 @@ fn conflicting_fix_already_in_the_image_is_refused() {
 }
 
 #[test]
+fn installed_conflicts_in_other_modules_are_refused_in_either_order() {
+    let fixture = Fixture::new(0x07);
+    let mut files = fixture.catalog_files();
+    for (path, bytes) in &mut files {
+        let other = match path.as_str() {
+            "patches/PA.json" => "TB",
+            "patches/TB.json" => "PA",
+            _ => continue,
+        };
+        let mut patch: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        patch["conflicts"] = serde_json::json!([other]);
+        *bytes = synthetic::pretty(&patch);
+    }
+    let content: Vec<_> = files
+        .iter()
+        .filter(|(path, _)| path != "catalog.json")
+        .cloned()
+        .collect();
+    let (_, bytes) = files
+        .iter_mut()
+        .find(|(path, _)| path == "catalog.json")
+        .unwrap();
+    let mut manifest: biosmod_core::catalog::Manifest = serde_json::from_slice(bytes).unwrap();
+    manifest.files = biosmod_core::catalog::index_files(&content).unwrap();
+    *bytes = synthetic::pretty(&manifest);
+    let catalog = Catalog::load(&MemorySource::new(files), Scope::All).unwrap();
+    let case = Case { fixture, catalog };
+
+    for (installed, selected) in [("TB", "PA"), ("PA", "TB")] {
+        let image = Image::parse(case.build(&case.image(), &[installed]).unwrap()).unwrap();
+        let report = analysis::scan(&image, &case.catalog, Some(synthetic::FIRMWARE));
+        let entry = report.patches.iter().find(|p| p.id == selected).unwrap();
+        assert!(
+            !entry.plannable,
+            "{selected} must be blocked by installed {installed}"
+        );
+        let error = case.build(&image, &[selected]).err().unwrap_or_else(|| {
+            panic!(
+                "{selected} with installed {installed}: expected PATCH_CONFLICT | received success"
+            )
+        });
+        assert_eq!(error.code, Code::PatchConflict, "{error}");
+        assert!(
+            error
+                .message
+                .contains(&format!("already contains {installed}")),
+            "{error}"
+        );
+    }
+}
+
+#[test]
 fn growing_dxe_driver_moves_following_files() {
     let case = Case::new();
     let request = Request {
