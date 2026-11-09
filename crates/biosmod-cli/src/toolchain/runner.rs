@@ -20,6 +20,8 @@ pub struct Invocation {
     pub timeout: Duration,
     /// Send stdout and stderr to this file instead of a temporary capture.
     pub log: Option<PathBuf>,
+    /// Append to `log` instead of truncating it, so successive runs share one file.
+    pub append_log: bool,
 }
 
 impl Invocation {
@@ -30,6 +32,7 @@ impl Invocation {
             env: Vec::new(),
             timeout: Duration::from_secs(300),
             log: None,
+            append_log: false,
         }
     }
 
@@ -66,6 +69,14 @@ impl Invocation {
     pub fn log(mut self, path: &Path) -> Invocation {
         self.log = Some(path.to_path_buf());
         self
+    }
+
+    /// Like `log`, but keeps what earlier runs wrote to `path`.
+    ///
+    /// Example: `Invocation::new("tool").append_log(Path::new("tool.log"))`
+    pub fn append_log(mut self, path: &Path) -> Invocation {
+        self.append_log = true;
+        self.log(path)
     }
 
     /// Arguments as lossy strings (for test fakes).
@@ -151,7 +162,12 @@ impl Runner for System {
         let io = |e: std::io::Error| Error::new(Code::ToolUnavailable, format!("{name}: {e}"));
         let (mut out, mut err) = match &invocation.log {
             Some(path) => {
-                let file = fs::File::create(path).map_err(io)?;
+                let file = if invocation.append_log {
+                    fs::OpenOptions::new().create(true).append(true).open(path)
+                } else {
+                    fs::File::create(path)
+                }
+                .map_err(io)?;
                 (file.try_clone().map_err(io)?, file)
             }
             None => (

@@ -571,3 +571,101 @@ fn analysis_requires_completion_for_each_module() {
     assert_eq!(reply.data["files"].as_array().unwrap().len(), 6);
     assert_eq!(*runner.calls.borrow(), ["one", "two"]);
 }
+
+/// Records the timeout of every Ghidra run, then defers to `FakeExporter`.
+struct RecordingHeadless {
+    inner: FakeExporter,
+    timeouts: RefCell<Vec<Duration>>,
+}
+
+impl Runner for RecordingHeadless {
+    fn run(&self, invocation: &Invocation) -> Result<Finished> {
+        self.timeouts.borrow_mut().push(invocation.timeout);
+        self.inner.run(invocation)
+    }
+}
+
+/// A Ghidra home whose `analyzeHeadless` is `script`, plus two module files.
+fn home_with_headless(root: &Path, script: &[u8]) -> (GhidraHome, [PathBuf; 2]) {
+    use std::os::unix::fs::PermissionsExt;
+    let home = root.join("ghidra");
+    fs::create_dir_all(home.join("support")).unwrap();
+    fs::write(headless(&home), script).unwrap();
+    fs::set_permissions(headless(&home), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::create_dir_all(extension_dir(&home).join("data")).unwrap();
+    let modules = [root.join("one.pe"), root.join("two.pe")];
+    for module in &modules {
+        fs::write(module, b"MZ").unwrap();
+    }
+    let home = GhidraHome {
+        path: home,
+        origin: "config",
+    };
+    (home, modules)
+}
+
+#[test]
+fn analysis_budgets_the_timeout_per_module_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let (home, modules) = home_with_headless(dir.path(), b"");
+    let runner = RecordingHeadless {
+        inner: FakeExporter {
+            incomplete: None,
+            missing: None,
+            calls: RefCell::new(vec![]),
+        },
+        timeouts: RefCell::new(vec![]),
+    };
+    run_analysis(
+        &runner,
+        &home,
+        &dir.path().join("project"),
+        &dir.path().join("exports"),
+        &modules,
+        60,
+        &mut |_| {},
+    )
+    .unwrap();
+    let expected = Duration::from_secs(60 + 900);
+    assert_eq!(
+        *runner.timeouts.borrow(),
+        [expected, expected],
+        "expected one timeout of analysis timeout + 900s per single-module run"
+    );
+}
+
+/// Imports print the module name; the export stage writes the files `run_analysis` collects.
+const FAKE_HEADLESS: &[u8] = br#"#!/bin/sh
+prev=
+for arg in "$@"; do
+  [ "$prev" = -import ] && module=$arg
+  [ "$prev" = ExportFirmware.java ] && dir=$arg
+  prev=$arg
+done
+name=$(basename "$module" .pe)
+echo "imported $name"
+for ext in c asm json; do echo x > "$dir/$name.$ext"; done
+echo done > "$dir/.bme-export-complete"
+"#;
+
+#[test]
+fn analysis_log_keeps_the_output_of_every_module() {
+    let dir = tempfile::tempdir().unwrap();
+    let (home, modules) = home_with_headless(dir.path(), FAKE_HEADLESS);
+    let output = dir.path().join("exports");
+    run_analysis(
+        &System,
+        &home,
+        &dir.path().join("project"),
+        &output,
+        &modules,
+        60,
+        &mut |_| {},
+    )
+    .unwrap();
+    let log = fs::read_to_string(output.join("ghidra.log")).unwrap();
+    assert!(
+        log.contains("imported one") && log.contains("imported two"),
+        "ghidra.log: expected output of both modules | received {log:?}"
+    );
+}

@@ -915,6 +915,7 @@ pub fn run_analysis(
         fs::write(scripts.path().join(name), bytes).map_err(|e| io_error(scripts.path(), e))?;
     }
     let log = output.join("ghidra.log");
+    fs::File::create(&log).map_err(|e| io_error(&log, e))?;
     let mut produced = Vec::new();
     for module in modules {
         let staging = tempfile::tempdir().map_err(|e| failed(format!("export directory: {e}")))?;
@@ -938,12 +939,8 @@ pub fn run_analysis(
             .arg(staging.path())
             .arg("-analysisTimeoutPerFile")
             .arg(timeout.to_string())
-            .log(&log)
-            .timeout(Duration::from_secs(
-                timeout
-                    .saturating_mul(modules.len() as u64)
-                    .saturating_add(900),
-            ));
+            .append_log(&log)
+            .timeout(Duration::from_secs(timeout.saturating_add(900)));
         note(&format!("running Ghidra headless (log: {})", log.display()));
         let finished = runner.run(&invocation)?;
         if !finished.success() {
