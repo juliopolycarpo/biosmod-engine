@@ -1,6 +1,6 @@
 //! Slint event-loop wiring. Workers never hold a strong window reference.
 
-use crate::controller::{Action, Outcome, Session, export_diagnostics, manifest_path};
+use crate::controller::{Action, Outcome, Session, manifest_path, write_new_file};
 use crate::engine::Engine;
 use crate::settings::Settings;
 use crate::ui::{AppWindow, PatchRow};
@@ -174,10 +174,7 @@ pub fn bind(ui: &AppWindow, desktop: Desktop) -> Shared {
         if state.session.busy() || state.exporting || state.dialog_open {
             return;
         }
-        state.session.review = None;
-        state.session.manifest = None;
-        state.session.result_details.clear();
-        state.session.outcome = Outcome::Idle;
+        state.session.clear_results();
         state.session.status = "Select corrections and generate a new plan to continue.".into();
         if let Some(ui) = weak.upgrade() {
             sync(&ui, &state);
@@ -280,9 +277,7 @@ fn start(ui: &AppWindow, shared: &Shared, action: Action) {
             stop_timer(timer_id);
             let mut state = shared.lock().unwrap();
             let accepted = state.session.finish(completion);
-            if state.closing {
-                let _ = ui.hide();
-                let _ = slint::quit_event_loop();
+            if close_if_requested(&ui, &state) {
                 return;
             }
             let verify = accepted
@@ -349,18 +344,11 @@ fn change(ui: &AppWindow, shared: &Shared, kind: PathKind, value: &str) {
             ui.set_output_path("".into());
         }
         PathKind::Engine => {
-            state.session.invalidate();
+            set_engine(&mut state, path.unwrap_or_default());
             ui.set_output_path("".into());
-            state.session.connected = false;
-            state.engine_path = path.unwrap_or_default();
-            state.settings.engine = Some(state.engine_path.clone());
-            save_settings(&mut state);
         }
         PathKind::Output => {
-            state.session.output = path;
-            state.session.manifest = None;
-            state.session.result_details.clear();
-            state.session.outcome = Outcome::Idle;
+            state.session.set_output(path);
         }
         _ => {}
     }
@@ -455,28 +443,31 @@ fn apply_picked(state: &mut Desktop, kind: PathKind, path: PathBuf) {
             state.session.change_image(Some(path));
         }
         PathKind::Output => {
-            state.session.output = Some(path);
-            state.session.manifest = None;
-            state.session.result_details.clear();
-            state.session.outcome = Outcome::Idle;
+            state.session.set_output(Some(path));
         }
         PathKind::Engine => {
-            state.session.invalidate();
-            state.session.connected = false;
-            state.engine_path = path.clone();
-            state.settings.engine = Some(path);
-            save_settings(state);
+            set_engine(state, path);
         }
         PathKind::ExistingOutput => state.session.open_output(path),
         PathKind::Plan | PathKind::ExportPlan => {}
         PathKind::Diagnostics => {
-            state.session.status = match export_diagnostics(&path, &state.session.diagnostics) {
+            state.session.status = match write_new_file(&path, state.session.diagnostics.as_bytes())
+            {
                 Ok(()) => format!("Diagnostics exported to {}", path.display()),
                 Err(e) => format!("Diagnostics {}: {e}", path.display()),
             };
         }
         PathKind::Source => {}
     }
+}
+
+// Switch engines: derived data and the connection belong to the previous one.
+fn set_engine(state: &mut Desktop, path: PathBuf) {
+    state.session.invalidate();
+    state.session.connected = false;
+    state.engine_path = path.clone();
+    state.settings.engine = Some(path);
+    save_settings(state);
 }
 
 fn save_settings(state: &mut Desktop) {
@@ -487,14 +478,14 @@ fn save_settings(state: &mut Desktop) {
     }
 }
 
-// Save the immutable reviewed bytes without replacing an existing file.
-fn write_plan(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)?;
-    file.write_all(bytes)
+// Finish a close request that waited for background work.
+fn close_if_requested(ui: &AppWindow, state: &Desktop) -> bool {
+    if !state.closing {
+        return false;
+    }
+    let _ = ui.hide();
+    let _ = slint::quit_event_loop();
+    true
 }
 
 fn start_export_plan(ui: &AppWindow, shared: &Shared, path: PathBuf) {
@@ -515,7 +506,7 @@ fn start_export_plan(ui: &AppWindow, shared: &Shared, path: PathBuf) {
     let shared = shared.clone();
     let weak = ui.as_weak();
     std::thread::spawn(move || {
-        let result = write_plan(&path, &bytes);
+        let result = write_new_file(&path, &bytes);
         let _ = weak.upgrade_in_event_loop(move |ui| finish_export(&ui, &shared, &path, result));
     });
 }
@@ -539,9 +530,7 @@ fn finish_export(
             path.display()
         ),
     };
-    if state.closing {
-        let _ = ui.hide();
-        let _ = slint::quit_event_loop();
+    if close_if_requested(ui, &state) {
         return;
     }
     sync(ui, &state);
@@ -570,9 +559,7 @@ fn start_import(ui: &AppWindow, shared: &Shared, path: PathBuf) {
         let _ = weak.upgrade_in_event_loop(move |ui| {
             let mut state = shared.lock().unwrap();
             state.session.finish(completion);
-            if state.closing {
-                let _ = ui.hide();
-                let _ = slint::quit_event_loop();
+            if close_if_requested(&ui, &state) {
                 return;
             }
             sync_paths(&ui, &state);

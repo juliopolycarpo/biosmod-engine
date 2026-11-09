@@ -344,10 +344,10 @@ fn plan_export_preserves_exact_bytes_and_refuses_existing_files() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("reviewed plan.json");
     let reviewed = b"{\n  \"schema\": \"bme.plan/1\"\n}\n";
-    write_plan(&path, reviewed).unwrap();
+    write_new_file(&path, reviewed).unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), reviewed);
     assert_eq!(
-        write_plan(&path, b"different").unwrap_err().kind(),
+        write_new_file(&path, b"different").unwrap_err().kind(),
         std::io::ErrorKind::AlreadyExists
     );
     assert_eq!(std::fs::read(path).unwrap(), reviewed);

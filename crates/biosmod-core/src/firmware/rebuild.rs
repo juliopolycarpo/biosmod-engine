@@ -322,12 +322,17 @@ fn pad_file(size: usize) -> Result<Vec<u8>> {
     make_file(&header, &vec![0xFF; size - 24])
 }
 
+/// The file's declared data alignment in bytes.
+fn data_alignment(file: &FfsFile) -> usize {
+    ALIGNMENTS[usize::from((file.attributes >> 3) & 7)]
+}
+
 /// The first legal start at or after both `cursor` and the original offset.
 ///
 /// The gap after `cursor` must be zero or hold a PAD file (24+ bytes), and the
 /// file's data must meet its declared alignment.
 fn place(cursor: usize, file: &FfsFile) -> usize {
-    let alignment = ALIGNMENTS[usize::from((file.attributes >> 3) & 7)];
+    let alignment = data_alignment(file);
     let header = if file.attributes & FFS_ATTRIB_LARGE_FILE != 0 {
         32
     } else {
@@ -354,7 +359,7 @@ pub fn reflow(
     replaced: &[Replacement],
 ) -> Result<Vec<String>> {
     for file in &volume.files {
-        let alignment = ALIGNMENTS[usize::from((file.attributes >> 3) & 7)];
+        let alignment = data_alignment(file);
         if !volume.offset.is_multiple_of(alignment) {
             return Err(Error::new(
                 Code::FormatUnsupported,

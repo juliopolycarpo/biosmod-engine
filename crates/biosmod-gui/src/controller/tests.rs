@@ -98,9 +98,9 @@ fn verification_does_not_trust_complete_without_required_checks() {
 fn diagnostics_export_refuses_to_overwrite_and_manifest_keeps_os_path() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("report ü.txt");
-    export_diagnostics(&path, "first").unwrap();
+    write_new_file(&path, b"first").unwrap();
     assert_eq!(
-        export_diagnostics(&path, "second").unwrap_err().kind(),
+        write_new_file(&path, b"second").unwrap_err().kind(),
         std::io::ErrorKind::AlreadyExists
     );
     assert_eq!(std::fs::read_to_string(path).unwrap(), "first");

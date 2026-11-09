@@ -107,26 +107,29 @@ pub fn related<'a>(
         .collect()
 }
 
-/// Find another ACPI table offset that shares the component's FFS identity.
+/// Describe another ACPI table offset that shares the component's FFS identity.
 ///
 /// For example, offsets 0 and 8 on one GUID cannot yet be composed separately.
-pub(crate) fn conflicting_table_offset(
+pub(crate) fn table_offset_conflict(
     catalog: &Catalog,
     firmware: &str,
     component: &Component,
-) -> Option<usize> {
+) -> Option<String> {
     if component.leaf != LeafKind::AcpiTable {
         return None;
     }
-    catalog
+    let other = catalog
         .patches_for(firmware)
         .flat_map(|patch| patch.components(firmware))
         .find(|other| {
             other.ffs_guid == component.ffs_guid
                 && other.leaf == component.leaf
                 && other.table_offset != component.table_offset
-        })
-        .map(|other| other.table_offset)
+        })?;
+    Some(format!(
+        "{}: FFS {} has ACPI table offsets {:#x} and {:#x}; expected one table offset per FFS file",
+        component.name, component.ffs_guid, component.table_offset, other.table_offset
+    ))
 }
 
 /// A component found in an image and its relation to the recorded original.
@@ -359,14 +362,8 @@ pub fn patch_state(
         }
     };
     for component in &variant.components {
-        if let Some(other) = conflicting_table_offset(catalog, firmware, component) {
-            return (
-                State::Unsupported,
-                format!(
-                    "{}: FFS {} has ACPI table offsets {:#x} and {other:#x}; expected one table offset per FFS file",
-                    component.name, component.ffs_guid, component.table_offset
-                ),
-            );
+        if let Some(message) = table_offset_conflict(catalog, firmware, component) {
+            return (State::Unsupported, message);
         }
     }
     let mut states = BTreeSet::new();

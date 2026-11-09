@@ -168,7 +168,7 @@ pub struct EngineError {
 }
 
 impl EngineError {
-    fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
             message: message.into(),
@@ -562,13 +562,7 @@ impl Engine {
             }
             let diagnostics = stderr
                 .and_then(Result::ok)
-                .map(|stderr| {
-                    let mut text = String::from_utf8_lossy(&stderr.bytes).into_owned();
-                    if stderr.overflow {
-                        text.push_str("\n[diagnostics truncated]");
-                    }
-                    text
-                })
+                .map(|stderr| stderr.text())
                 .unwrap_or_default();
             let kind = stopped.unwrap_or(ErrorKind::Io);
             return Err(EngineError::new(
@@ -593,10 +587,7 @@ impl Engine {
         let stderr = stderr
             .expect("stderr finished")
             .map_err(|e| EngineError::new(ErrorKind::Io, format!("engine stderr: {e}")))?;
-        let mut diagnostics = String::from_utf8_lossy(&stderr.bytes).into_owned();
-        if stderr.overflow {
-            diagnostics.push_str("\n[diagnostics truncated]");
-        }
+        let diagnostics = stderr.text();
         let status = status.map_err(|e| {
             EngineError::new(ErrorKind::Io, format!("engine process: {e}"))
                 .diagnostics(&diagnostics)
@@ -622,6 +613,16 @@ impl Engine {
 struct Drained {
     bytes: Vec<u8>,
     overflow: bool,
+}
+impl Drained {
+    /// Render captured stderr, marking truncation.
+    fn text(&self) -> String {
+        let mut text = String::from_utf8_lossy(&self.bytes).into_owned();
+        if self.overflow {
+            text.push_str("\n[diagnostics truncated]");
+        }
+        text
+    }
 }
 #[cfg(test)]
 fn drain(reader: impl Read, limit: usize) -> io::Result<Drained> {

@@ -251,14 +251,8 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
     // ambiguous catalog before matching or composing different ACPI tables.
     for id in &chosen {
         for component in catalog.patches[id].components(&firmware) {
-            if let Some(other) = analysis::conflicting_table_offset(catalog, &firmware, component) {
-                return Err(Error::new(
-                    Code::FormatUnsupported,
-                    format!(
-                        "{}: FFS {} has ACPI table offsets {:#x} and {other:#x}; expected one table offset per FFS file",
-                        component.name, component.ffs_guid, component.table_offset
-                    ),
-                ));
+            if let Some(message) = analysis::table_offset_conflict(catalog, &firmware, component) {
+                return Err(Error::new(Code::FormatUnsupported, message));
             }
         }
     }

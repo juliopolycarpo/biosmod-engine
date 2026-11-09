@@ -191,11 +191,17 @@ impl Session {
             return;
         }
         patch.selected = !patch.selected;
+        self.clear_results();
+        self.status = "Selection changed. Generate a new plan to review.".into();
+    }
+
+    /// Drop the review, manifest, and result text after any input that makes them stale.
+    /// Example: `session.clear_results()` before offering a new output path.
+    pub fn clear_results(&mut self) {
         self.review = None;
         self.manifest = None;
         self.result_details.clear();
         self.outcome = Outcome::Idle;
-        self.status = "Selection changed. Generate a new plan to review.".into();
     }
 
     /// Whether the current generated review can be explicitly applied.
@@ -284,12 +290,7 @@ impl Session {
             Action::Sources => Request::CatalogList,
             Action::Tools => Request::ToolsDoctor,
         };
-        self.next_operation += 1;
-        let token = (self.generation, self.next_operation, action);
-        self.active = Some(token);
-        self.cancel = Arc::new(AtomicBool::new(false));
-        self.outcome = Outcome::Running;
-        self.status = action.label().into();
+        let token = self.begin(action);
         if matches!(action, Action::Plan | Action::Recommended) {
             self.review = None;
         }
@@ -297,10 +298,21 @@ impl Session {
             token,
             request,
             cancel: self.cancel.clone(),
-            directory: self.directory.clone(),
+            _directory: self.directory.clone(),
             reviewed: self.review.clone(),
-            source: self.source.clone(),
         })
+    }
+
+    /// Claim the single operation slot with a fresh cancel flag.
+    /// Example: `let token = self.begin(Action::Scan);` before building a `Job`.
+    fn begin(&mut self, action: Action) -> (u64, u64, Action) {
+        self.next_operation += 1;
+        let token = (self.generation, self.next_operation, action);
+        self.active = Some(token);
+        self.cancel = Arc::new(AtomicBool::new(false));
+        self.outcome = Outcome::Running;
+        self.status = action.label().into();
+        token
     }
 
     /// Accept only the result belonging to the active operation and current inputs.
@@ -524,18 +536,22 @@ impl Session {
         if self.busy() {
             return Err("Wait for the active operation before importing a plan.".into());
         }
-        self.next_operation += 1;
-        let token = (self.generation, self.next_operation, Action::Import);
-        self.active = Some(token);
-        self.cancel = Arc::new(AtomicBool::new(false));
-        self.outcome = Outcome::Running;
-        self.status = Action::Import.label().into();
+        let token = self.begin(Action::Import);
         Ok(ImportJob {
             path: path.into(),
             directory: self.directory.clone(),
             token,
             cancel: self.cancel.clone(),
         })
+    }
+
+    /// Choose where to build; any manifest and result text belong to the previous choice.
+    /// Example: `session.set_output(Some(PathBuf::from("/tmp/new.bin")))`.
+    pub fn set_output(&mut self, output: Option<PathBuf>) {
+        self.output = output;
+        self.manifest = None;
+        self.result_details.clear();
+        self.outcome = Outcome::Idle;
     }
 
     /// Select a saved output and its conventional paired manifest for independent verification.
@@ -571,9 +587,9 @@ pub struct Job {
     token: (u64, u64, Action),
     request: Request,
     cancel: Arc<AtomicBool>,
-    directory: Arc<TempDir>,
+    /// Pins the session directory until the child finishes.
+    _directory: Arc<TempDir>,
     reviewed: Option<Review>,
-    source: String,
 }
 pub struct Completion {
     token: (u64, u64, Action),
@@ -652,7 +668,6 @@ impl Job {
     }
 
     fn execute(&self, engine: &Engine) -> Result<Payload, EngineError> {
-        let _keep_directory = &self.directory;
         if matches!(self.token.2, Action::Apply | Action::Verify) {
             let review = self
                 .reviewed
@@ -670,16 +685,15 @@ impl Job {
             engine.run(&self.request, &self.cancel)?
         };
         let extra = match self.token.2 {
-            Action::Scan => Some(
-                engine
-                    .run(
-                        &Request::CatalogShow {
-                            source: self.source.clone(),
-                        },
-                        &self.cancel,
-                    )?
-                    .data,
-            ),
+            Action::Scan => {
+                let Request::Scan { source, .. } = &self.request else {
+                    unreachable!("scan jobs carry a scan request");
+                };
+                let show = Request::CatalogShow {
+                    source: source.clone(),
+                };
+                Some(engine.run(&show, &self.cancel)?.data)
+            }
             Action::Tools => Some(engine.run(&Request::ToolsPaths, &self.cancel)?.data),
             _ => None,
         };
@@ -748,24 +762,18 @@ pub fn manifest_path(output: &Path) -> PathBuf {
     path.into()
 }
 
-/// Export diagnostics only to a new file, preserving any existing report.
-/// Example: `export_diagnostics(Path::new("/tmp/new-report.txt"), "details")?`.
-pub fn export_diagnostics(path: &Path, text: &str) -> std::io::Result<()> {
+/// Write bytes only to a new file, preserving any existing file.
+/// Example: `write_new_file(Path::new("/tmp/new-report.txt"), b"details")?`.
+pub fn write_new_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)?
-        .write_all(text.as_bytes())
+        .write_all(bytes)
 }
 
 fn local_error(message: impl Into<String>) -> EngineError {
-    EngineError {
-        kind: ErrorKind::Protocol,
-        message: message.into(),
-        code: None,
-        details: None,
-        diagnostics: String::new(),
-    }
+    EngineError::new(ErrorKind::Protocol, message)
 }
 
 #[cfg(test)]
