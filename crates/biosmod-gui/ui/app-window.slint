@@ -203,7 +203,7 @@ export component AppWindow inherits Window {
                             enabled: !root.busy;
                             edited(value) => { root.source-edited(value); }
                         }
-                        Button { text: "Scan image"; enabled: root.can-scan && !root.busy; clicked => { root.scan(); } }
+                        Button { text: "Scan image"; primary: root.patches.length == 0; enabled: root.can-scan && !root.busy; clicked => { root.scan(); } }
                     }
                 }
             }
@@ -240,7 +240,7 @@ export component AppWindow inherits Window {
                     spacing: Theme.space-sm;
                     Button { text: "Recommended"; enabled: root.can-recommend && !root.busy; clicked => { root.recommended(); } }
                     Rectangle { horizontal-stretch: 1; }
-                    Button { text: "Review selected"; enabled: root.can-plan && !root.busy; clicked => { root.generate-plan(); } }
+                    Button { text: "Review selected"; primary: true; enabled: root.can-plan && !root.busy; clicked => { root.generate-plan(); } }
                 }
             }
             if root.stage >= 2 && (root.stage == 2 || root.show-review): VerticalLayout {
@@ -272,7 +272,7 @@ export component AppWindow inherits Window {
                     spacing: Theme.space-sm;
                     Caption { text: "The original image will not be overwritten."; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
-                    Button { text: "Build patched copy"; enabled: root.can-apply && !root.busy; clicked => { root.apply-plan(); } }
+                    Button { text: "Build patched copy"; primary: true; enabled: root.can-apply && !root.busy; clicked => { root.apply-plan(); } }
                 }
             }
             if root.stage >= 3 && !root.show-review: VerticalLayout {
@@ -291,7 +291,7 @@ export component AppWindow inherits Window {
                     spacing: Theme.space-sm;
                     Caption { text: "Offline verification does not establish hardware boot behavior."; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
-                    Button { text: "Verify output"; enabled: root.can-verify && !root.busy; clicked => { root.verify(); } }
+                    Button { text: "Verify output"; primary: true; enabled: root.can-verify && !root.busy; clicked => { root.verify(); } }
                 }
             }
         }
