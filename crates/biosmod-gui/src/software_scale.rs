@@ -110,8 +110,18 @@ mod tests {
             .window_item()
             .unwrap();
         let expected = slint::PhysicalSize::new(761, 601).to_logical(1.25);
-        assert!((root.as_pin_ref().width().get() - expected.width).abs() < 0.01);
-        assert!((root.as_pin_ref().height().get() - expected.height).abs() < 0.01);
+        let actual_width = root.as_pin_ref().width().get();
+        let actual_height = root.as_pin_ref().height().get();
+        assert!(
+            (actual_width - expected.width).abs() < 0.01,
+            "(root width at scale 1.25): expected {} within 0.01 | received {actual_width}",
+            expected.width
+        );
+        assert!(
+            (actual_height - expected.height).abs() < 0.01,
+            "(root height at scale 1.25): expected {} within 0.01 | received {actual_height}",
+            expected.height
+        );
         let overridden = window.take_snapshot().unwrap();
         assert_eq!((overridden.width(), overridden.height()), (761, 601));
         for invalid in [0.0, -1.0, f32::NAN, f32::INFINITY] {
