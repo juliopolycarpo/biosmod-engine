@@ -491,8 +491,6 @@ fn pick(ui: &AppWindow, shared: &Shared, kind: PathKind) {
                     .pick_file()
                     .await
             }
-            PathKind::Engine => dialog.set_title(&title).pick_file().await,
-            PathKind::ExistingOutput => dialog.set_title(&title).pick_file().await,
             _ => dialog.set_title(&title).pick_file().await,
         };
         let Some(ui) = weak.upgrade() else {
@@ -904,7 +902,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
                 )
                 .into()
             })
-            .unwrap_or_else(|| session.tool_details.as_str().into()),
+            .unwrap_or_default(),
     );
     ui.set_diagnostics(session.diagnostics.as_str().into());
     ui.set_stage(

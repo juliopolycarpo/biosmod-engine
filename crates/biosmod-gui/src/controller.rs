@@ -215,7 +215,6 @@ pub struct Session {
     pub output: Option<PathBuf>,
     pub manifest: Option<PathBuf>,
     pub connected: bool,
-    pub engine_status: String,
     pub engine_version: Option<String>,
     pub engine_attempted: bool,
     pub inspection: Option<Value>,
@@ -231,7 +230,6 @@ pub struct Session {
     /// Retained verification data for presentation in the currently selected language.
     pub verification_report: Option<Value>,
     pub source_details: String,
-    pub tool_details: String,
     pub tool_report: Option<(Value, Option<Value>)>,
     pub diagnostics: String,
 }
@@ -251,7 +249,6 @@ impl Session {
             output: None,
             manifest: None,
             connected: false,
-            engine_status: "Engine not connected".into(),
             engine_version: None,
             engine_attempted: false,
             inspection: None,
@@ -259,14 +256,13 @@ impl Session {
             scan_input: None,
             review: None,
             outcome: Outcome::Idle,
-            status: "Choose a firmware image to get started.".into(),
+            status: Status::Start.english().into(),
             status_kind: Status::Start,
             status_detail: String::new(),
             status_extra: String::new(),
             result_details: String::new(),
             verification_report: None,
             source_details: String::new(),
-            tool_details: String::new(),
             tool_report: None,
             diagnostics: String::new(),
         })
@@ -521,7 +517,6 @@ impl Session {
             Action::Connect => {
                 self.connected = true;
                 self.engine_attempted = true;
-                self.engine_status = format!("bme {} · offline", payload.reply.version);
                 self.engine_version = Some(payload.reply.version.clone());
                 self.set_status(Status::Ready);
             }
@@ -584,11 +579,6 @@ impl Session {
                 self.set_status(Status::Sources);
             }
             Action::Tools => {
-                self.tool_details = format!(
-                    "{}\n\nPaths\n{}",
-                    pretty(&data),
-                    payload.extra.as_ref().map(pretty).unwrap_or_default()
-                );
                 self.tool_report = Some((data, payload.extra));
                 self.set_status(Status::Tools);
             }
@@ -652,7 +642,6 @@ impl Session {
         if action == Action::Connect {
             self.connected = false;
             self.engine_attempted = true;
-            self.engine_status = "Engine unavailable".into();
             self.engine_version = None;
         }
         self.outcome = match error.code.as_deref() {
