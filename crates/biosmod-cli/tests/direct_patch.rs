@@ -165,6 +165,38 @@ fn guarded_operations_refuse_snapshot_drift_before_publishing() {
         assert!(!output.exists());
     }
 
+    let catalog_manifest = catalog.join("catalog.json");
+    let mut catalog_bytes = fs::read(&catalog_manifest).unwrap();
+    catalog_bytes.push(b'\n');
+    fs::write(catalog_manifest, catalog_bytes).unwrap();
+    let updated = sandbox
+        .run(["scan", s(&image)].into_iter().chain(local))
+        .json();
+    let updated_snapshot = &updated["data"]["sources"][0]["snapshot_sha256"];
+    assert_ne!(
+        updated_snapshot, source,
+        "expected scan to detect the catalog update"
+    );
+    let refused = sandbox.run(
+        [
+            "patch",
+            s(&image),
+            "PA",
+            "--expect-source-sha256",
+            source,
+            "-o",
+            s(&output),
+        ]
+        .into_iter()
+        .chain(local),
+    );
+    assert_eq!(refused.error_code(), "PLAN_INPUT_CHANGED");
+    assert_eq!(
+        refused.json()["error"]["details"]["actual_sha256"],
+        *updated_snapshot
+    );
+    assert!(!output.exists());
+
     fs::write(&image, b"changed and no longer a firmware image").unwrap();
     let refused = sandbox.run(
         [
