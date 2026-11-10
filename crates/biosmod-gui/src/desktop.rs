@@ -223,10 +223,16 @@ pub fn bind(ui: &AppWindow, desktop: Desktop) -> Shared {
         } else {
             Language::En
         };
-        if language.select().is_err() {
+        let mut state = shared.lock().unwrap();
+        // Keep the selector on the language actually presented when a catalog is missing.
+        if let Err(error) = language.select() {
+            ui.set_language_index(state.settings.language.index());
+            state
+                .session
+                .set_raw_status(format!("language {}: {error}", language.identifier()));
+            sync(&ui, &state);
             return;
         }
-        let mut state = shared.lock().unwrap();
         state.settings.language = language;
         *state.presented_review.borrow_mut() = None;
         save_settings(&mut state);
