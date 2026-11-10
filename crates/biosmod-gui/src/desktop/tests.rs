@@ -1055,7 +1055,7 @@ fn opening_a_plan_resets_the_previous_operations_elapsed_time() {
 }
 
 #[test]
-fn patch_rows_separate_detail_from_limits_and_gate_selection_on_idleness() {
+fn patch_rows_separate_detail_from_limits_and_selection_eligibility() {
     i_slint_backend_testing::init_no_event_loop();
     let (window, _state) = bound_window(Settings::default(), None);
     let patch: Patch = serde_json::from_value(json!({
@@ -1064,7 +1064,7 @@ fn patch_rows_separate_detail_from_limits_and_gate_selection_on_idleness() {
         "evidence":["obs-1"]
     }))
     .unwrap();
-    let row = patch_row(&window, "lab", &patch, true);
+    let row = patch_row(&window, "lab", &patch);
     assert_eq!(row.id, "lab::PA@1.0.0");
     assert_eq!(row.state, "Likely present");
     assert_eq!(row.tone, Tone::Quiet);
@@ -1081,12 +1081,8 @@ fn patch_rows_separate_detail_from_limits_and_gate_selection_on_idleness() {
     present.state = "present".into();
     present.plannable = true;
     present.evidence.clear();
-    assert!(patch_row(&window, "lab", &present, true).selectable);
-    assert!(
-        !patch_row(&window, "lab", &present, false).selectable,
-        "busy session: expected the row to be disabled"
-    );
-    let row = patch_row(&window, "lab", &present, true);
+    assert!(patch_row(&window, "lab", &present).selectable);
+    let row = patch_row(&window, "lab", &present);
     assert_eq!(row.tone, Tone::Attention);
     assert_eq!(row.blocker, "");
     assert_eq!(
@@ -1098,7 +1094,7 @@ fn patch_rows_separate_detail_from_limits_and_gate_selection_on_idleness() {
     blocked.plannable = false;
     blocked.blocked = Some("needs prerequisite".into());
     blocked.requires_facts.push("physical-board".into());
-    let blocker = patch_row(&window, "lab", &blocked, true).blocker;
+    let blocker = patch_row(&window, "lab", &blocked).blocker;
     let limits: Vec<_> = blocker.lines().collect();
     assert!(
         limits.len() == 3
@@ -1126,7 +1122,7 @@ fn patch_rows_name_every_engine_state_in_english() {
     ] {
         patch.state = state.into();
         assert_eq!(
-            patch_row(&window, "lab", &patch, true).state,
+            patch_row(&window, "lab", &patch).state,
             label,
             "state {state}: label"
         );
@@ -1204,7 +1200,6 @@ fn row_sync_updates_in_place_and_replaces_foreign_models() {
 fn status_tone_tracks_the_operation_outcome_and_engine_connection() {
     for (outcome, tone) in [
         (Outcome::Idle, Tone::Quiet),
-        (Outcome::Running, Tone::Quiet),
         (Outcome::Verified, Tone::Good),
         (Outcome::VerificationIncomplete, Tone::Attention),
         (Outcome::Interrupted, Tone::Attention),
@@ -1305,4 +1300,84 @@ fn engine_child_inherits_normalized_bme_home_overrides() {
         );
     }
     assert_eq!(reply.data["cwd"], "/");
+}
+
+#[test]
+fn busy_session_disables_patch_checkbox_without_changing_eligibility() {
+    use i_slint_backend_testing::ElementHandle;
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    make_reviewable(&state, true);
+    {
+        let mut desktop = state.lock().unwrap();
+        desktop.session.review = None;
+        sync(&window, &desktop);
+    }
+    window.show().unwrap();
+    let checkbox = ElementHandle::find_by_accessible_label(&window, "Correction")
+        .next()
+        .expect("patch checkbox");
+    assert_eq!(checkbox.accessible_enabled(), Some(true));
+    let _job = state
+        .lock()
+        .unwrap()
+        .session
+        .prepare(Action::Connect)
+        .unwrap();
+    sync(&window, &state.lock().unwrap());
+    assert!(
+        window.get_patches().row_data(0).unwrap().selectable,
+        "eligible patch: expected eligibility retained while busy"
+    );
+    assert_eq!(
+        checkbox.accessible_enabled(),
+        Some(false),
+        "busy patch checkbox: expected disabled | received enabled"
+    );
+    window.invoke_toggle_patch(0);
+    assert!(
+        !state
+            .lock()
+            .unwrap()
+            .session
+            .scan
+            .as_ref()
+            .unwrap()
+            .report
+            .patches[0]
+            .selected
+    );
+}
+
+#[test]
+fn timers_for_independent_windows_remain_independent() {
+    i_slint_backend_testing::init_no_event_loop();
+    let first_calls = Rc::new(Cell::new(0));
+    let second_calls = Rc::new(Cell::new(0));
+    let first = slint::Timer::default();
+    let second = slint::Timer::default();
+    let calls = first_calls.clone();
+    first.start(
+        slint::TimerMode::Repeated,
+        Duration::from_secs(1),
+        move || calls.set(calls.get() + 1),
+    );
+    let calls = second_calls.clone();
+    second.start(
+        slint::TimerMode::Repeated,
+        Duration::from_secs(1),
+        move || calls.set(calls.get() + 1),
+    );
+    let first_id = register_timer(first);
+    let second_id = register_timer(second);
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_secs(1));
+    assert_eq!((first_calls.get(), second_calls.get()), (1, 1));
+    stop_timer(first_id);
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_secs(1));
+    assert_eq!(
+        (first_calls.get(), second_calls.get()),
+        (1, 2),
+        "stopping one window's timer must leave the other active"
+    );
+    stop_timer(second_id);
 }

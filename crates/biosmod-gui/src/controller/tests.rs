@@ -300,3 +300,59 @@ fn verification_refuses_a_manifest_other_than_the_engines_default() {
         "verify: expected refusal for a non-default manifest | received an accepted job"
     );
 }
+
+#[test]
+fn changing_image_retains_only_imported_review_or_opened_output() {
+    for (generated, keep_review, keep_output) in [
+        (Some(true), false, false),
+        (Some(false), true, true),
+        (None, false, true),
+    ] {
+        let mut session = Session::new().unwrap();
+        session.review = generated.map(|generated| {
+            Arc::new(Review::new(
+                "/tmp/review.json".into(),
+                b"{}".to_vec(),
+                json!({}),
+                generated,
+            ))
+        });
+        session.output = Some("/tmp/output.bin".into());
+        session.manifest = Some("/tmp/output.bin.manifest.json".into());
+        session.change_image(Some("/tmp/new-image.bin".into()));
+        assert_eq!(
+            session.review.is_some(),
+            keep_review,
+            "review {generated:?}: expected retained={keep_review}"
+        );
+        assert_eq!(
+            session.output.is_some(),
+            keep_output,
+            "review {generated:?}: expected output retained={keep_output}"
+        );
+        assert_eq!(
+            session.manifest.is_some(),
+            keep_output,
+            "review {generated:?}: expected manifest retained={keep_output}"
+        );
+        assert_eq!(
+            session.image.as_deref(),
+            Some(Path::new("/tmp/new-image.bin"))
+        );
+    }
+}
+
+#[test]
+fn starting_operation_clears_previous_outcome_and_sets_busy() {
+    let mut session = Session::new().unwrap();
+    session.outcome = Outcome::Verified;
+    let _job = session
+        .prepare_import(Path::new("/tmp/review.json"))
+        .unwrap();
+    assert_eq!(
+        session.outcome,
+        Outcome::Idle,
+        "starting import: expected previous verified result cleared"
+    );
+    assert!(session.busy(), "starting import: expected active worker");
+}

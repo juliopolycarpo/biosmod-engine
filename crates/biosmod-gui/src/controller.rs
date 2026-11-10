@@ -52,7 +52,6 @@ impl Action {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     Idle,
-    Running,
     Failed,
     Interrupted,
     PublicationIncomplete,
@@ -394,20 +393,19 @@ impl Session {
     /// Change the original image, retaining only imported artifacts for re-verification.
     /// Example: selecting an imported plan's original image never grants build permission.
     pub fn change_image(&mut self, image: Option<PathBuf>) {
-        let generated = self.review.as_ref().is_some_and(|review| review.generated);
-        let imported = self.review.take().filter(|review| !review.generated);
+        let keep = self.review.as_ref().is_none_or(|review| !review.generated);
+        let imported = self.review.take().filter(|_| keep);
         let output = self.output.clone();
         let manifest = self.manifest.clone();
         self.invalidate();
         self.image = image;
+        if keep && (imported.is_some() || manifest.is_some()) {
+            self.output = output;
+            self.manifest = manifest;
+        }
         if imported.is_some() {
             self.review = imported;
-            self.output = output;
-            self.manifest = manifest;
             self.set_status(Status::ImportedInput);
-        } else if !generated && manifest.is_some() {
-            self.output = output;
-            self.manifest = manifest;
         }
     }
 
@@ -564,7 +562,7 @@ impl Session {
         let token = (self.generation, self.next_operation, action);
         self.active = Some(token);
         self.cancel = Arc::new(AtomicBool::new(false));
-        self.outcome = Outcome::Running;
+        self.outcome = Outcome::Idle;
         self.set_status(Status::Activity(action));
         token
     }

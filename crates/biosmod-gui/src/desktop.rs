@@ -887,11 +887,10 @@ fn sync(ui: &AppWindow, state: &Desktop) {
         .scan
         .as_ref()
         .map(|s| {
-            let selectable = !session.busy();
             s.report
                 .patches
                 .iter()
-                .map(|p| patch_row(ui, &s.alias, p, selectable))
+                .map(|p| patch_row(ui, &s.alias, p))
                 .collect()
         })
         .unwrap_or_default();
@@ -1191,13 +1190,13 @@ pub fn status_tone(outcome: Outcome) -> Tone {
         Outcome::Verified => Tone::Good,
         Outcome::Failed | Outcome::PublicationIncomplete => Tone::Danger,
         Outcome::Interrupted | Outcome::VerificationIncomplete => Tone::Attention,
-        Outcome::Idle | Outcome::Running => Tone::Quiet,
+        Outcome::Idle => Tone::Quiet,
     }
 }
 
-/// Present one scan row in the selected language, enabling its checkbox only while idle.
-/// Example: `patch_row(&window, "lab", &patch, true).id` is `lab::PA@1.0.0`.
-pub fn patch_row(ui: &AppWindow, alias: &str, patch: &Patch, idle: bool) -> PatchRow {
+/// Present one scan row in the selected language with its selection eligibility.
+/// Example: `patch_row(&window, "lab", &patch).id` is `lab::PA@1.0.0`.
+pub fn patch_row(ui: &AppWindow, alias: &str, patch: &Patch) -> PatchRow {
     let text = ui.global::<UiText>();
     let state = match patch.state.as_str() {
         "present" => text.get_defect_present(),
@@ -1243,7 +1242,7 @@ pub fn patch_row(ui: &AppWindow, alias: &str, patch: &Patch, idle: bool) -> Patc
         } else {
             text.invoke_scoped_evidence(patch.evidence.join(", ").into())
         },
-        selectable: patch.selectable() && idle,
+        selectable: patch.selectable(),
         selected: patch.selected,
     }
 }
