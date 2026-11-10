@@ -251,11 +251,11 @@ fn connected_session_uses_its_advertised_verification_checks() {
             {"code":"VERIFICATION_INCOMPLETE","exit":1}]
     });
     session
-        .accept(Action::Connect, verification_payload(capability))
+        .accept(Action::Connect, reply_payload(capability))
         .unwrap();
     let report = json!({"complete":true, "checks":[{"check":"new-check", "ok":true}], "skipped":[], "notice":"offline"});
     session
-        .accept(Action::Verify, verification_payload(report))
+        .accept(Action::Verify, reply_payload(report))
         .unwrap();
     assert_eq!(
         session.outcome,
@@ -264,7 +264,7 @@ fn connected_session_uses_its_advertised_verification_checks() {
     );
     let missing = json!({"complete":true, "checks":[{"check":"other-check", "ok":true}], "skipped":[], "notice":"offline"});
     session
-        .accept(Action::Verify, verification_payload(missing))
+        .accept(Action::Verify, reply_payload(missing))
         .unwrap();
     assert_eq!(
         session.outcome,
