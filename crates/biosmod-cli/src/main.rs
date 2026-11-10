@@ -17,9 +17,9 @@ use output::{Out, exit};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "bme", version, about = "Biosmod Engine: inspect firmware images, plan guarded patches and verify patched copies.", long_about = None)]
+#[command(name = "bme", version, about = "Biosmod Engine: scan firmware images, build patched copies and verify them.", long_about = None)]
 #[command(
-    after_help = "Workflow: bme scan dump.bin → bme plan dump.bin --select <ids> -o plan.json → bme patch dump.bin --plan plan.json -o fixed.bin → bme verify dump.bin fixed.bin\nAgents: add --json for one machine-readable document on stdout; see `bme capabilities --json`."
+    after_help = "Workflow:\n  bme scan dump.bin\n  bme patch dump.bin --recommended\n  bme verify dump.bin dump.patched.bin\nAgents: add --json for one machine-readable document on stdout; see `bme capabilities --json`."
 )]
 pub struct Cli {
     /// Emit one JSON document on stdout (including failures).
@@ -50,8 +50,11 @@ pub enum Command {
     /// Report known defects and patch states for an image.
     Scan(ScanArgs),
     /// Resolve a selection, dry-build it in memory and write a reviewable plan.
+    #[command(hide = true)]
     Plan(PlanArgs),
-    /// Build a verified patched copy from a plan or a selection.
+    /// Save an exact patch recipe (defaults to recommended patches).
+    Export(ExportArgs),
+    /// Build a verified copy from patch IDs, recommendations or a saved recipe.
     Patch(PatchArgs),
     /// Independently verify an input/output pair against its manifest.
     Verify(VerifyArgs),
@@ -132,18 +135,62 @@ pub struct PlanArgs {
 }
 
 #[derive(Args)]
-pub struct PatchArgs {
-    pub rom: PathBuf,
-    /// A plan from `bme plan`; all inputs are revalidated against it.
+pub struct DirectSelection {
+    /// Patch IDs, optionally qualified as ALIAS::ID@VERSION.
+    #[arg(value_name = "ID", conflicts_with_all = ["select", "recommended"])]
+    pub ids: Vec<String>,
+    /// Use the catalog's recommended selection.
     #[arg(long, conflicts_with = "select")]
-    pub plan: Option<PathBuf>,
+    pub recommended: bool,
     #[command(flatten)]
-    pub select: SelectArgs,
+    pub legacy: SelectArgs,
+}
+
+#[derive(Args, Default)]
+pub struct SnapshotExpectations {
+    /// Require the input SHA-256 reported by scan.
+    #[arg(long)]
+    pub expect_input_sha256: Option<biosmod_core::util::Digest256>,
+    /// Require the catalog snapshot SHA-256 reported by scan.
+    #[arg(long)]
+    pub expect_source_sha256: Option<biosmod_core::util::Digest256>,
+}
+
+#[derive(Args)]
+pub struct ExportArgs {
+    pub rom: PathBuf,
+    #[command(flatten)]
+    pub selection: DirectSelection,
     #[command(flatten)]
     pub source: SourceArgs,
-    /// Output image (must not exist); the manifest goes to <output>.manifest.json.
+    #[command(flatten)]
+    pub expectations: SnapshotExpectations,
+    /// New recipe file.
     #[arg(short, long)]
     pub output: PathBuf,
+}
+
+#[derive(Args)]
+pub struct PatchArgs {
+    pub rom: PathBuf,
+    /// Reproduce the operation recorded in a saved recipe.
+    #[arg(long = "from", alias = "plan", conflicts_with_all = [
+        "ids", "recommended", "select", "catalogs", "firmware", "facts",
+        "allow_hold", "allow_diagnostic", "expect_input_sha256", "expect_source_sha256",
+    ])]
+    pub plan: Option<PathBuf>,
+    #[command(flatten)]
+    pub selection: DirectSelection,
+    #[command(flatten)]
+    pub source: SourceArgs,
+    #[command(flatten)]
+    pub expectations: SnapshotExpectations,
+    /// Build and validate in memory without publishing files.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// New image path (default: insert .patched before the input extension).
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -153,8 +200,8 @@ pub struct VerifyArgs {
     /// Output manifest (default: <output>.manifest.json).
     #[arg(long)]
     pub manifest: Option<PathBuf>,
-    /// The plan the manifest must embed.
-    #[arg(long)]
+    /// Require the manifest to embed this saved recipe.
+    #[arg(long = "from", alias = "plan")]
     pub plan: Option<PathBuf>,
 }
 
@@ -330,6 +377,7 @@ fn command_name(command: &Command) -> &'static str {
         Command::Inspect(_) => "inspect",
         Command::Scan(_) => "scan",
         Command::Plan(_) => "plan",
+        Command::Export(_) => "export",
         Command::Patch(_) => "patch",
         Command::Verify(_) => "verify",
         Command::Extract(_) => "extract",
