@@ -531,13 +531,28 @@ impl Engine {
     ///
     /// Example: `engine.handshake(&std::sync::atomic::AtomicBool::new(false))`.
     pub fn handshake(&self, cancel: &AtomicBool) -> Result<Reply, EngineError> {
-        let (version, capabilities) = run_pair(
+        let (version, mut capabilities) = run_pair(
             cancel,
             |pair_cancel| self.run(&Request::Version, pair_cancel),
             |pair_cancel| self.run(&Request::Capabilities, pair_cancel),
         )?;
-        validate_handshake(&version, &capabilities)?;
-        Ok(capabilities)
+        let validation = validate_handshake(&version, &capabilities);
+        let mut diagnostics = version.diagnostics;
+        if diagnostics.is_empty() {
+            std::mem::swap(&mut diagnostics, &mut capabilities.diagnostics);
+        } else {
+            append_diagnostics(&mut diagnostics, &capabilities.diagnostics);
+        }
+        match validation {
+            Ok(()) => {
+                capabilities.diagnostics = diagnostics;
+                Ok(capabilities)
+            }
+            Err(mut error) => {
+                append_diagnostics(&mut error.diagnostics, &diagnostics);
+                Err(error)
+            }
+        }
     }
     /// Run one command, draining both output streams while waiting for it to exit.
     /// Non-handshake commands require the contract from a successful handshake.

@@ -926,3 +926,79 @@ fn append_diagnostics_retains_nonempty_messages() {
     append_diagnostics(&mut diagnostics, "second");
     assert_eq!(diagnostics, "first\nsecond");
 }
+
+#[cfg(unix)]
+struct HandshakeWarningsEngine {
+    directory: tempfile::TempDir,
+}
+
+#[cfg(unix)]
+impl HandshakeWarningsEngine {
+    fn new(capability_version: &str, large_warnings: bool) -> Self {
+        let directory = tempfile::tempdir().unwrap();
+        let mut capabilities = fake_capability_contract();
+        capabilities.as_object_mut().unwrap().extend(json!({
+            "engine": capability_version, "protocol":"bme/1", "desktop_workflow":1,
+            "commands":[{"name":"inspect"},{"name":"scan"},{"name":"plan"},{"name":"patch"},{"name":"verify"},
+                {"name":"catalog validate|index|show|import-x99fix"},{"name":"catalog add|list|remove"},{"name":"tools doctor|paths"}],
+            "documents":[{"name":"plan","schema":"bme.plan/1"},{"name":"manifest","schema":"bme.manifest/1"},{"name":"catalog","schema":"bme.catalog/1"},{"name":"patch","schema":"bme.patch/1"}]
+        }).as_object().unwrap().clone());
+        for (name, version, data) in [
+            (
+                "version",
+                "0.1.0",
+                json!({"engine":"0.1.0","protocol":"bme/1"}),
+            ),
+            ("capabilities", capability_version, capabilities),
+        ] {
+            let response = json!({"product":"biosmod-engine","protocol":"bme/1","version":version,"command":name,"ok":true,"data":data});
+            let warning = if large_warnings {
+                "head -c 300000 /dev/zero | tr '\\000' x >&2".to_owned()
+            } else {
+                format!("printf '%s' '{name} warning' >&2")
+            };
+            let script = format!("{warning}\nprintf '%s' '{}'\n", response);
+            std::fs::write(directory.path().join(name), script).unwrap();
+        }
+        Self { directory }
+    }
+
+    fn engine(&self) -> Engine {
+        Engine::new("/bin/sh", self.directory.path()).unwrap()
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn handshake_keeps_warnings_from_both_successful_replies() {
+    let fake = HandshakeWarningsEngine::new("0.1.0", false);
+    let reply = fake.engine().handshake(&AtomicBool::new(false)).unwrap();
+    assert_eq!(reply.diagnostics, "version warning\ncapabilities warning");
+}
+
+#[cfg(unix)]
+#[test]
+fn handshake_mismatch_keeps_warnings_from_both_replies() {
+    let fake = HandshakeWarningsEngine::new("0.2.0", false);
+    let error = fake
+        .engine()
+        .handshake(&AtomicBool::new(false))
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Protocol);
+    assert!(error.message.contains("0.1.0") && error.message.contains("0.2.0"));
+    assert_eq!(error.diagnostics, "version warning\ncapabilities warning");
+}
+
+#[cfg(unix)]
+#[test]
+fn handshake_warnings_remain_bounded_for_both_processes() {
+    let fake = HandshakeWarningsEngine::new("0.1.0", true);
+    let reply = fake.engine().handshake(&AtomicBool::new(false)).unwrap();
+    assert_eq!(
+        reply.diagnostics.matches("[diagnostics truncated]").count(),
+        2
+    );
+    assert!(
+        reply.diagnostics.len() <= 2 * (MAX_DIAGNOSTICS + "\n[diagnostics truncated]".len()) + 1
+    );
+}
