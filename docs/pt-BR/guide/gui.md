@@ -21,7 +21,7 @@ A compilação usa Slint 1.18.1 com backend winit e renderizadores de GPU e soft
 SLINT_BACKEND=winit-software target/release/bme-gui
 ```
 
-A CI usa Ubuntu 24.04 x86_64 (glibc 2.39) como alvo do pacote e exercita conexões X11 e Wayland sem monitor separadamente. Ainda são necessários teste de instalação limpa e qualificação manual de GNOME, KDE Plasma, escala e leitor de tela antes de declarar suporte a esses ambientes. Acompanhe as verificações restantes em [#8](https://github.com/juliopolycarpo/biosmod-engine/issues/8). O comportamento da interface no Windows e macOS ainda não foi qualificado.
+A CI usa Ubuntu 24.04 x86_64 (glibc 2.39) como alvo do pacote e exercita conexões X11 e Wayland sem monitor separadamente. O [relatório de qualificação da interface no Linux](../linux-desktop-qualification.md) registra os resultados em VM limpa para GNOME e Plasma, escala e leitor de tela no pacote e nas versões de desktop testados. O comportamento da interface no Windows e macOS ainda não foi qualificado.
 
 A janela inicia no tamanho mínimo suportado de 760×600, deixando espaço para painéis e decorações em desktops pequenos. Redimensione-a para ter uma área de trabalho maior.
 

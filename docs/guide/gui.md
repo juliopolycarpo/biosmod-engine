@@ -21,7 +21,7 @@ The build uses Slint 1.18.1 with the winit backend and GPU and software renderer
 SLINT_BACKEND=winit-software target/release/bme-gui
 ```
 
-CI targets Ubuntu 24.04 x86_64 (glibc 2.39) for the archive and exercises separate X11 and headless Wayland connections. A clean-install test and manual GNOME, KDE Plasma, scaling and screen-reader qualification are still needed before claiming those environments are supported. Track the remaining desktop checks in [#8](https://github.com/juliopolycarpo/biosmod-engine/issues/8). Windows and macOS GUI behavior is not yet qualified.
+CI targets Ubuntu 24.04 x86_64 (glibc 2.39) for the archive and exercises separate X11 and headless Wayland connections. The [Linux desktop qualification report](../linux-desktop-qualification.md) records clean-VM GNOME and Plasma, scaling and screen-reader results for the tested archive and desktop versions. Windows and macOS GUI behavior is not yet qualified.
 
 The window starts at its supported 760×600 minimum so small desktops have room for panels and decorations. Resize it for a larger workspace.
 
