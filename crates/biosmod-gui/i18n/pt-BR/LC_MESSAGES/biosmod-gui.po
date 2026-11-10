@@ -49,10 +49,10 @@ msgctxt "AppWindow"
 msgid "About"
 msgstr "Sobre"
 
-#: ui/app-window.slint:153 ui/app-window.slint:171
+#: ui/app-window.slint:178 ui/app-window.slint:187 ui/app-window.slint:203
 msgctxt "AppWindow"
-msgid "Open plan"
-msgstr "Abrir plano"
+msgid "Open selection file"
+msgstr "Abrir arquivo de seleção"
 
 #: ui/app-window.slint:154 ui/app-window.slint:176
 msgctxt "AppWindow"
@@ -69,15 +69,15 @@ msgctxt "AppWindow"
 msgid "Enter paths"
 msgstr "Informar caminhos"
 
-#: ui/app-window.slint:169
+#: ui/app-window.slint:201
 msgctxt "AppWindow"
-msgid "Plan"
-msgstr "Plano"
+msgid "Selection"
+msgstr "Seleção"
 
-#: ui/app-window.slint:170
+#: ui/app-window.slint:202
 msgctxt "AppWindow"
-msgid "Plan file path"
-msgstr "Caminho do arquivo de plano"
+msgid "Selection file path"
+msgstr "Caminho do arquivo de seleção"
 
 #: ui/app-window.slint:174 ui/app-window.slint:291
 msgctxt "AppWindow"
@@ -186,21 +186,6 @@ msgid ""
 "cannot be applied here yet."
 msgstr "Resultados dependentes do hardware e correções que exigem seleção conjunta ainda não podem ser aplicados aqui."
 
-#: ui/app-window.slint:293 ui/app-window.slint:294
-msgctxt "AppWindow"
-msgid "New output image path"
-msgstr "Caminho da nova imagem de saída"
-
-#: ui/app-window.slint:299
-msgctxt "AppWindow"
-msgid "Choose…"
-msgstr "Escolher…"
-
-#: ui/app-window.slint:301 ui/app-window.slint:321
-msgctxt "AppWindow"
-msgid "Manifest: {}"
-msgstr "Manifesto: {}"
-
 #: ui/app-window.slint:264
 msgctxt "AppWindow"
 msgid "Recommended"
@@ -245,6 +230,21 @@ msgstr "Detalhes do plano"
 msgctxt "AppWindow"
 msgid "Complete plan and source snapshot"
 msgstr "Plano completo e instantâneo da origem"
+
+#: ui/app-window.slint:293 ui/app-window.slint:294
+msgctxt "AppWindow"
+msgid "New output image path"
+msgstr "Caminho da nova imagem de saída"
+
+#: ui/app-window.slint:299
+msgctxt "AppWindow"
+msgid "Choose…"
+msgstr "Escolher…"
+
+#: ui/app-window.slint:301 ui/app-window.slint:321
+msgctxt "AppWindow"
+msgid "Manifest: {}"
+msgstr "Manifesto: {}"
 
 #: ui/app-window.slint:320
 msgctxt "AppWindow"
@@ -739,12 +739,11 @@ msgctxt "UiText"
 msgid "Inputs changed. Inspect and scan to continue."
 msgstr "As entradas mudaram. Inspecione e examine para continuar."
 
-#: ui/translations.slint:66
+#: ui/translations.slint:67
 msgctxt "UiText"
 msgid ""
-"Imported plan remains read-only. Verify against the chosen original image "
-"and output."
-msgstr "O plano importado permanece somente para leitura. Verifique com a imagem original e a saída escolhidas."
+"Scan the original image and matching catalog to validate the selection file."
+msgstr "Examine a imagem original e o catálogo correspondente para validar o arquivo de seleção."
 
 #: ui/translations.slint:67
 msgctxt "UiText"
@@ -803,12 +802,15 @@ msgctxt "UiText"
 msgid "Tool diagnostics complete."
 msgstr "Diagnósticos das ferramentas concluídos."
 
-#: ui/translations.slint:77
+#: ui/translations.slint:79
 msgctxt "UiText"
-msgid ""
-"Imported plan: review and verification only. Choose its original image and "
-"output."
-msgstr "Plano importado: apenas revisão e verificação. Escolha sua imagem original e saída."
+msgid "Selection file validated. Choose an output and build a copy."
+msgstr "Arquivo de seleção validado. Escolha a saída e gere uma cópia."
+
+#: ui/translations.slint:80
+msgctxt "UiText"
+msgid "Selection file opened. Choose its original image and catalog."
+msgstr "Arquivo de seleção aberto. Escolha a imagem original e o catálogo correspondente."
 
 #: ui/translations.slint:78
 msgctxt "UiText"
@@ -890,10 +892,15 @@ msgctxt "UiText"
 msgid "Checking tools"
 msgstr "Verificando ferramentas"
 
+#: ui/translations.slint:97
+msgctxt "UiText"
+msgid "Validating selection file"
+msgstr "Validando arquivo de seleção"
+
 #: ui/translations.slint:92
 msgctxt "UiText"
-msgid "Opening plan"
-msgstr "Abrindo plano"
+msgid "Opening selection file"
+msgstr "Abrindo arquivo de seleção"
 
 #: ui/translations.slint:93
 msgctxt "UiText"
@@ -1046,6 +1053,13 @@ msgctxt "UiText"
 msgid "Choose an output with its paired manifest first."
 msgstr "Escolha primeiro uma saída com seu manifesto correspondente."
 
+#: ui/translations.slint:129
+msgctxt "UiText"
+msgid ""
+"The selection file must match the scan and use only corrections supported by "
+"the desktop."
+msgstr "O arquivo de seleção precisa corresponder ao exame e usar apenas correções compatíveis com a interface gráfica."
+
 #: ui/translations.slint:123
 msgctxt "UiText"
 msgid "Wait for the active operation before importing a plan."
@@ -1146,3 +1160,32 @@ msgstr "Selecionar tudo"
 #~ msgctxt "AppWindow"
 #~ msgid "Confirm the source, changes, and expected output before building."
 #~ msgstr "Confirme a fonte, as alterações e a saída esperada antes de gerar."
+
+#~ #: ui/app-window.slint:153 ui/app-window.slint:171
+#~ msgctxt "AppWindow"
+#~ msgid "Open plan"
+#~ msgstr "Abrir plano"
+
+#~ #: ui/app-window.slint:169
+#~ msgctxt "AppWindow"
+#~ msgid "Plan"
+#~ msgstr "Plano"
+
+#~ #: ui/app-window.slint:170
+#~ msgctxt "AppWindow"
+#~ msgid "Plan file path"
+#~ msgstr "Caminho do arquivo de plano"
+
+#~ #: ui/translations.slint:66
+#~ msgctxt "UiText"
+#~ msgid ""
+#~ "Imported plan remains read-only. Verify against the chosen original image "
+#~ "and output."
+#~ msgstr "O plano importado permanece somente para leitura. Verifique com a imagem original e a saída escolhidas."
+
+#~ #: ui/translations.slint:77
+#~ msgctxt "UiText"
+#~ msgid ""
+#~ "Imported plan: review and verification only. Choose its original image and "
+#~ "output."
+#~ msgstr "Plano importado: apenas revisão e verificação. Escolha sua imagem original e saída."

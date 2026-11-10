@@ -316,7 +316,7 @@ fn switching_language_during_import_preserves_job_and_localizes_completion() {
     }
     assert_eq!(
         window.get_status(),
-        "Plano importado: apenas revisão e verificação. Escolha sua imagem original e saída."
+        "Arquivo de seleção aberto. Escolha a imagem original e o catálogo correspondente."
     );
     assert!(!state.lock().unwrap().session.busy());
     Language::En.select().unwrap();
@@ -390,6 +390,7 @@ fn every_precondition_has_a_localized_message() {
         PreparationError::Plan,
         PreparationError::Manifest,
         PreparationError::WaitImport,
+        PreparationError::RecipeMismatch,
     ] {
         Language::En.select().unwrap();
         let english = localized_status(&window, Status::Precondition(error), "", "");
@@ -1086,7 +1087,7 @@ fn opening_a_plan_resets_the_previous_operations_elapsed_time() {
         "0s",
         "plan import: expected a fresh activity clock | received the previous operation's elapsed time"
     );
-    assert_eq!(window.get_operation_label(), "Opening plan");
+    assert_eq!(window.get_operation_label(), "Opening selection file");
 }
 
 #[test]

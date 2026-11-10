@@ -32,6 +32,7 @@ pub enum Action {
     Sources,
     Tools,
     Import,
+    ValidateRecipe,
 }
 
 impl Action {
@@ -49,7 +50,8 @@ impl Action {
             Self::Verify => "Verifying output",
             Self::Sources => "Reading sources",
             Self::Tools => "Checking tools",
-            Self::Import => "Opening plan",
+            Self::Import => "Opening selection file",
+            Self::ValidateRecipe => "Validating selection file",
         }
     }
 }
@@ -78,6 +80,7 @@ pub enum PreparationError {
     Plan,
     Manifest,
     WaitImport,
+    RecipeMismatch,
 }
 
 impl std::fmt::Display for PreparationError {
@@ -94,6 +97,7 @@ impl std::fmt::Display for PreparationError {
             Self::Plan => "Open or generate the matching plan first.",
             Self::Manifest => "Choose an output with its paired manifest first.",
             Self::WaitImport => "Wait for the active operation before importing a plan.",
+            Self::RecipeMismatch => "The selection file must match the scan and use only corrections supported by the desktop.",
         })
     }
 }
@@ -117,6 +121,7 @@ pub enum Status {
     Sources,
     Tools,
     Imported,
+    RecipeValidated,
     Stopping,
     Back,
     ClosingExport,
@@ -150,7 +155,7 @@ impl Status {
             Self::Start => "Choose a firmware image to get started.",
             Self::Inputs => "Inputs changed. Inspect and scan to continue.",
             Self::ImportedInput => {
-                "Imported plan remains read-only. Verify against the chosen original image and output."
+                "Scan the original image and matching catalog to validate the selection file."
             }
             Self::Selection => "Selection changed.",
             Self::Ready => "Engine ready. Choose an image to inspect.",
@@ -165,9 +170,8 @@ impl Status {
             }
             Self::Sources => "Registered sources loaded. Firmware operations remain offline.",
             Self::Tools => "Tool diagnostics complete.",
-            Self::Imported => {
-                "Imported plan: review and verification only. Choose its original image and output."
-            }
+            Self::Imported => "Selection file opened. Choose its original image and catalog.",
+            Self::RecipeValidated => "Selection file validated. Choose an output and build a copy.",
             Self::Stopping => "Stopping operation…",
             Self::Back => "Select corrections and generate a new plan to continue.",
             Self::ClosingExport => "Finishing file export before closing…",
@@ -263,6 +267,7 @@ pub struct Session {
     pub scan: Option<SourceReport>,
     scan_input: Option<Value>,
     pub review: Option<Arc<Review>>,
+    recipe_validated: bool,
     pub built_plan: Option<Arc<Review>>,
     pub outcome: Outcome,
     pub status: String,
@@ -302,6 +307,7 @@ impl Session {
             scan: None,
             scan_input: None,
             review: None,
+            recipe_validated: false,
             built_plan: None,
             outcome: Outcome::Idle,
             status: String::new(),
@@ -402,7 +408,8 @@ impl Session {
         self.inspection = None;
         self.scan = None;
         self.scan_input = None;
-        self.review = None;
+        self.recipe_validated = false;
+        self.review = self.review.take().filter(|review| !review.generated);
         self.output = self.image.as_deref().and_then(default_patch_output);
         self.manifest = None;
         self.manifest_receipt = None;
@@ -426,7 +433,7 @@ impl Session {
         self.invalidate();
         self.image = image;
         self.output = self.image.as_deref().and_then(default_patch_output);
-        if keep && (imported.is_some() || manifest.is_some()) {
+        if keep && manifest.is_some() {
             self.output = output;
             self.manifest = manifest;
         }
@@ -510,6 +517,7 @@ impl Session {
     /// Example: `session.clear_results()` before offering a new output path.
     pub fn clear_results(&mut self) {
         self.review = None;
+        self.recipe_validated = false;
         self.manifest = None;
         self.manifest_receipt = None;
         self.built_plan = None;
@@ -537,12 +545,22 @@ impl Session {
             && self.image.is_some()
             && self.output.is_some()
             && self.manifest.is_none()
-            && self.scan.as_ref().is_some_and(|scan| {
-                scan.report
-                    .patches
-                    .iter()
-                    .any(|patch| patch.selected && patch.selectable())
-            })
+            && if self.imported_recipe().is_some() {
+                self.recipe_validated
+            } else {
+                self.scan.as_ref().is_some_and(|scan| {
+                    scan.report
+                        .patches
+                        .iter()
+                        .any(|patch| patch.selected && patch.selectable())
+                })
+            }
+    }
+
+    /// Return the imported selection snapshot when exact replay is active.
+    /// Example: after opening a recipe, `session.imported_recipe()` exposes its retained bytes.
+    pub fn imported_recipe(&self) -> Option<&Arc<Review>> {
+        self.review.as_ref().filter(|review| !review.generated)
     }
 
     fn scanned_selection(&self) -> Result<ScannedSelection, PreparationError> {
@@ -648,14 +666,34 @@ impl Session {
                 selection: self.scanned_selection()?,
                 output: export_path.ok_or(PreparationError::Output)?,
             },
+            Action::ValidateRecipe => {
+                let recipe = self.imported_recipe().ok_or(PreparationError::Plan)?;
+                let image = image()?;
+                if self.scan.is_none() {
+                    return Err(PreparationError::Scan);
+                }
+                self.validate_generated(&recipe.document)
+                    .map_err(|_| PreparationError::RecipeMismatch)?;
+                Request::Build {
+                    image,
+                    selection: PatchSelection::Recipe(
+                        recipe.path.clone().ok_or(PreparationError::Plan)?,
+                    ),
+                    destination: PatchDestination::Preview,
+                }
+            }
             Action::Build => {
-                let selection = self.scanned_selection()?;
+                let selection = if let Some(recipe) = self.imported_recipe() {
+                    PatchSelection::Recipe(recipe.path.clone().ok_or(PreparationError::Plan)?)
+                } else {
+                    PatchSelection::Scanned(self.scanned_selection()?)
+                };
                 if !self.can_build() {
                     return Err(PreparationError::Build);
                 }
                 Request::Build {
                     image: image()?,
-                    selection: PatchSelection::Scanned(selection),
+                    selection,
                     destination: PatchDestination::Publish(
                         self.output.clone().expect("new output"),
                     ),
@@ -681,6 +719,9 @@ impl Session {
             Action::Tools => Request::ToolsDoctor,
         };
         let token = self.begin(action);
+        if matches!(action, Action::Scan | Action::ValidateRecipe) {
+            self.recipe_validated = false;
+        }
         if action == Action::Plan {
             self.review = None;
         }
@@ -760,7 +801,7 @@ impl Session {
                 }
                 self.scan_input = Some(scan.input);
                 self.scan = scan.sources.pop();
-                self.review = None;
+                self.review = self.review.take().filter(|review| !review.generated);
                 self.manifest = None;
                 self.manifest_receipt = None;
                 self.built_plan = None;
@@ -807,23 +848,28 @@ impl Session {
                 self.verification_report = None;
                 self.set_status(Status::Published);
             }
+            Action::ValidateRecipe => {
+                if data["dry_run"] != true {
+                    return Err(local_error("selection file: expected a dry-run result"));
+                }
+                self.validate_replay_response(&data["plan"], &data, &payload.reply.version)?;
+                self.recipe_validated = true;
+                self.set_status(Status::RecipeValidated);
+            }
             Action::Build => {
                 let plan = &data["manifest"]["plan"];
-                self.validate_generated(plan)?;
-                let selection = self
-                    .scanned_selection()
-                    .map_err(|error| local_error(error.to_string()))?;
+                let imported = self.imported_recipe().cloned();
+                if imported.is_some() {
+                    self.validate_replay_response(plan, &data, &payload.reply.version)?;
+                } else {
+                    self.validate_direct_response(plan, &data, &payload.reply.version)?;
+                }
                 let output = self
                     .output
                     .as_deref()
                     .ok_or_else(|| local_error("patch: expected output path"))?;
                 let manifest = manifest_path(output);
-                if payload.reply.version.as_str()
-                    != self.engine_version.as_deref().unwrap_or_default()
-                    || data["manifest"]["schema"] != "bme.manifest/1"
-                    || plan["engine"]["version"] != payload.reply.version
-                    || data["source_snapshot_sha256"] != selection.source_sha256
-                    || plan["requested"] != serde_json::json!(selection.ids)
+                if data["manifest"]["schema"] != "bme.manifest/1"
                     || data["output"] != output.to_string_lossy().as_ref()
                     || data["manifest_file"] != manifest.to_string_lossy().as_ref()
                 {
@@ -835,7 +881,8 @@ impl Session {
                     local_error("patch receipt: expected a lowercase manifest SHA-256")
                 })?;
                 self.manifest_receipt = Some(digest.into());
-                self.built_plan = Some(Arc::new(Review::from_document(plan.clone())));
+                self.built_plan =
+                    Some(imported.unwrap_or_else(|| Arc::new(Review::from_document(plan.clone()))));
                 self.manifest = Some(manifest);
                 self.result_details = pretty(&data);
                 self.verification_report = None;
@@ -881,7 +928,12 @@ impl Session {
                 self.set_status(Status::Tools);
             }
             Action::Import => {
+                if self.manifest_receipt.take().is_some() {
+                    self.manifest = None;
+                    self.built_plan = None;
+                }
                 self.review = payload.review;
+                self.recipe_validated = false;
                 self.result_details.clear();
                 self.verification_report = None;
                 self.set_status(Status::Imported);
@@ -896,6 +948,16 @@ impl Session {
         version: &str,
     ) -> Result<&'a Value, EngineError> {
         let plan = &data["plan"];
+        self.validate_direct_response(plan, data, version)?;
+        Ok(plan)
+    }
+
+    fn validate_direct_response(
+        &self,
+        plan: &Value,
+        data: &Value,
+        version: &str,
+    ) -> Result<(), EngineError> {
         self.validate_generated(plan)?;
         let selection = self
             .scanned_selection()
@@ -909,7 +971,30 @@ impl Session {
                 "patch selection: expected the connected engine and exact scanned selection",
             ));
         }
-        Ok(plan)
+        Ok(())
+    }
+
+    fn validate_replay_response(
+        &self,
+        plan: &Value,
+        data: &Value,
+        version: &str,
+    ) -> Result<(), EngineError> {
+        self.validate_generated(plan)?;
+        let recipe = self
+            .imported_recipe()
+            .ok_or_else(|| local_error("expected retained selection file"))?;
+        let scan = self.scan.as_ref().expect("validated scan");
+        if self.engine_version.as_deref() != Some(version)
+            || plan["engine"]["version"] != version
+            || data["source_snapshot_sha256"] != scan.snapshot_sha256
+            || *plan != recipe.document
+        {
+            return Err(local_error(
+                "selection file: expected exact replay against the current scan",
+            ));
+        }
+        Ok(())
     }
 
     fn validate_generated(&self, plan: &Value) -> Result<(), EngineError> {
@@ -985,7 +1070,9 @@ impl Session {
         {
             self.scan = None;
             self.scan_input = None;
+            let recipe = self.imported_recipe().cloned();
             self.clear_results();
+            self.review = recipe;
             self.outcome = Outcome::Failed;
         }
         let message = error.to_string();
@@ -1171,6 +1258,9 @@ impl Job {
                 &self.request,
                 Request::VerifyResult {
                     recipe: Some(_),
+                    ..
+                } | Request::Build {
+                    selection: PatchSelection::Recipe(_),
                     ..
                 }
             )

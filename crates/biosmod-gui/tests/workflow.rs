@@ -218,7 +218,7 @@ fn real_engine_controller_workflow_and_plan_safety() {
         "stale scan: expected rejection after image change"
     );
     assert!(imported.scan.is_none());
-    assert!(imported.review.is_none());
+    assert!(imported.imported_recipe().is_some());
     assert!(!imported.busy());
     imported.source = "another-source".into();
     imported.invalidate();
@@ -609,4 +609,93 @@ fn controller_preview_is_read_only_and_export_uses_the_current_selection() {
         serde_json::from_slice::<Value>(&retained.bytes).unwrap(),
         document
     );
+}
+
+#[test]
+fn imported_recipe_replays_the_retained_bytes_after_validation() {
+    let fixture = SyntheticEngine::new();
+    let original = fixture.image.clone();
+    let directory = fixture.directory.path();
+    let file = directory.join("imported selection.json");
+    let output = directory.join("replayed.bin");
+    let mut session = fixture.session();
+    session.select_recommended();
+    let job = session.prepare_export(file.clone()).unwrap();
+    assert!(session.finish(job.run(&fixture.engine)));
+    assert_eq!(session.outcome, Outcome::Idle, "{}", session.status);
+
+    let mut imported = fixture.session();
+    imported.set_output(Some(output.clone()));
+    imported.import_review(&file).unwrap();
+    let retained = std::fs::read(&file).unwrap();
+    assert!(
+        !imported.can_build(),
+        "opening a file cannot authorize replay"
+    );
+    std::fs::write(&file, b"edited outside the desktop").unwrap();
+
+    step(&mut imported, &fixture.engine, Action::ValidateRecipe);
+    assert!(imported.can_build());
+    assert!(!output.exists(), "validation is a dry run");
+    imported.change_image(Some(original));
+    assert!(!imported.can_build());
+    assert_eq!(imported.imported_recipe().unwrap().bytes, retained);
+    step(&mut imported, &fixture.engine, Action::Scan);
+    assert!(!imported.can_build());
+    step(&mut imported, &fixture.engine, Action::ValidateRecipe);
+
+    imported.set_output(Some(output.clone()));
+    step(&mut imported, &fixture.engine, Action::Build);
+    assert_eq!(imported.built_plan.as_ref().unwrap().bytes, retained);
+    let job = imported.prepare(Action::Verify).unwrap();
+    assert!(imported.finish(job.run(&fixture.engine)));
+    assert_eq!(imported.outcome, Outcome::Verified, "{}", imported.status);
+    let first = imported
+        .scan
+        .as_ref()
+        .unwrap()
+        .report
+        .patches
+        .iter()
+        .position(|p| p.selectable())
+        .unwrap();
+    imported.toggle(first);
+    assert!(imported.imported_recipe().is_none());
+}
+
+#[test]
+fn desktop_import_refuses_advanced_policy_before_replay() {
+    use biosmod_gui::controller::PreparationError;
+
+    let fixture = SyntheticEngine::new();
+    let directory = fixture.directory.path();
+    let file = directory.join("advanced selection.json");
+    let mut session = fixture.session();
+    session.select_recommended();
+    let job = session.prepare_export(file.clone()).unwrap();
+    assert!(session.finish(job.run(&fixture.engine)));
+    let document: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    for (field, value) in [
+        ("facts", serde_json::json!(["physical-board"])),
+        ("allow_hold", serde_json::json!(true)),
+        ("allow_diagnostic", serde_json::json!(true)),
+        ("requested", serde_json::json!(["lab::unknown@1.0.0"])),
+    ] {
+        let mut advanced = document.clone();
+        advanced[field] = value;
+        std::fs::write(&file, serde_json::to_vec(&advanced).unwrap()).unwrap();
+        session.import_review(&file).unwrap();
+        assert!(
+            matches!(
+                session.prepare(Action::ValidateRecipe),
+                Err(PreparationError::RecipeMismatch)
+            ),
+            "expected rejection of {field}"
+        );
+        assert!(!session.can_build(), "expected {field} to disable Build");
+        assert!(
+            session.imported_recipe().is_some(),
+            "expected {field} to remain inspectable"
+        );
+    }
 }

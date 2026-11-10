@@ -175,7 +175,7 @@ export component AppWindow inherits Window {
                     alignment: center;
                     HorizontalLayout {
                         spacing: Theme.space-sm;
-                        Button { text: @tr("Open plan"); enabled: !root.busy; clicked => { root.import-plan(); } }
+                        Button { text: @tr("Open selection file"); enabled: !root.busy; clicked => { root.import-plan(); } }
                         Button { text: @tr("Open output"); enabled: !root.busy; clicked => { root.open-output(); } }
                         Button { text: root.paths-open ? @tr("Hide paths") : @tr("Enter paths"); enabled: !root.busy; clicked => { root.paths-open = !root.paths-open; } }
                     }
@@ -184,7 +184,7 @@ export component AppWindow inherits Window {
             if root.viewport-width < 1000px: HorizontalLayout {
                 spacing: Theme.space-sm;
                 Rectangle { horizontal-stretch: 1; }
-                Button { text: @tr("Open plan"); enabled: !root.busy; clicked => { root.import-plan(); } }
+                Button { text: @tr("Open selection file"); enabled: !root.busy; clicked => { root.import-plan(); } }
                 Button { text: @tr("Open output"); enabled: !root.busy; clicked => { root.open-output(); } }
                 Button { text: root.paths-open ? @tr("Hide paths") : @tr("Enter paths"); enabled: !root.busy; clicked => { root.paths-open = !root.paths-open; } }
             }
@@ -198,9 +198,9 @@ export component AppWindow inherits Window {
                     padding: Theme.space-md;
                     spacing: Theme.space-sm;
                     FieldRow {
-                        label: @tr("Plan");
-                        LineEdit { placeholder-text: @tr("Plan file path"); accessible-label: @tr("Plan file path"); text <=> root.manual-plan-path; enabled: !root.busy; }
-                        Button { text: @tr("Open plan"); enabled: !root.busy && root.manual-plan-path != ""; clicked => { root.open-plan-path(root.manual-plan-path); root.paths-open = false; } }
+                        label: @tr("Selection");
+                        LineEdit { placeholder-text: @tr("Selection file path"); accessible-label: @tr("Selection file path"); text <=> root.manual-plan-path; enabled: !root.busy; }
+                        Button { text: @tr("Open selection file"); enabled: !root.busy && root.manual-plan-path != ""; clicked => { root.open-plan-path(root.manual-plan-path); root.paths-open = false; } }
                     }
                     FieldRow {
                         label: @tr("Output");
@@ -239,7 +239,7 @@ export component AppWindow inherits Window {
                             Chip { text: @tr("Source: {}", root.source); }
                         }
                     }
-                    if root.stage < 2: FieldRow {
+                    if root.stage < 3: FieldRow {
                         label: @tr("Source");
                         LineEdit {
                             placeholder-text: @tr("Catalog source alias");
@@ -291,29 +291,6 @@ export component AppWindow inherits Window {
                     for patch[i] in root.patches: PatchCard { patch: patch; enabled: !root.busy; toggled => { root.toggle-patch(i); } }
                 }
                 Caption { text: root.scan-facts.length > 0 ? @tr("Board profiles are catalog information, not physical board identification. Hardware-dependent findings and corrections that require joint selection cannot be applied here yet.") : @tr("Hardware-dependent findings and corrections that require joint selection cannot be applied here yet."); }
-                Rectangle {
-                    background: Theme.surface;
-                    border-color: Theme.border;
-                    border-width: 1px;
-                    border-radius: Theme.radius;
-                    height: output-layout.preferred-height;
-                    output-layout := VerticalLayout {
-                        padding: Theme.space-md;
-                        spacing: Theme.space-sm;
-                        FieldRow {
-                            label: @tr("Output");
-                            LineEdit {
-                                placeholder-text: @tr("New output image path");
-                                accessible-label: @tr("New output image path");
-                                text <=> root.output-path;
-                                enabled: !root.busy;
-                                edited(value) => { root.output-edited(value); }
-                            }
-                            Button { text: @tr("Choose…"); enabled: !root.busy; clicked => { root.browse-output(); } }
-                        }
-                        if root.output-path != "": Caption { text: @tr("Manifest: {}", root.manifest-path); }
-                    }
-                }
                 HorizontalLayout {
                     spacing: Theme.space-sm;
                     Button { text: @tr("Recommended"); enabled: root.can-recommend && !root.busy; clicked => { root.recommended(); } }
@@ -339,6 +316,29 @@ export component AppWindow inherits Window {
                 TextEdit { text: root.plan-snapshot; read-only: true; min-height: 50px; accessible-label: @tr("Complete plan and source snapshot"); }
 
             }
+            if root.stage == 1 || root.stage == 2: Rectangle {
+                    background: Theme.surface;
+                    border-color: Theme.border;
+                    border-width: 1px;
+                    border-radius: Theme.radius;
+                    height: output-layout.preferred-height;
+                    output-layout := VerticalLayout {
+                        padding: Theme.space-md;
+                        spacing: Theme.space-sm;
+                        FieldRow {
+                            label: @tr("Output");
+                            LineEdit {
+                                placeholder-text: @tr("New output image path");
+                                accessible-label: @tr("New output image path");
+                                text <=> root.output-path;
+                                enabled: !root.busy;
+                                edited(value) => { root.output-edited(value); }
+                            }
+                            Button { text: @tr("Choose…"); enabled: !root.busy; clicked => { root.browse-output(); } }
+                        }
+                        if root.output-path != "": Caption { text: @tr("Manifest: {}", root.manifest-path); }
+                    }
+                }
             if root.stage >= 3 && !root.show-review: VerticalLayout {
                 spacing: Theme.space-md;
                 HorizontalLayout {

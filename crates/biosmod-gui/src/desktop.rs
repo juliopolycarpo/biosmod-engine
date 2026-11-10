@@ -392,9 +392,15 @@ fn start_engine_job(ui: &AppWindow, shared: &Shared, action: Action, export_path
                 && matches!(action, Action::Apply | Action::Build)
                 && state.session.manifest.is_some()
                 && state.session.outcome == Outcome::Idle;
+            let validate = accepted
+                && action == Action::Scan
+                && state.session.outcome == Outcome::Idle
+                && state.session.imported_recipe().is_some();
             sync(&ui, &state);
             drop(state);
-            if verify {
+            if validate {
+                start(&ui, &shared, Action::ValidateRecipe);
+            } else if verify {
                 start(&ui, &shared, Action::Verify);
             }
         });
@@ -832,12 +838,22 @@ fn start_import(ui: &AppWindow, shared: &Shared, path: PathBuf) {
         let _ = weak.upgrade_in_event_loop(move |ui| {
             stop_timer(timer_id);
             let mut state = shared.lock().unwrap();
-            state.session.finish(completion);
+            let accepted = state.session.finish(completion);
             if close_if_requested(&ui, &state) {
                 return;
             }
+            let scan = accepted
+                && state.session.outcome == Outcome::Idle
+                && state.session.imported_recipe().is_some()
+                && state.session.connected
+                && state.session.image.is_some()
+                && state.session.manifest.is_none();
             sync_paths(&ui, &state);
             sync(&ui, &state);
+            drop(state);
+            if scan {
+                start(&ui, &shared, Action::Scan);
+            }
         });
     });
 }
@@ -1041,6 +1057,7 @@ pub fn localized_activity(ui: &AppWindow, action: Action) -> SharedString {
         Action::Sources => t.get_operation_sources(),
         Action::Tools => t.get_operation_tools(),
         Action::Import => t.get_operation_import(),
+        Action::ValidateRecipe => t.get_operation_validate_recipe(),
     }
 }
 
@@ -1074,6 +1091,7 @@ fn localized_status_with_extra(
         Status::Sources => t.get_status_sources(),
         Status::Tools => t.get_status_tools(),
         Status::Imported => t.get_status_imported(),
+        Status::RecipeValidated => t.get_status_recipe_validated(),
         Status::Stopping => t.get_status_stopping(),
         Status::Back => t.get_status_back(),
         Status::ClosingExport => t.get_status_closing_export(),
@@ -1093,6 +1111,7 @@ fn localized_status_with_extra(
             PreparationError::Plan => t.get_precondition_plan(),
             PreparationError::Manifest => t.get_precondition_manifest(),
             PreparationError::WaitImport => t.get_precondition_wait_import(),
+            PreparationError::RecipeMismatch => t.get_precondition_recipe_mismatch(),
         },
         Status::Failed => t.invoke_status_failed(detail.into()),
         Status::PublicationUnknown => t.invoke_status_publication_unknown(detail.into()),

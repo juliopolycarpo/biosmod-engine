@@ -64,7 +64,7 @@ export global UiText {
     public pure function check-skipped(name: string, reason: string) -> string { return @tr("SKIPPED  {}\n{}", name, reason); }
     out property <string> status-start: @tr("Choose a firmware image to get started.");
     out property <string> status-inputs: @tr("Inputs changed. Inspect and scan to continue.");
-    out property <string> status-imported-input: @tr("Imported plan remains read-only. Verify against the chosen original image and output.");
+    out property <string> status-imported-input: @tr("Scan the original image and matching catalog to validate the selection file.");
     out property <string> status-selection: @tr("Selection changed.");
     out property <string> status-ready: @tr("Engine ready. Choose an image to inspect.");
     out property <string> status-inspected: @tr("Image inspected. Scan a source for matching corrections.");
@@ -76,7 +76,8 @@ export global UiText {
     out property <string> status-incomplete: @tr("Verification incomplete. Review skipped checks and retry after addressing them.");
     out property <string> status-sources: @tr("Registered sources loaded. Firmware operations remain offline.");
     out property <string> status-tools: @tr("Tool diagnostics complete.");
-    out property <string> status-imported: @tr("Imported plan: review and verification only. Choose its original image and output.");
+    out property <string> status-recipe-validated: @tr("Selection file validated. Choose an output and build a copy.");
+    out property <string> status-imported: @tr("Selection file opened. Choose its original image and catalog.");
     out property <string> status-stopping: @tr("Stopping operation…");
     out property <string> status-back: @tr("Select corrections and generate a new plan to continue.");
     out property <string> status-closing-export: @tr("Finishing file export before closing…");
@@ -93,7 +94,8 @@ export global UiText {
     out property <string> operation-verify: @tr("Verifying output");
     out property <string> operation-sources: @tr("Reading sources");
     out property <string> operation-tools: @tr("Checking tools");
-    out property <string> operation-import: @tr("Opening plan");
+    out property <string> operation-validate-recipe: @tr("Validating selection file");
+    out property <string> operation-import: @tr("Opening selection file");
     out property <string> operation-export: @tr("Exporting file");
     out property <string> operation-pick: @tr("Choosing file");
     out property <string> engine-disconnected: @tr("Engine not connected");
@@ -124,6 +126,7 @@ export global UiText {
     out property <string> precondition-output: @tr("Choose a built output first.");
     out property <string> precondition-plan: @tr("Open or generate the matching plan first.");
     out property <string> precondition-manifest: @tr("Choose an output with its paired manifest first.");
+    out property <string> precondition-recipe-mismatch: @tr("The selection file must match the scan and use only corrections supported by the desktop.");
     out property <string> precondition-wait-import: @tr("Wait for the active operation before importing a plan.");
     out property <string> tool-paths: @tr("Paths");
 }
