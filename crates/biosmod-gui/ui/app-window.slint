@@ -52,8 +52,14 @@ export component AppWindow inherits Window {
     in-out property <int> language-index: 0;
     in-out property <int> page: 0;
     in-out property <bool> paths-open;
-    // Side padding that keeps content at most Theme.content-max wide and centered.
-    private property <length> gutter: max(Theme.space-xl, (root.width - Theme.content-max) / 2);
+    // Start at the supported minimum so children do not raise the window's
+    // minimum before the first resize. Direct bindings to width/height feed
+    // child constraints back into the window's intrinsic size.
+    private property <length> viewport-width: 760px;
+    private property <length> viewport-height: 600px;
+    changed width => { root.viewport-width = root.width; }
+    changed height => { root.viewport-height = root.height; }
+    private property <length> gutter: max(Theme.space-xl, (root.viewport-width - Theme.content-max) / 2);
     private property <bool> show-review;
     private property <bool> engine-dirty;
     private property <string> manual-plan-path;
@@ -121,20 +127,20 @@ export component AppWindow inherits Window {
                             Text { text: "B"; font-size: Theme.font-heading; font-weight: 700; color: Theme.accent-text; horizontal-alignment: center; vertical-alignment: center; }
                         }
                     }
-                    if root.width >= 1200px: Text { text: @tr("BIOS Mod Engine"); font-size: Theme.font-heading; font-weight: 700; color: Theme.text; vertical-alignment: center; }
+                    if root.viewport-width >= 1200px: Text { text: @tr("BIOS Mod Engine"); font-size: Theme.font-heading; font-weight: 700; color: Theme.text; vertical-alignment: center; }
                     Rectangle { width: Theme.space-md; }
                     NavTab { text: @tr("Workflow"); selected: root.page == 0; activated => { root.page = 0; } }
                     NavTab { text: @tr("Sources & tools"); selected: root.page == 1; activated => { root.page = 1; } }
                     NavTab { text: @tr("Diagnostics"); selected: root.page == 2; activated => { root.page = 2; } }
                     Rectangle { horizontal-stretch: 1; }
-                    if root.width >= 1000px: VerticalLayout {
+                    if root.viewport-width >= 1000px: VerticalLayout {
                         alignment: center;
                         Chip { text: root.engine-status; tone: root.engine-tone; }
                     }
-                    if root.width >= 1000px: NavTab { text: @tr("Settings"); selected: root.page == 4; activated => { root.page = 4; } }
-                    if root.width >= 1000px: NavTab { text: @tr("About"); selected: root.page == 3; activated => { root.page = 3; } }
+                    if root.viewport-width >= 1000px: NavTab { text: @tr("Settings"); selected: root.page == 4; activated => { root.page = 4; } }
+                    if root.viewport-width >= 1000px: NavTab { text: @tr("About"); selected: root.page == 3; activated => { root.page = 3; } }
                 }
-                if root.width < 1000px: HorizontalLayout {
+                if root.viewport-width < 1000px: HorizontalLayout {
                     padding-left: root.gutter;
                     padding-right: root.gutter;
                     spacing: Theme.space-sm;
@@ -159,7 +165,7 @@ export component AppWindow inherits Window {
                 spacing: Theme.space-sm;
                 Stepper { current: root.stage < 2 ? 0 : root.stage == 2 || root.show-review ? 1 : root.status-tone == Tone.good ? 3 : 2; }
                 Rectangle { horizontal-stretch: 1; }
-                if root.width >= 1000px: VerticalLayout {
+                if root.viewport-width >= 1000px: VerticalLayout {
                     alignment: center;
                     HorizontalLayout {
                         spacing: Theme.space-sm;
@@ -169,7 +175,7 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            if root.width < 1000px: HorizontalLayout {
+            if root.viewport-width < 1000px: HorizontalLayout {
                 spacing: Theme.space-sm;
                 Rectangle { horizontal-stretch: 1; }
                 Button { text: @tr("Open plan"); enabled: !root.busy; clicked => { root.import-plan(); } }
@@ -253,11 +259,11 @@ export component AppWindow inherits Window {
                 }
                 // While the manual paths panel is open on a short window, the summary yields its rows
                 // so the footer and status bar stay on screen.
-                if (root.image-facts.length > 0 || root.scan-facts.length > 0) && !(root.paths-open && root.height < 700px): FindingsSummary {
+                if (root.image-facts.length > 0 || root.scan-facts.length > 0) && !(root.paths-open && root.viewport-height < 700px): FindingsSummary {
                     image-facts: root.image-facts;
                     scan-facts: root.scan-facts;
                     image-sha: root.image-sha;
-                    compact: root.height < 700px;
+                    compact: root.viewport-height < 700px;
                 }
                 if root.patches.length == 0: Rectangle {
                     background: Theme.surface;
@@ -275,7 +281,7 @@ export component AppWindow inherits Window {
                 }
                 if root.patches.length > 0: ListView {
                     vertical-stretch: 1;
-                    min-height: root.paths-open && root.height < 700px ? 0px : 80px;
+                    min-height: root.paths-open && root.viewport-height < 700px ? 0px : 80px;
                     for patch[i] in root.patches: PatchCard { patch: patch; enabled: !root.busy; toggled => { root.toggle-patch(i); } }
                 }
                 Caption { text: root.scan-facts.length > 0 ? @tr("Board profiles are catalog information, not physical board identification. Hardware-dependent findings and corrections that require joint selection cannot be applied here yet.") : @tr("Hardware-dependent findings and corrections that require joint selection cannot be applied here yet."); }
