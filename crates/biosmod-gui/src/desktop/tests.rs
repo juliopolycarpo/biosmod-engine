@@ -101,6 +101,28 @@ fn protected_preferences_name_the_unreadable_file_and_stay_untouched() {
 }
 
 #[test]
+fn plan_summary_keeps_component_identity_policy_and_snapshot() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _state) = bound_window(Settings::default(), None);
+    let plan = json!({"firmware":"synthetic", "components":[{"name":"ACPI", "ffs_guid":"guid", "table_offset":128, "file_offset":4096, "patches":["A"]}], "facts":["board-rev"], "allow_hold":true, "allow_diagnostic":false, "source":{"manifest_sha256":"pinned"}});
+    let review = Review::new(PathBuf::from("/tmp/plan.json"), Vec::new(), plan, true);
+    let text = plan_summary(&window, &review);
+    for expected in [
+        "Generated in this session\n\nFirmware: synthetic",
+        "ACPI · guid · table offset 128 · file offset 4096\n  A\n",
+        "Hardware assertions: board-rev",
+        "Allow hold: true · Allow diagnostic: false\nNone\n",
+        "Complete plan and source snapshot\n{",
+        "\"manifest_sha256\": \"pinned\"",
+    ] {
+        assert!(
+            text.contains(expected),
+            "plan summary: expected {expected:?} | received {text:?}"
+        );
+    }
+}
+
+#[test]
 fn verification_summary_preserves_passes_skips_and_notice() {
     i_slint_backend_testing::init_no_event_loop();
     let (window, _state) = bound_window(Settings::default(), None);
@@ -191,7 +213,7 @@ fn language_switch_refreshes_review_rows_and_verification_without_changing_sessi
         window.get_patches().row_data(0).unwrap().state,
         "Defect present"
     );
-    assert_eq!(window.get_plan_details().as_str(), review.text.as_str());
+    assert_eq!(window.get_plan_details(), plan_summary(&window, &review));
     assert_eq!(Settings::load(&path).unwrap().language, Language::En);
 }
 
@@ -670,15 +692,11 @@ fn review_presentation_tracks_replacement_and_invalidation() {
             .starts_with("Generated in this session")
     );
     let first = window.get_plan_details();
-    assert_eq!(
-        first.as_str().as_ptr(),
-        state.lock().unwrap().session.review_text().as_ptr(),
-        "review presentation: expected one allocation shared with Slint | received a duplicate full document"
-    );
     window.invoke_output_edited("/tmp/other.bin".into());
     assert_eq!(
         first.as_str().as_ptr(),
-        window.get_plan_details().as_str().as_ptr()
+        window.get_plan_details().as_str().as_ptr(),
+        "unchanged review: expected the presented plan to be reused | received a new rendering"
     );
     state.lock().unwrap().session.review = Some(fake_review(false));
     sync(&window, &state.lock().unwrap());

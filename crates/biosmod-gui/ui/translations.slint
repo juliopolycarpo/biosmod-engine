@@ -47,8 +47,8 @@ export global UiText {
     public pure function plan-component(name: string, guid: string, table: string, file: string, patches: string) -> string {
         return @tr("{} · {} · table offset {} · file offset {}\n  {}\n", name, guid, table, file, patches);
     }
-    public pure function plan-end(facts: string, hold: string, diagnostic: string, notes: string, document: string) -> string {
-        return @tr("\nHardware assertions: {}\nAllow hold: {} · Allow diagnostic: {}\n{}\n\nComplete plan and source snapshot\n{}", facts, hold, diagnostic, notes, document);
+    public pure function plan-end(facts: string, hold: string, diagnostic: string, notes: string) -> string {
+        return @tr("\nHardware assertions: {}\nAllow hold: {} · Allow diagnostic: {}\n{}\n\nComplete plan and source snapshot\n", facts, hold, diagnostic, notes);
     }
     out property <string> offline-checks: @tr("Independent offline checks");
     out property <string> input-digest: @tr("Original image digest");

@@ -81,60 +81,9 @@ pub struct Report {
     pub patches: Vec<Patch>,
 }
 
-/// Render the complete document below a concise, human-readable plan summary.
-/// Example: `plan_summary(&document)` includes `table_offset` without merging components.
-pub fn plan_summary(plan: &Value) -> String {
-    let mut text = format!(
-        "Firmware: {}\nSource: {} · {} {} · {}\n\nRequested: {}\nSelected: {}\nAlready carried: {}\n\nInput SHA-256: {}\nOutput SHA-256: {}\nEngine: {} · {}\n\n",
-        string(plan, "firmware"),
-        plan["source"]["alias"].as_str().unwrap_or("?"),
-        plan["source"]["catalog_id"].as_str().unwrap_or("?"),
-        plan["source"]["catalog_version"].as_str().unwrap_or("?"),
-        plan["source"]["trust"].as_str().unwrap_or("?"),
-        joined(&plan["requested"]),
-        joined(&plan["selected"]),
-        joined(&plan["carried"]),
-        plan["input"]["sha256"].as_str().unwrap_or("?"),
-        plan["output"]["sha256"].as_str().unwrap_or("?"),
-        plan["engine"]["version"].as_str().unwrap_or("?"),
-        plan["engine"]["codec"].as_str().unwrap_or("?")
-    );
-    if let Some(components) = plan["components"].as_array() {
-        for c in components {
-            text.push_str(&format!(
-                "{} · {} · table offset {} · file offset {}\n  {}\n",
-                string(c, "name"),
-                string(c, "ffs_guid"),
-                c["table_offset"],
-                c["file_offset"],
-                joined(&c["patches"])
-            ));
-        }
-    }
-    text.push_str(&format!("\nHardware assertions: {}\nAllow hold: {} · Allow diagnostic: {}\n{}\n\nComplete plan and source snapshot\n{}",
-        joined(&plan["facts"]), plan["allow_hold"], plan["allow_diagnostic"], joined(&plan["notes"]), pretty(plan)));
-    text
-}
-
 /// Format a protocol value for copyable details. Example: `pretty(&json!({"ok": true}))`.
 pub fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_default()
-}
-
-fn string<'a>(value: &'a Value, field: &str) -> &'a str {
-    value[field].as_str().unwrap_or("unknown")
-}
-fn joined(value: &Value) -> String {
-    value
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()
-                .join(", ")
-        })
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "None".into())
 }
 
 #[cfg(test)]
@@ -195,14 +144,7 @@ mod tests {
         }
     }
     #[test]
-    fn summary_keeps_component_identity_policy_and_snapshot() {
-        let plan = json!({"firmware":"synthetic", "components":[{"name":"ACPI", "ffs_guid":"guid", "table_offset":128, "file_offset":4096, "patches":["A"]}], "facts":["board-rev"], "allow_hold":true, "allow_diagnostic":false, "source":{"manifest_sha256":"pinned"}});
-        let text = plan_summary(&plan);
-        assert!(text.contains("table offset 128"));
-        assert!(text.contains("board-rev"));
-        assert!(text.contains("pinned"));
-        assert!(text.contains("Allow hold: true"));
-        assert_eq!(joined(&Value::Null), "None");
-        assert!(pretty(&plan).contains("synthetic"));
+    fn pretty_prints_protocol_values() {
+        assert!(pretty(&json!({"firmware": "synthetic"})).contains("\"firmware\": \"synthetic\""));
     }
 }

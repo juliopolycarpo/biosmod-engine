@@ -676,7 +676,7 @@ msgstr ""
 msgctxt "UiText"
 msgid ""
 "\nHardware assertions: {}\nAllow hold: {} · Allow diagnostic: "
-"{}\n{}\n\nComplete plan and source snapshot\n{}"
+"{}\n{}\n\nComplete plan and source snapshot\n"
 msgstr ""
 
 #: ui/translations.slint:53

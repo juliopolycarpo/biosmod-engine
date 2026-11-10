@@ -158,7 +158,7 @@ fn diagnostics_export_refuses_to_overwrite_and_manifest_keeps_os_path() {
 }
 
 #[test]
-fn retained_review_reuses_its_formatted_presentation() {
+fn imported_review_prepares_its_snapshot_before_presentation() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("plan.json");
     std::fs::write(
@@ -168,14 +168,11 @@ fn retained_review_reuses_its_formatted_presentation() {
     .unwrap();
     let mut session = Session::new().unwrap();
     session.import_review(&path).unwrap();
-    let first = session.review_text();
-    let second = session.review_text();
-    assert!(first.contains("Read-only imported plan"));
-    assert!(first.contains("retained source snapshot"));
-    assert_eq!(
-        first.as_ptr(),
-        second.as_ptr(),
-        "unchanged review: expected cached presentation | received a second allocation"
+    let review = session.review.as_ref().unwrap();
+    assert!(
+        !review.generated && review.snapshot == pretty(&review.document),
+        "imported review: expected a read-only review with its pretty snapshot | received {:?}",
+        review.snapshot
     );
 }
 

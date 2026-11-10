@@ -1,7 +1,7 @@
 //! Session transitions and reviewed-plan ownership, independent of the windowing backend.
 
 use crate::engine::{Engine, EngineError, ErrorKind, Reply, Request, Verification};
-use crate::model::{Scan, SourceReport, plan_summary, pretty};
+use crate::model::{Scan, SourceReport, pretty};
 use serde_json::Value;
 use std::fs;
 use std::io::{Read, Write};
@@ -206,28 +206,21 @@ pub struct Review {
     pub bytes: Vec<u8>,
     pub document: Value,
     pub generated: bool,
-    pub(crate) text: slint::SharedString,
+    /// The pretty-printed document, prepared off the UI thread for every language.
+    pub(crate) snapshot: String,
 }
 
 impl Review {
-    /// Retain exact plan bytes and prepare its presentation on the worker.
+    /// Retain exact plan bytes and pretty-print the document on the worker.
     /// Example: `Review::new(path, bytes, document, false)` creates a read-only import.
     pub fn new(path: PathBuf, bytes: Vec<u8>, document: Value, generated: bool) -> Self {
-        let text = format!(
-            "{}\n\n{}",
-            if generated {
-                "Generated in this session"
-            } else {
-                "Read-only imported plan"
-            },
-            plan_summary(&document)
-        );
+        let snapshot = pretty(&document);
         Self {
             path,
             bytes,
             document,
             generated,
-            text: text.into(),
+            snapshot,
         }
     }
 }
@@ -827,15 +820,6 @@ impl Session {
         self.outcome = Outcome::Idle;
         self.result_details.clear();
         self.verification_report = None;
-    }
-
-    /// Present the exact reviewed document and whether it is read-only.
-    /// Example: imported reviews have a `Read-only imported plan` heading.
-    pub fn review_text(&self) -> &str {
-        self.review
-            .as_ref()
-            .map(|r| r.text.as_str())
-            .unwrap_or_default()
     }
 }
 

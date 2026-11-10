@@ -671,8 +671,8 @@ msgstr "{} · {} · deslocamento na tabela {} · deslocamento no arquivo {}\n  {
 msgctxt "UiText"
 msgid ""
 "\nHardware assertions: {}\nAllow hold: {} · Allow diagnostic: "
-"{}\n{}\n\nComplete plan and source snapshot\n{}"
-msgstr "\nAfirmações de hardware: {}\nPermitir hold: {} · Permitir diagnóstico: {}\n{}\n\nPlano completo e instantâneo da fonte\n{}"
+"{}\n{}\n\nComplete plan and source snapshot\n"
+msgstr "\nAfirmações de hardware: {}\nPermitir hold: {} · Permitir diagnóstico: {}\n{}\n\nPlano completo e instantâneo da fonte\n"
 
 #: ui/translations.slint:52
 msgctxt "UiText"

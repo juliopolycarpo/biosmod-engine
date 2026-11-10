@@ -134,7 +134,7 @@ fn real_engine_controller_workflow_and_plan_safety() {
     step(&mut session, &fixture.engine, Action::Plan);
     let reviewed = session.review.as_ref().unwrap().clone();
     assert!(reviewed.generated);
-    assert!(session.review_text().contains("PA"));
+    assert!(reviewed.document["selected"].to_string().contains("PA"));
 
     let root = fixture.directory.path();
     let output = root.join("gui output.bin");

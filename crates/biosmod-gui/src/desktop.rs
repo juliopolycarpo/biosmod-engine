@@ -1027,19 +1027,15 @@ fn sync_review(ui: &AppWindow, state: &Desktop) {
             .session
             .review
             .as_ref()
-            .map(|r| {
-                if state.settings.language == Language::En {
-                    r.text.clone()
-                } else {
-                    localized_plan(ui, r)
-                }
-            })
+            .map(|review| plan_summary(ui, review))
             .unwrap_or_default(),
     );
     *presented = state.session.review.clone();
 }
 
-fn localized_plan(ui: &AppWindow, review: &Review) -> SharedString {
+/// Render a reviewed plan's summary in the selected language above its complete snapshot.
+/// Example: `plan_summary(&window, &review)` starts with `Generated in this session` in English.
+pub fn plan_summary(ui: &AppWindow, review: &Review) -> SharedString {
     let t = ui.global::<UiText>();
     let plan = &review.document;
     let value = |v: &serde_json::Value| -> SharedString { v.as_str().unwrap_or("?").into() };
@@ -1060,9 +1056,9 @@ fn localized_plan(ui: &AppWindow, review: &Review) -> SharedString {
     } else {
         t.get_imported_plan()
     };
-    let mut output = format!(
-        "{}\n\n{}",
-        header,
+    let mut output = header;
+    output.push_str("\n\n");
+    output.push_str(
         t.invoke_plan_intro(
             value(&plan["firmware"]),
             value(&plan["source"]["alias"]),
@@ -1077,6 +1073,7 @@ fn localized_plan(ui: &AppWindow, review: &Review) -> SharedString {
             value(&plan["engine"]["version"]),
             value(&plan["engine"]["codec"]),
         )
+        .as_str(),
     );
     if let Some(components) = plan["components"].as_array() {
         for component in components {
@@ -1098,11 +1095,12 @@ fn localized_plan(ui: &AppWindow, review: &Review) -> SharedString {
             plan["allow_hold"].to_string().into(),
             plan["allow_diagnostic"].to_string().into(),
             joined(&plan["notes"]),
-            crate::model::pretty(plan).into(),
         )
         .as_str(),
     );
-    output.into()
+    // Append the worker-prepared snapshot once instead of passing it through a template.
+    output.push_str(&review.snapshot);
+    output
 }
 
 /// Present each reported verification check, its result and limits, in the selected language.
