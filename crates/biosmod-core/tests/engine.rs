@@ -82,7 +82,7 @@ fn acpi_table_offset_near_usize_max_is_not_found_instead_of_overflowing() {
 }
 
 #[test]
-fn distinct_acpi_table_offsets_are_not_composed_as_the_same_component() {
+fn overlapping_acpi_table_offsets_are_not_composed() {
     use biosmod_core::catalog::Variant;
     let mut case = Case::new();
     let mut other = case.catalog.patches["TB"].clone();
@@ -607,7 +607,7 @@ fn allowlist_spans_outside_the_image_are_rejected() {
 }
 
 #[test]
-fn table_offset_conflict_uses_first_different_offset_for_each_component() {
+fn table_overlap_reports_conflicting_offsets_for_each_component() {
     use biosmod_core::catalog::Variant;
     let mut case = Case::new();
     for (id, offset) in [("TA", 8), ("TC", 16), ("TD", 8)] {
@@ -648,4 +648,566 @@ fn table_offset_conflict_uses_first_different_offset_for_each_component() {
             "{id}: direct patch state differs from scan"
         );
     }
+}
+
+/// Two distinct synthetic DSDTs inside the fixture's existing RAW section.
+fn two_table_case() -> Case {
+    use biosmod_core::catalog::Variant;
+    use biosmod_core::firmware::rebuild;
+    use biosmod_core::util::Digest256;
+    let mut case = Case::new();
+    let make_table = |seed| {
+        let mut table = synthetic::acpi(&synthetic::module(seed, 28));
+        table[9] = 0u8.wrapping_sub(table.iter().fold(0u8, |sum, byte| sum.wrapping_add(*byte)));
+        table
+    };
+    let first = make_table(12);
+    let second = make_table(13);
+    let mut body = first.clone();
+    body.extend_from_slice(&[0x5a; 4]);
+    let second_offset = body.len();
+    body.extend_from_slice(&second);
+    assert_eq!(body.len(), case.fixture.table.len());
+    let image = case.image();
+    let leaf = image.leaves[&synthetic::TABLE_GUID][0].clone();
+    let file = rebuild::rebuilt_file(&image, &leaf, &body).unwrap();
+    rebuild::write_in_place(
+        &mut case.fixture.image,
+        &image.volumes[leaf.volume],
+        &[(leaf.file, file)],
+    );
+    let Variant::Applicable(variant) = case
+        .catalog
+        .patches
+        .get_mut("TB")
+        .unwrap()
+        .variants
+        .get_mut(synthetic::FIRMWARE)
+        .unwrap()
+    else {
+        panic!("applicable table patch")
+    };
+    let template = variant.components[0].clone();
+    let make = |table: &[u8], offset, byte| {
+        let mut component = template.clone();
+        component.name = format!("DSDT-{offset}");
+        component.table_offset = offset;
+        let mut expected = table.to_vec();
+        expected[40] = byte;
+        expected[9] = expected[9].wrapping_sub(byte.wrapping_sub(table[40]));
+        component.hunks = vec![
+            synthetic::hunk(table, 9, &[expected[9]]),
+            synthetic::hunk(table, 40, &[byte]),
+        ];
+        let result = biosmod_core::patch::apply(table, &component.hunks).unwrap();
+        assert_eq!(result, expected);
+        assert_eq!(
+            result.iter().fold(0u8, |sum, byte| sum.wrapping_add(*byte)),
+            0
+        );
+        component.source_sha256 = Digest256::of(table);
+        component.source_size = table.len() as u64;
+        component.result_sha256 = Digest256::of(&result);
+        component.result_size = result.len() as u64;
+        component
+    };
+    variant.components = vec![make(&first, 0, 0x91), make(&second, second_offset, 0x92)];
+    case
+}
+
+#[test]
+fn two_tables_in_one_patch_are_valid_and_built_together() {
+    let case = two_table_case();
+    biosmod_core::validation::catalog(&case.catalog)
+        .expect("different table offsets are distinct components");
+    let input = case.image();
+    let table_components = case.catalog.patches["TB"].components(synthetic::FIRMWARE);
+    for component in table_components {
+        let related = analysis::related_component(&case.catalog, synthetic::FIRMWARE, component);
+        assert_eq!(related.len(), 1);
+        assert_eq!(related[0].1.table_offset, component.table_offset);
+    }
+    let request = Request {
+        firmware: Some(synthetic::FIRMWARE.into()),
+        select: vec!["TB".into()],
+        ..Request::default()
+    };
+    let built = build(&input, &case.catalog, &request)
+        .expect("two disjoint tables can be patched together");
+    assert_eq!(built.components.len(), 2);
+    assert_eq!(
+        built
+            .components
+            .iter()
+            .map(|c| c.table_offset)
+            .collect::<Vec<_>>(),
+        [0, 68]
+    );
+    let output = Image::parse(built.image.clone()).expect("rebuilt image parses");
+    assert_eq!(
+        analysis::patch_state(
+            &output,
+            &case.catalog,
+            synthetic::FIRMWARE,
+            &case.catalog.patches["TB"]
+        )
+        .0,
+        State::Fixed
+    );
+    biosmod_core::plan::outside_allowlist_unchanged(&input.bytes, &built.image, &built.allowlist)
+        .unwrap();
+    let mut reverse = case.catalog.clone();
+    let biosmod_core::catalog::Variant::Applicable(variant) = reverse
+        .patches
+        .get_mut("TB")
+        .unwrap()
+        .variants
+        .get_mut(synthetic::FIRMWARE)
+        .unwrap()
+    else {
+        panic!("applicable variant")
+    };
+    variant.components.reverse();
+    let reversed = build(&input, &reverse, &request).expect("reversed component order");
+    assert_eq!(
+        built.image, reversed.image,
+        "component order must not change output"
+    );
+    let detection = analysis::detect(&input, &case.catalog);
+    let score = detection
+        .scores
+        .iter()
+        .find(|score| score.firmware == synthetic::FIRMWARE)
+        .unwrap();
+    assert_eq!(
+        score.total, 4,
+        "two table offsets count as two independent components"
+    );
+    assert_eq!(score.matched, 4);
+}
+
+/// Split the two-table correction into separate patches for the same FFS file.
+fn split_table_case() -> Case {
+    use biosmod_core::catalog::Variant;
+    let mut case = two_table_case();
+    let mut second = case.catalog.patches["TB"].clone();
+    second.id = "TZ".into();
+    let Variant::Applicable(v) = second.variants.get_mut(synthetic::FIRMWARE).unwrap() else {
+        panic!("applicable variant")
+    };
+    let tail = v.components.pop().unwrap();
+    v.components = vec![tail];
+    let Variant::Applicable(v) = case
+        .catalog
+        .patches
+        .get_mut("TB")
+        .unwrap()
+        .variants
+        .get_mut(synthetic::FIRMWARE)
+        .unwrap()
+    else {
+        panic!("applicable variant")
+    };
+    v.components.pop();
+    case.catalog.patches.insert(second.id.clone(), second);
+    case
+}
+
+#[test]
+fn separate_table_patches_preserve_both_tables_and_order() {
+    let case = split_table_case();
+    let input = case.image();
+    let make = |ids: &[&str]| {
+        build(
+            &input,
+            &case.catalog,
+            &Request {
+                firmware: Some(synthetic::FIRMWARE.into()),
+                select: ids.iter().map(|s| s.to_string()).collect(),
+                ..Request::default()
+            },
+        )
+        .unwrap()
+    };
+    let forward = make(&["TB", "TZ"]);
+    let reverse = make(&["TZ", "TB"]);
+    assert_eq!(
+        forward.image, reverse.image,
+        "selection order must not change output"
+    );
+    let output = Image::parse(forward.image.clone()).unwrap();
+    let leaf = &output.leaves[&synthetic::TABLE_GUID][0];
+    let body = output.leaf_body(leaf);
+    assert_eq!(
+        &body[64..68],
+        &[0x5a; 4],
+        "bytes between the tables remain unchanged"
+    );
+    for (id, offset) in [("TB", 0), ("TZ", 68)] {
+        let table = analysis::module_bytes(
+            &output,
+            leaf,
+            biosmod_core::catalog::LeafKind::AcpiTable,
+            offset,
+        )
+        .unwrap();
+        assert_eq!(
+            table.iter().fold(0u8, |sum, byte| sum.wrapping_add(*byte)),
+            0,
+            "{id}: checksum"
+        );
+        assert_eq!(
+            analysis::patch_state(
+                &output,
+                &case.catalog,
+                synthetic::FIRMWARE,
+                &case.catalog.patches[id]
+            )
+            .0,
+            State::Fixed,
+            "{id}: fixed state"
+        );
+    }
+    biosmod_core::plan::outside_allowlist_unchanged(
+        &input.bytes,
+        &forward.image,
+        &forward.allowlist,
+    )
+    .unwrap();
+    assert_eq!(forward.components.len(), 2);
+}
+
+#[test]
+fn same_table_carried_fix_survives_other_table_rebuild() {
+    use biosmod_core::catalog::Variant;
+    use biosmod_core::util::Digest256;
+    let mut case = split_table_case();
+    let mut extra = case.catalog.patches["TB"].clone();
+    extra.id = "TX".into();
+    let Variant::Applicable(v) = extra.variants.get_mut(synthetic::FIRMWARE).unwrap() else {
+        panic!("applicable variant")
+    };
+    let image = case.image();
+    let leaf = &image.leaves[&synthetic::TABLE_GUID][0];
+    let table = analysis::module_bytes(&image, leaf, biosmod_core::catalog::LeafKind::AcpiTable, 0)
+        .unwrap();
+    let first = table[50].wrapping_add(1);
+    let second = table[51].wrapping_sub(1);
+    v.components[0].hunks = vec![synthetic::hunk(table, 50, &[first, second])];
+    let result = biosmod_core::patch::apply(table, &v.components[0].hunks).unwrap();
+    v.components[0].result_sha256 = Digest256::of(&result);
+    case.catalog.patches.insert(extra.id.clone(), extra);
+    let first = case.build(&image, &["TB"]).unwrap();
+    let patched = Image::parse(first).unwrap();
+    let built = build(
+        &patched,
+        &case.catalog,
+        &Request {
+            firmware: Some(synthetic::FIRMWARE.into()),
+            select: vec!["TX".into(), "TZ".into()],
+            ..Request::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(built.carried, ["TB"]);
+    let output = Image::parse(built.image.clone()).unwrap();
+    for id in ["TB", "TX", "TZ"] {
+        assert_eq!(
+            analysis::patch_state(
+                &output,
+                &case.catalog,
+                synthetic::FIRMWARE,
+                &case.catalog.patches[id]
+            )
+            .0,
+            State::Fixed,
+            "{id}: fixed after rebuild"
+        );
+    }
+    biosmod_core::plan::outside_allowlist_unchanged(&patched.bytes, &built.image, &built.allowlist)
+        .unwrap();
+}
+
+#[test]
+fn overlapping_table_ranges_are_refused_before_composition() {
+    use biosmod_core::catalog::Variant;
+    let mut case = split_table_case();
+    let Variant::Applicable(v) = case
+        .catalog
+        .patches
+        .get_mut("TZ")
+        .unwrap()
+        .variants
+        .get_mut(synthetic::FIRMWARE)
+        .unwrap()
+    else {
+        panic!("applicable variant")
+    };
+    v.components[0].table_offset = 60;
+    let error = case.build(&case.image(), &["TB", "TZ"]).unwrap_err();
+    assert_eq!(error.code, Code::FormatUnsupported);
+    assert!(
+        error.message.contains("overlapping ACPI table offsets"),
+        "{error}"
+    );
+    let report = analysis::scan(&case.image(), &case.catalog, Some(synthetic::FIRMWARE));
+    for id in ["TB", "TZ"] {
+        let row = report.patches.iter().find(|p| p.id == id).unwrap();
+        assert_eq!(row.state, State::Unsupported, "{id}: {row:?}");
+    }
+}
+
+#[test]
+fn resizing_one_of_multiple_tables_is_refused() {
+    use biosmod_core::catalog::{HunkOp, Variant};
+    use biosmod_core::util::{Digest256, HexBytes};
+    let mut case = split_table_case();
+    let image = case.image();
+    let leaf = &image.leaves[&synthetic::TABLE_GUID][0];
+    let table = analysis::module_bytes(&image, leaf, biosmod_core::catalog::LeafKind::AcpiTable, 0)
+        .unwrap();
+    let Variant::Applicable(v) = case
+        .catalog
+        .patches
+        .get_mut("TB")
+        .unwrap()
+        .variants
+        .get_mut(synthetic::FIRMWARE)
+        .unwrap()
+    else {
+        panic!("applicable variant")
+    };
+    let component = &mut v.components[0];
+    let mut checksum = table[9];
+    checksum = checksum.wrapping_sub(4);
+    component.hunks = vec![
+        synthetic::hunk(table, 4, &68u32.to_le_bytes()),
+        synthetic::hunk(table, 9, &[checksum]),
+    ];
+    let mut append = synthetic::hunk(table, 0, &[]);
+    append.op = HunkOp::Append;
+    append.offset = table.len();
+    append.before = HexBytes::default();
+    append.after = HexBytes(vec![0; 4]);
+    append.context_before = HexBytes::default();
+    append.context_after = HexBytes::default();
+    component.hunks.push(append);
+    let result = biosmod_core::patch::apply(table, &component.hunks).unwrap();
+    component.result_size = result.len() as u64;
+    component.result_sha256 = Digest256::of(&result);
+    let error = case.build(&image, &["TB"]).unwrap_err();
+    assert_eq!(error.code, Code::FormatUnsupported, "{error}");
+    assert!(
+        error.message.contains("cannot resize an ACPI table"),
+        "{error}"
+    );
+}
+
+#[test]
+fn malformed_table_lengths_are_not_exposed_as_complete_tables() {
+    use biosmod_core::catalog::LeafKind;
+    use biosmod_core::firmware::rebuild;
+    let case = two_table_case();
+    let image = case.image();
+    let leaf = image.leaves[&synthetic::TABLE_GUID][0].clone();
+    for length in [8u32, 133, u32::MAX] {
+        let mut body = image.leaf_body(&leaf).to_vec();
+        body[4..8].copy_from_slice(&length.to_le_bytes());
+        let file = rebuild::rebuilt_file(&image, &leaf, &body).unwrap();
+        let mut bytes = image.bytes.clone();
+        rebuild::write_in_place(
+            &mut bytes,
+            &image.volumes[leaf.volume],
+            &[(leaf.file, file)],
+        );
+        let malformed = Image::parse(bytes).unwrap();
+        let actual = analysis::module_bytes(&malformed, &leaf, LeafKind::AcpiTable, 0);
+        assert!(
+            actual.is_none(),
+            "table length {length}: expected no complete ACPI table"
+        );
+    }
+}
+
+#[test]
+fn catalog_rejects_overlapping_tables_in_one_variant() {
+    use biosmod_core::catalog::Variant;
+    let mut case = two_table_case();
+    let Variant::Applicable(v) = case
+        .catalog
+        .patches
+        .get_mut("TB")
+        .unwrap()
+        .variants
+        .get_mut(synthetic::FIRMWARE)
+        .unwrap()
+    else {
+        panic!("applicable variant")
+    };
+    v.components[1].table_offset = 60;
+    let error = biosmod_core::validation::catalog(&case.catalog).unwrap_err();
+    assert_eq!(error.code, Code::CatalogInvalid);
+    assert!(
+        error
+            .message
+            .contains("overlapping ACPI table offsets 0x0 and 0x3c"),
+        "{error}"
+    );
+}
+
+#[test]
+fn mismatched_declared_table_size_cannot_match_a_larger_table() {
+    use biosmod_core::catalog::Variant;
+    let mut case = two_table_case();
+    let image = case.image();
+    let Variant::Applicable(v) = case
+        .catalog
+        .patches
+        .get_mut("TB")
+        .unwrap()
+        .variants
+        .get_mut(synthetic::FIRMWARE)
+        .unwrap()
+    else {
+        panic!("applicable variant")
+    };
+    v.components[0].source_size = 63;
+    v.components[0].result_size = 63;
+    let component = &case.catalog.patches["TB"].components(synthetic::FIRMWARE)[0];
+    assert!(
+        analysis::match_component(&image, &case.catalog, synthetic::FIRMWARE, component).is_none(),
+        "declared source_size 63 must not match a 64-byte table"
+    );
+}
+
+#[test]
+fn layered_table_larger_than_declared_extent_is_unsupported() {
+    use biosmod_core::catalog::{HunkOp, Variant};
+    use biosmod_core::firmware::rebuild;
+    use biosmod_core::util::{Digest256, HexBytes};
+    let mut case = split_table_case();
+    let original = case.image();
+    let leaf = original.leaves[&synthetic::TABLE_GUID][0].clone();
+    let initial = case.build(&original, &["TB"]).unwrap();
+    let first = Image::parse(initial).unwrap();
+    let table =
+        analysis::module_bytes(&first, &leaf, biosmod_core::catalog::LeafKind::AcpiTable, 0)
+            .unwrap();
+    let mut layer = case.catalog.patches["TB"].clone();
+    layer.id = "TX".into();
+    layer.requires = vec!["TB".into()];
+    let Variant::Applicable(variant) = layer.variants.get_mut(synthetic::FIRMWARE).unwrap() else {
+        panic!("applicable variant")
+    };
+    let component = &mut variant.components[0];
+    component.layer_on = vec!["TB".into()];
+    component.input_sha256 = Some(Digest256::of(table));
+    component.hunks = vec![
+        synthetic::hunk(table, 4, &68u32.to_le_bytes()),
+        synthetic::hunk(table, 9, &[table[9].wrapping_sub(4)]),
+    ];
+    let mut append = synthetic::hunk(table, 0, &[]);
+    append.op = HunkOp::Append;
+    append.offset = table.len();
+    append.before = HexBytes::default();
+    append.after = HexBytes(vec![0; 4]);
+    append.context_before = HexBytes::default();
+    append.context_after = HexBytes::default();
+    component.hunks.push(append);
+    let result = biosmod_core::patch::apply(table, &component.hunks).unwrap();
+    component.result_sha256 = Digest256::of(&result);
+    component.result_size = 64; // The actual layered result is 68 bytes.
+    case.catalog.patches.insert(layer.id.clone(), layer);
+    let mut body = first.leaf_body(&leaf).to_vec();
+    body[..68].copy_from_slice(&result);
+    let file = rebuild::rebuilt_file(&first, &leaf, &body).unwrap();
+    let mut bytes = first.bytes.clone();
+    rebuild::write_in_place(
+        &mut bytes,
+        &first.volumes[leaf.volume],
+        &[(leaf.file, file)],
+    );
+    let image = Image::parse(bytes).unwrap();
+    let (state, detail) = analysis::patch_state(
+        &image,
+        &case.catalog,
+        synthetic::FIRMWARE,
+        &case.catalog.patches["TX"],
+    );
+    assert_eq!(
+        state,
+        State::Unsupported,
+        "a 68-byte table exceeds the declared 64-byte extent: {detail}"
+    );
+}
+
+#[test]
+fn layered_same_table_patch_composes_beside_another_table() {
+    use biosmod_core::catalog::Variant;
+    use biosmod_core::util::Digest256;
+    let mut case = split_table_case();
+    let original = case.image();
+    let first = Image::parse(case.build(&original, &["TB"]).unwrap()).unwrap();
+    let leaf = &first.leaves[&synthetic::TABLE_GUID][0];
+    let table = analysis::module_bytes(&first, leaf, biosmod_core::catalog::LeafKind::AcpiTable, 0)
+        .unwrap();
+    let mut layer = case.catalog.patches["TB"].clone();
+    layer.id = "TX".into();
+    layer.requires = vec!["TB".into()];
+    let Variant::Applicable(variant) = layer.variants.get_mut(synthetic::FIRMWARE).unwrap() else {
+        panic!("applicable variant")
+    };
+    let component = &mut variant.components[0];
+    component.layer_on = vec!["TB".into()];
+    component.input_sha256 = Some(Digest256::of(table));
+    component.hunks = vec![synthetic::hunk(
+        table,
+        50,
+        &[table[50].wrapping_add(1), table[51].wrapping_sub(1)],
+    )];
+    component.result_sha256 =
+        Digest256::of(&biosmod_core::patch::apply(table, &component.hunks).unwrap());
+    case.catalog.patches.insert(layer.id.clone(), layer);
+    let request = Request {
+        firmware: Some(synthetic::FIRMWARE.into()),
+        select: vec!["TX".into(), "TZ".into()],
+        ..Request::default()
+    };
+    let built = build(&first, &case.catalog, &request).expect("layer and second table compose");
+    assert_eq!(built.carried, ["TB"]);
+    let output = Image::parse(built.image).unwrap();
+    for id in ["TB", "TX", "TZ"] {
+        assert_eq!(
+            analysis::patch_state(
+                &output,
+                &case.catalog,
+                synthetic::FIRMWARE,
+                &case.catalog.patches[id]
+            )
+            .0,
+            State::Fixed,
+            "{id}: fixed state"
+        );
+    }
+}
+
+#[test]
+fn related_patch_with_wrong_source_size_is_not_composed() {
+    use biosmod_core::catalog::Variant;
+    let mut case = split_table_case();
+    let mut extra = case.catalog.patches["TB"].clone();
+    extra.id = "TX".into();
+    let Variant::Applicable(variant) = extra.variants.get_mut(synthetic::FIRMWARE).unwrap() else {
+        panic!("applicable variant")
+    };
+    variant.components[0].source_size = 63;
+    variant.components[0].result_size = 63;
+    case.catalog.patches.insert(extra.id.clone(), extra);
+    let error = case.build(&case.image(), &["TB", "TX"]).unwrap_err();
+    assert_eq!(error.code, Code::PatchSourceMismatch, "{error}");
+    assert!(
+        error.message.contains("expected source size 63")
+            && error.message.contains("received size 64"),
+        "{error}"
+    );
 }

@@ -15,6 +15,8 @@ English | [Brazilian Portuguese](pt-BR/formats.md)
 
 Limits: images up to 64 MiB, nesting depth 16, catalog files up to 8 MiB, 4096 files per catalog.
 
+Multiple disjoint DSDTs in one RAW section can be selected independently by `table_offset`. When the catalog identifies multiple tables in one file, their ranges must not overlap and a table cannot be resized. Each table patch must maintain its own checksum.
+
 Not supported (explicit `FORMAT_UNSUPPORTED` or `PACKING_REFUSED`): EFI standard compression, TianoCompress, Brotli and other GUID-defined encodings, capsules, signed update containers, moving PEI or other execute-in-place modules, resizing a module mid-image, semantic ACPI editing.
 
 Valid checksums are not a signature. bme never strips or recomputes authentication data and cannot tell whether a platform will accept a modified image.
