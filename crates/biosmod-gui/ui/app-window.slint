@@ -536,6 +536,9 @@ export component AppWindow inherits Window {
                     }
                     Text {
                         text: root.busy ? root.operation-label + "  " + root.elapsed : root.status;
+                        // Announce operation/results without reading the changing timer.
+                        accessible-label: root.busy ? root.operation-label : root.status;
+                        accessible-live-region: polite;
                         color: !root.busy && root.status-tone != Tone.quiet ? Tones.color(root.status-tone) : Theme.muted;
                         font-size: Theme.font-body;
                         font-weight: !root.busy && root.status-tone != Tone.quiet ? 600 : 400;
