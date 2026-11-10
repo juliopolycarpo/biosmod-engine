@@ -54,7 +54,7 @@
     {
       "source": "docs/guide/gui.md",
       "translation": "docs/pt-BR/guide/gui.md",
-      "sha256": "d571d16fa881132429fa6a03e950403a45d3284a6421f81edbf64cf89337bfca"
+      "sha256": "de537631fd75695dc118bc5f4dc2dbdc9d261aaf25b799381d0cb7bcc00805f8"
     },
     {
       "source": "docs/guide/porting.md",

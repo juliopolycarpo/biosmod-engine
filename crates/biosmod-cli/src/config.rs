@@ -67,7 +67,7 @@ impl Paths {
             if let Some(dir) = base(own) {
                 return Ok(dir);
             }
-            if let Some(dir) = base(xdg) {
+            if let Some(dir) = base(xdg).filter(|dir| dir.is_absolute()) {
                 return Ok(dir.join(APP));
             }
             default(kind).ok_or_else(|| {
@@ -229,6 +229,35 @@ mod tests {
                 .find(|(k, _)| *k == key)
                 .map(|(_, v)| OsString::from(v))
         }
+    }
+
+    #[test]
+    fn relative_and_empty_xdg_paths_use_platform_defaults() {
+        let paths = Paths::resolve(
+            &env(&[
+                ("HOME", "/home/user"),
+                ("XDG_CONFIG_HOME", "relative"),
+                ("XDG_CACHE_HOME", ""),
+                ("XDG_DATA_HOME", "also-relative"),
+            ]),
+            "linux",
+        )
+        .unwrap();
+        assert_eq!(
+            paths.config,
+            PathBuf::from("/home/user/.config/biosmod-engine"),
+            "relative XDG_CONFIG_HOME must use HOME"
+        );
+        assert_eq!(
+            paths.cache,
+            PathBuf::from("/home/user/.cache/biosmod-engine"),
+            "empty XDG_CACHE_HOME must use HOME"
+        );
+        assert_eq!(
+            paths.data,
+            PathBuf::from("/home/user/.local/share/biosmod-engine"),
+            "relative XDG_DATA_HOME must use HOME"
+        );
     }
 
     #[test]

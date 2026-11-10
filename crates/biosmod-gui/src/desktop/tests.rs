@@ -1268,3 +1268,41 @@ fn changing_engine_discards_the_previous_handshake_contract() {
     );
     assert!(!desktop.session.connected);
 }
+
+#[cfg(unix)]
+#[test]
+fn engine_child_inherits_normalized_bme_home_overrides() {
+    use std::os::unix::fs::PermissionsExt;
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("fake-engine");
+    std::fs::write(&script, "#!/bin/sh\nprintf '{\"product\":\"biosmod-engine\",\"protocol\":\"bme/1\",\"version\":\"1\",\"command\":\"version\",\"ok\":true,\"data\":{\"config\":\"%s\",\"cache\":\"%s\",\"data\":\"%s\",\"cwd\":\"%s\"}}' \"$BME_CONFIG_HOME\" \"$BME_CACHE_HOME\" \"$BME_DATA_HOME\" \"$PWD\"\n").unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let (_window, state) = bound_window(Settings::default(), None);
+    let mut desktop = state.lock().unwrap();
+    desktop.engine_path = script;
+    desktop.engine_home_overrides = crate::settings::home_overrides(
+        dir.path(),
+        [
+            Some("config".into()),
+            Some("cache".into()),
+            Some("data".into()),
+        ],
+    );
+    let engine = configured_engine(&desktop).unwrap();
+    let reply = engine
+        .run(
+            &crate::engine::Request::Version,
+            &std::sync::atomic::AtomicBool::new(false),
+        )
+        .unwrap();
+    for (field, subdir) in [("config", "config"), ("cache", "cache"), ("data", "data")] {
+        assert_eq!(
+            reply.data[field],
+            dir.path().join(subdir).to_str().unwrap(),
+            "child {field}: expected startup-relative directory | received {}",
+            reply.data[field]
+        );
+    }
+    assert_eq!(reply.data["cwd"], "/");
+}

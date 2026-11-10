@@ -1,13 +1,18 @@
 use biosmod_gui::{
     desktop::{Desktop, bind, connect, default_engine},
-    settings::{PreferencesStore, Settings, settings_path},
+    settings::{PreferencesStore, Settings, process_home_overrides, settings_path},
     ui::AppWindow,
 };
 use slint::ComponentHandle;
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let overrides = process_home_overrides()?;
     let preferences = settings_path(
+        overrides
+            .iter()
+            .find(|(key, _)| key == "BME_CONFIG_HOME")
+            .map(|(_, value)| PathBuf::from(value)),
         std::env::var_os("XDG_CONFIG_HOME").map(Into::into),
         std::env::var_os("HOME").map(Into::into),
     );
