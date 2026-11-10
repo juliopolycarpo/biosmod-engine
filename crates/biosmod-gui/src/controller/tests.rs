@@ -45,22 +45,14 @@ fn imported_fifo_is_refused_and_publication_keeps_non_utf8_paths() {
     session
         .accept(
             Action::Apply,
-            Payload {
-                reply: Reply {
-                    version: "0.1.0".into(),
-                    data: serde_json::json!({"manifest_file":"lossy display text"}),
-                    diagnostics: String::new(),
-                },
-                extra: None,
-                review: None,
-            },
+            reply_payload(serde_json::json!({"manifest_file":"lossy display text"})),
         )
         .unwrap();
     assert_eq!(session.manifest, Some(manifest_path(&output)));
 }
 use serde_json::json;
 
-fn verification_payload(data: Value) -> Payload {
+fn reply_payload(data: Value) -> Payload {
     Payload {
         reply: Reply {
             version: "0.1.0".into(),
@@ -76,9 +68,7 @@ fn verification_payload(data: Value) -> Payload {
 fn semantic_incomplete_verification_is_not_reported_as_verified() {
     let mut session = Session::new().unwrap();
     let data = json!({"complete": false, "checks": [{"check": "input-digest", "ok": true}], "skipped": [{"check": "patch-states and reproduction", "reason": "catalog unavailable"}], "notice": "Offline verification does not prove boot behavior."});
-    session
-        .accept(Action::Verify, verification_payload(data))
-        .unwrap();
+    session.accept(Action::Verify, reply_payload(data)).unwrap();
     assert_eq!(session.outcome, Outcome::VerificationIncomplete);
     assert!(session.status.contains("incomplete"));
     assert_eq!(
@@ -135,9 +125,7 @@ fn engine_reported_incomplete_verification_is_summarized_not_dumped() {
 fn verification_does_not_trust_complete_without_required_checks() {
     let mut session = Session::new().unwrap();
     let data = json!({"complete": true, "checks": [], "skipped": [], "notice": "offline"});
-    session
-        .accept(Action::Verify, verification_payload(data))
-        .unwrap();
+    session.accept(Action::Verify, reply_payload(data)).unwrap();
     assert_eq!(session.outcome, Outcome::VerificationIncomplete);
 }
 

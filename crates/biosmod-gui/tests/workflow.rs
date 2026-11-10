@@ -1,10 +1,12 @@
 //! End-to-end controller coverage with the real CLI and isolated synthetic data.
 
+mod common;
+
 use biosmod_gui::controller::{Action, Outcome, Session, manifest_path};
 use biosmod_gui::engine::Engine;
 use serde_json::Value;
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 struct SyntheticEngine {
@@ -16,55 +18,18 @@ struct SyntheticEngine {
 
 impl SyntheticEngine {
     fn new() -> Self {
-        let binary = std::env::var_os("BME_TEST_ENGINE")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/bme")
-            });
-        let binary = binary.canonicalize().unwrap_or_else(|error| panic!(
-            "bme test engine {}: expected a built CLI executable; run cargo build -p biosmod-cli or set BME_TEST_ENGINE | received {error}",
-            binary.display()
-        ));
+        let binary = common::test_engine();
         let directory = tempfile::Builder::new()
             .prefix("bme-gui-workflow-")
             .tempdir()
             .unwrap();
         let root = directory.path();
-        let fixture = root.join("synthetic fixture ü");
-        let setup = |args: &[OsString]| {
-            let output = Command::new(&binary)
-                .args(args)
-                .env("BME_CONFIG_HOME", root.join("config"))
-                .env("BME_CACHE_HOME", root.join("cache"))
-                .env("BME_DATA_HOME", root.join("data"))
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "fixture setup: expected success | received {}: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr)
-            );
-        };
-        setup(&[
-            "dev".into(),
-            "synthetic".into(),
-            "-o".into(),
-            fixture.as_os_str().into(),
-        ]);
-        setup(&[
-            "catalog".into(),
-            "add".into(),
-            "lab".into(),
-            fixture.join("catalog").into_os_string(),
-            "--allow-unsigned-local".into(),
-        ]);
+        let image = common::setup_fixture(&binary, root);
         let engine = Engine::new(&binary, root)
             .unwrap()
             .with_env("BME_CONFIG_HOME", root.join("config"))
             .with_env("BME_CACHE_HOME", root.join("cache"))
             .with_env("BME_DATA_HOME", root.join("data"));
-        let image = fixture.join("synthetic.bin");
         Self {
             directory,
             binary,
