@@ -155,7 +155,7 @@ fn protected_preferences_name_the_unreadable_file_and_stay_untouched() {
 }
 
 #[test]
-fn plan_summary_keeps_component_identity_policy_and_snapshot() {
+fn plan_summary_keeps_component_identity_and_policy() {
     i_slint_backend_testing::init_no_event_loop();
     let (window, _state) = bound_window(Settings::default(), None);
     let plan = json!({"firmware":"synthetic", "components":[{"name":"ACPI", "ffs_guid":"guid", "table_offset":128, "file_offset":4096, "patches":["A"]}], "facts":["board-rev"], "allow_hold":true, "allow_diagnostic":false, "source":{"manifest_sha256":"pinned"}});
@@ -166,8 +166,7 @@ fn plan_summary_keeps_component_identity_policy_and_snapshot() {
         "ACPI · guid · table offset 128 · file offset 4096\n  A\n",
         "Hardware assertions: board-rev",
         "Allow hold: true · Allow diagnostic: false\nNone\n",
-        "Complete plan and source snapshot\n{",
-        "\"manifest_sha256\": \"pinned\"",
+        "Complete plan and source snapshot\n",
     ] {
         assert!(
             text.contains(expected),
@@ -249,7 +248,12 @@ fn language_switch_refreshes_review_rows_and_verification_without_changing_sessi
         localized_status(&window, Status::Failed, "", "UNKNOWN_CODE: original detail"),
         "Falha na operação: UNKNOWN_CODE: original detail"
     );
-    assert!(window.get_plan_details().contains("{}"));
+    assert_eq!(window.get_plan_snapshot(), "{}");
+    assert_eq!(
+        window.get_plan_snapshot().as_str().as_ptr(),
+        review.snapshot.as_str().as_ptr(),
+        "language switch: expected shared snapshot | received a copy"
+    );
     assert!(window.get_result_details().contains("Raw notice"));
     assert_eq!(Settings::load(&path).unwrap().language, Language::PtBr);
     {
@@ -735,6 +739,29 @@ fn patch_model_survives_selection_and_unrelated_sync() {
 }
 
 #[test]
+fn review_presentation_shares_the_prepared_snapshot() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    let document = json!({"source": {"manifest_sha256": "pinned"}, "notes": ["preserved"]});
+    let review = Arc::new(Review::new(
+        "/tmp/plan.json".into(),
+        b"exact bytes".to_vec(),
+        document.clone(),
+        false,
+    ));
+    state.lock().unwrap().session.review = Some(review.clone());
+    sync(&window, &state.lock().unwrap());
+    let snapshot = window.get_plan_snapshot();
+    assert_eq!(snapshot.as_str(), crate::model::pretty(&document));
+    assert_eq!(snapshot, review.snapshot);
+    assert_eq!(
+        snapshot.as_str().as_ptr(),
+        review.snapshot.as_str().as_ptr(),
+        "review snapshot: expected the UI to share the worker-prepared bytes | received a copy"
+    );
+}
+
+#[test]
 fn review_presentation_tracks_replacement_and_invalidation() {
     i_slint_backend_testing::init_no_event_loop();
     let (window, state) = bound_window(Settings::default(), None);
@@ -761,6 +788,7 @@ fn review_presentation_tracks_replacement_and_invalidation() {
     );
     window.invoke_back_to_selection();
     assert!(window.get_plan_details().is_empty());
+    assert!(window.get_plan_snapshot().is_empty());
 }
 
 struct FakeExportWriter {

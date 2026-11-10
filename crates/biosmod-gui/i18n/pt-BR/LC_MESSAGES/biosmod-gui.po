@@ -226,6 +226,11 @@ msgctxt "AppWindow"
 msgid "Plan details"
 msgstr "Detalhes do plano"
 
+#: ui/app-window.slint:301
+msgctxt "AppWindow"
+msgid "Complete plan and source snapshot"
+msgstr "Plano completo e instantâneo da origem"
+
 #: ui/app-window.slint:293 ui/app-window.slint:294
 msgctxt "AppWindow"
 msgid "New output image path"

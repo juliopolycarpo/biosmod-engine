@@ -192,6 +192,11 @@ fn gallery_states_build_and_capture() {
         }
     };
     shot("1-selected");
+    window.set_stage(2);
+    window.set_plan_details("Generated in this session\n\nFirmware: synthetic\nSource: lab\n\nComplete plan and source snapshot".into());
+    window.set_plan_snapshot("{\n  \"schema\": \"bme.plan/1\",\n  \"source\": \"lab\"\n}".into());
+    shot("10-review");
+    window.set_stage(1);
     window.set_page(4);
     shot("9-settings");
     window.set_page(0);
@@ -361,4 +366,33 @@ fn minimum_width_keeps_navigation_and_path_controls_visible() {
             window.hide().unwrap();
         }
     }
+}
+
+#[test]
+fn review_fields_keep_build_control_above_status_at_minimum_size() {
+    i_slint_backend_testing::init_no_event_loop();
+    for (language, label) in [
+        (biosmod_gui::i18n::Language::En, "Build patched copy"),
+        (biosmod_gui::i18n::Language::PtBr, "Gerar cópia modificada"),
+    ] {
+        let window = AppWindow::new().unwrap();
+        language.select().unwrap();
+        window
+            .window()
+            .set_size(slint::LogicalSize::new(760.0, 600.0));
+        window.show().unwrap();
+        populate(&window);
+        window.set_stage(2);
+        window.set_plan_details("Plan summary".into());
+        window.set_plan_snapshot("{\"schema\":\"bme.plan/1\"}".into());
+        let button = ElementHandle::find_by_accessible_label(&window, label)
+            .next()
+            .unwrap_or_else(|| panic!("review: expected {label:?} control | received none"));
+        let bottom = button.absolute_position().y + button.size().height;
+        assert!(
+            bottom <= 556.0,
+            "review ({language:?}): expected build control bottom <= 556 above status bar | received {bottom}"
+        );
+    }
+    biosmod_gui::i18n::Language::En.select().unwrap();
 }

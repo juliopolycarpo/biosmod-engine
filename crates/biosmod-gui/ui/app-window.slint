@@ -29,6 +29,7 @@ export component AppWindow inherits Window {
     in property <[Fact]> scan-facts;
     in property <string> image-sha;
     in property <string> plan-details;
+    in property <string> plan-snapshot;
     in property <string> result-details;
     in property <string> result-title: @tr("Output & verification");
     in property <string> manifest-path;
@@ -296,7 +297,8 @@ export component AppWindow inherits Window {
                     Button { text: @tr("Back to findings"); enabled: !root.busy; clicked => { root.show-review = false; root.back-to-selection(); } }
                 }
                 Caption { text: @tr("Confirm the source, changes, and expected output before building."); }
-                TextEdit { text: root.plan-details; read-only: true; min-height: 100px; accessible-label: @tr("Plan details"); }
+                TextEdit { text: root.plan-details; read-only: true; min-height: 50px; accessible-label: @tr("Plan details"); }
+                TextEdit { text: root.plan-snapshot; read-only: true; min-height: 50px; accessible-label: @tr("Complete plan and source snapshot"); }
                 Rectangle {
                     background: Theme.surface;
                     border-color: Theme.border;

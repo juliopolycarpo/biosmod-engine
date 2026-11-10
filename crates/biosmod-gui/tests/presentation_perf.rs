@@ -84,7 +84,7 @@ fn plan_presentation_cost_by_language() {
             window.invoke_output_edited("/tmp/output.bin".into());
             let present = started.elapsed().as_secs_f64() * 1000.;
             assert!(
-                window.get_plan_details().len() > size,
+                window.get_plan_snapshot().len() > size,
                 "plan details: expected the snapshot"
             );
             println!(

@@ -170,7 +170,7 @@ fn imported_review_prepares_its_snapshot_before_presentation() {
     session.import_review(&path).unwrap();
     let review = session.review.as_ref().unwrap();
     assert!(
-        !review.generated && review.snapshot == pretty(&review.document),
+        !review.generated && review.snapshot.as_str() == pretty(&review.document),
         "imported review: expected a read-only review with its pretty snapshot | received {:?}",
         review.snapshot
     );

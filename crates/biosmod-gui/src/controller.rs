@@ -207,14 +207,14 @@ pub struct Review {
     pub document: Value,
     pub generated: bool,
     /// The pretty-printed document, prepared off the UI thread for every language.
-    pub(crate) snapshot: String,
+    pub(crate) snapshot: slint::SharedString,
 }
 
 impl Review {
     /// Retain exact plan bytes and pretty-print the document on the worker.
     /// Example: `Review::new(path, bytes, document, false)` creates a read-only import.
     pub fn new(path: PathBuf, bytes: Vec<u8>, document: Value, generated: bool) -> Self {
-        let snapshot = pretty(&document);
+        let snapshot = pretty(&document).into();
         Self {
             path,
             bytes,

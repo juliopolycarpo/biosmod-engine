@@ -1040,10 +1040,18 @@ fn sync_review(ui: &AppWindow, state: &Desktop) {
             .map(|review| plan_summary(ui, review))
             .unwrap_or_default(),
     );
+    ui.set_plan_snapshot(
+        state
+            .session
+            .review
+            .as_ref()
+            .map(|review| review.snapshot.clone())
+            .unwrap_or_default(),
+    );
     *presented = state.session.review.clone();
 }
 
-/// Render a reviewed plan's summary in the selected language above its complete snapshot.
+/// Render a reviewed plan's summary in the selected language.
 /// Example: `plan_summary(&window, &review)` starts with `Generated in this session` in English.
 pub fn plan_summary(ui: &AppWindow, review: &Review) -> SharedString {
     let t = ui.global::<UiText>();
@@ -1108,8 +1116,6 @@ pub fn plan_summary(ui: &AppWindow, review: &Review) -> SharedString {
         )
         .as_str(),
     );
-    // Append the worker-prepared snapshot once instead of passing it through a template.
-    output.push_str(&review.snapshot);
     output
 }
 
