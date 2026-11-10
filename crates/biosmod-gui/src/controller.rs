@@ -172,6 +172,15 @@ impl Status {
     }
 }
 
+/// A status line saved while a notice temporarily replaces it.
+#[derive(Debug, Clone)]
+struct StatusSnapshot {
+    kind: Status,
+    text: String,
+    detail: String,
+    extra: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Review {
     pub path: PathBuf,
@@ -227,6 +236,8 @@ pub struct Session {
     pub status_kind: Status,
     pub status_detail: String,
     pub status_extra: String,
+    /// The status a notice replaced, restored by `dismiss_notice`.
+    noticed_status: Option<StatusSnapshot>,
     pub result_details: String,
     /// Retained verification data for presentation in the currently selected language.
     pub verification_report: Option<Value>,
@@ -261,6 +272,7 @@ impl Session {
             status_kind: Status::Start,
             status_detail: String::new(),
             status_extra: String::new(),
+            noticed_status: None,
             result_details: String::new(),
             verification_report: None,
             source_details: String::new(),
@@ -272,6 +284,7 @@ impl Session {
     /// Set a semantic message while retaining an English representation for callers.
     /// Example: `session.set_status(Status::Selection)` after selection changes.
     pub fn set_status(&mut self, status: Status) {
+        self.noticed_status = None;
         self.status_kind = status;
         self.status = status.english().into();
         self.status_detail.clear();
@@ -280,6 +293,7 @@ impl Session {
 
     /// Display a non-translatable technical message. Example: `session.set_raw_status(error)`.
     pub fn set_raw_status(&mut self, detail: impl Into<String>) {
+        self.noticed_status = None;
         self.status_kind = Status::Raw;
         self.status = detail.into();
         self.status_detail.clear();
@@ -295,10 +309,45 @@ impl Session {
         extra: impl Into<String>,
         fallback: impl Into<String>,
     ) {
+        self.noticed_status = None;
         self.status_kind = status;
         self.status_detail = detail.into();
         self.status_extra = extra.into();
         self.status = fallback.into();
+    }
+
+    /// Show a detailed notice over the workflow status, which `dismiss_notice` brings back.
+    /// Consecutive notices keep the original workflow status.
+    /// Example: `session.set_notice(Status::PreferencesError, error, "", fallback)`.
+    pub fn set_notice(
+        &mut self,
+        status: Status,
+        detail: impl Into<String>,
+        extra: impl Into<String>,
+        fallback: impl Into<String>,
+    ) {
+        let replaced = self
+            .noticed_status
+            .take()
+            .unwrap_or_else(|| StatusSnapshot {
+                kind: self.status_kind,
+                text: std::mem::take(&mut self.status),
+                detail: std::mem::take(&mut self.status_detail),
+                extra: std::mem::take(&mut self.status_extra),
+            });
+        self.set_detailed_status(status, detail, extra, fallback);
+        self.noticed_status = Some(replaced);
+    }
+
+    /// Restore the status a notice replaced; without a notice the status stays as is.
+    /// Example: call `session.dismiss_notice()` after preferences save again.
+    pub fn dismiss_notice(&mut self) {
+        if let Some(snapshot) = self.noticed_status.take() {
+            self.status_kind = snapshot.kind;
+            self.status = snapshot.text;
+            self.status_detail = snapshot.detail;
+            self.status_extra = snapshot.extra;
+        }
     }
 
     /// Invalidate all derived data after an image, source, or engine change.
@@ -660,19 +709,18 @@ impl Session {
         if matches!(action, Action::Apply | Action::Plan | Action::Recommended) {
             self.review = None;
         }
-        self.status = error.to_string();
-        self.status_detail = self.status.clone();
-        self.status_kind = Status::Failed;
+        let message = error.to_string();
         let definite = matches!(
             error.kind,
             ErrorKind::Engine | ErrorKind::Configuration | ErrorKind::Launch
         );
         if action == Action::Apply && !definite {
-            self.status_kind = Status::PublicationUnknown;
-            self.status = format!(
-                "Publication outcome unknown. Inspect output artifacts before retrying. {}",
-                self.status
+            let fallback = format!(
+                "Publication outcome unknown. Inspect output artifacts before retrying. {message}"
             );
+            self.set_detailed_status(Status::PublicationUnknown, message, "", fallback);
+        } else {
+            self.set_detailed_status(Status::Failed, message.clone(), "", message);
         }
         self.log(&format!(
             "{}\n{}\n{}",

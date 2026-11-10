@@ -213,6 +213,29 @@ fn switching_language_during_import_preserves_job_and_localizes_completion() {
 }
 
 #[test]
+fn successful_save_restores_the_status_a_save_error_replaced() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config");
+    std::fs::write(&config, b"blocks the directory").unwrap();
+    let (window, state) = bound_window(Settings::default(), Some(config.join("gui.json")));
+    state.lock().unwrap().session.set_status(Status::Scanned);
+    window.invoke_theme_changed(2);
+    assert_eq!(
+        state.lock().unwrap().session.status_kind,
+        Status::PreferencesError
+    );
+    std::fs::remove_file(&config).unwrap();
+    window.invoke_theme_changed(1);
+    assert_eq!(
+        window.get_status(),
+        localized_status(&window, Status::Scanned, "", ""),
+        "status after a recovered save: expected the scan guidance | received {:?}",
+        window.get_status()
+    );
+}
+
+#[test]
 fn language_selection_survives_a_failed_save_for_the_session() {
     i_slint_backend_testing::init_no_event_loop();
     let dir = tempfile::tempdir().unwrap();

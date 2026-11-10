@@ -583,21 +583,13 @@ pub fn default_engine() -> PathBuf {
 fn save_settings(state: &mut Desktop) {
     match &state.preferences {
         PreferencesStore::Writable(path) => match state.settings.save(path) {
-            Err(error) => state.session.set_detailed_status(
+            Err(error) => state.session.set_notice(
                 Status::PreferencesError,
                 error.clone(),
                 "",
                 format!("Could not save preferences: {error}"),
             ),
-            Ok(())
-                if matches!(
-                    state.session.status_kind,
-                    Status::PreferencesError | Status::PreferencesNoLocation
-                ) =>
-            {
-                state.session.set_raw_status("")
-            }
-            Ok(()) => {}
+            Ok(()) => state.session.dismiss_notice(),
         },
         PreferencesStore::Protected(path) => {
             let path = path.display().to_string();
@@ -606,9 +598,9 @@ fn save_settings(state: &mut Desktop) {
             );
             state
                 .session
-                .set_detailed_status(Status::PreferencesProtected, path, "", fallback)
+                .set_notice(Status::PreferencesProtected, path, "", fallback)
         }
-        PreferencesStore::Unavailable => state.session.set_detailed_status(
+        PreferencesStore::Unavailable => state.session.set_notice(
             Status::PreferencesNoLocation,
             "",
             "",

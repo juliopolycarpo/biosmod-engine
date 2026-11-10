@@ -194,3 +194,29 @@ fn review_snapshots_share_the_retained_bytes_and_document() {
         "review snapshot: expected a shared immutable document"
     );
 }
+
+#[test]
+fn dismissed_notice_restores_the_status_it_replaced_once() {
+    let mut session = Session::new().unwrap();
+    session.set_detailed_status(Status::Failed, "engine stopped", "", "engine stopped");
+    session.set_notice(Status::PreferencesError, "read-only", "", "first");
+    session.set_notice(Status::PreferencesNoLocation, "", "", "second");
+    session.dismiss_notice();
+    assert_eq!(
+        (
+            session.status_kind,
+            session.status_detail.as_str(),
+            session.status.as_str()
+        ),
+        (Status::Failed, "engine stopped", "engine stopped"),
+        "dismissed notices: expected the status before the first notice"
+    );
+    session.set_notice(Status::PreferencesError, "read-only", "", "notice");
+    session.set_status(Status::Scanned);
+    session.dismiss_notice();
+    assert_eq!(
+        session.status_kind,
+        Status::Scanned,
+        "workflow status after a notice: expected dismiss_notice to keep it"
+    );
+}
