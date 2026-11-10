@@ -184,8 +184,9 @@ fn handshake_requires_matching_identity_and_advertised_contract() {
     let commands = [
         "inspect",
         "scan",
-        "plan",
+        "export",
         "patch",
+        "patch --dry-run",
         "verify",
         "catalog validate|index|show|import-x99fix",
         "catalog add|list|remove",
@@ -206,7 +207,7 @@ fn handshake_requires_matching_identity_and_advertised_contract() {
     };
     let mut cap = Reply {
         version: "0.1.0".into(),
-        data: json!({"engine":"0.1.0", "protocol":"bme/1", "commands": commands, "documents": docs, "desktop_workflow": 1}),
+        data: json!({"engine":"0.1.0", "protocol":"bme/1", "commands": commands, "documents": docs, "desktop_workflow": 1, "direct_patch_workflow": 1}),
         diagnostics: String::new(),
     };
     cap.data
@@ -232,6 +233,14 @@ fn handshake_requires_matching_identity_and_advertised_contract() {
         ErrorKind::Protocol
     );
     cap.data["desktop_workflow"] = json!(1);
+    cap.data
+        .as_object_mut()
+        .unwrap()
+        .remove("direct_patch_workflow");
+    let failure = validate_handshake(&version, &cap).unwrap_err();
+    assert!(failure.message.contains("direct_patch_workflow"));
+    assert!(failure.message.contains("matching bundled bme"));
+    cap.data["direct_patch_workflow"] = json!(1);
     cap.data["documents"][0]["schema"] = json!("bme.plan/2");
     assert_eq!(
         validate_handshake(&version, &cap).unwrap_err().kind,
@@ -352,7 +361,7 @@ impl FakeEngine {
         let dir = tempfile::tempdir().unwrap();
         // /bin/sh reads the fake command file as data. Executing a freshly written
         // script directly can race the host's executable scanner and return ETXTBSY.
-        for command in ["version", "patch"] {
+        for command in ["version", "patch", "export"] {
             std::fs::write(dir.path().join(command), script).unwrap();
         }
         let path = PathBuf::from("/bin/sh");
@@ -466,16 +475,54 @@ fn publication_is_not_killed_by_cancel_or_read_timeout() {
     let fake = FakeEngine::new(
         "sleep 0.1; printf '%s' '{\"product\":\"biosmod-engine\",\"protocol\":\"bme/1\",\"version\":\"0.1.0\",\"command\":\"patch\",\"ok\":true,\"data\":{}}'",
     );
-    let request = Request::Patch {
-        image: "image".into(),
-        plan: "plan".into(),
-        output: "output".into(),
+    let scanned = ScannedSelection {
+        source: "lab".into(),
+        ids: vec!["lab::PA@1.0.0".into()],
+        input_sha256: "0".repeat(64),
+        source_sha256: "1".repeat(64),
     };
-    let result = fake
+    let engine = fake
+        .engine()
+        .with_contract(Arc::new(fake_contract()))
+        .with_timeout(Duration::from_millis(1));
+    let cancel = AtomicBool::new(true);
+    for selection in [
+        PatchSelection::Scanned(scanned.clone()),
+        PatchSelection::Recipe("selection.json".into()),
+    ] {
+        let request = Request::Build {
+            image: "image".into(),
+            selection,
+            destination: PatchDestination::Publish("output".into()),
+        };
+        let result = engine.run(&request, &cancel);
+        assert!(result.is_ok(), "{result:?}");
+    }
+    let preview = Request::Build {
+        image: "image".into(),
+        selection: PatchSelection::Scanned(scanned.clone()),
+        destination: PatchDestination::Preview,
+    };
+    assert_eq!(
+        engine.run(&preview, &cancel).unwrap_err().kind,
+        ErrorKind::Cancelled
+    );
+
+    let export_engine = FakeEngine::new(
+        "sleep 0.1; printf '%s' '{\"product\":\"biosmod-engine\",\"protocol\":\"bme/1\",\"version\":\"0.1.0\",\"command\":\"export\",\"ok\":true,\"data\":{}}'",
+    );
+    let result = export_engine
         .engine()
         .with_contract(Arc::new(fake_contract()))
         .with_timeout(Duration::from_millis(1))
-        .run(&request, &AtomicBool::new(true));
+        .run(
+            &Request::Export {
+                image: "image".into(),
+                selection: scanned,
+                output: "selection.json".into(),
+            },
+            &cancel,
+        );
     assert!(result.is_ok(), "{result:?}");
 }
 
@@ -938,8 +985,8 @@ impl HandshakeWarningsEngine {
         let directory = tempfile::tempdir().unwrap();
         let mut capabilities = fake_capability_contract();
         capabilities.as_object_mut().unwrap().extend(json!({
-            "engine": capability_version, "protocol":"bme/1", "desktop_workflow":1,
-            "commands":[{"name":"inspect"},{"name":"scan"},{"name":"plan"},{"name":"patch"},{"name":"verify"},
+            "engine": capability_version, "protocol":"bme/1", "desktop_workflow":1, "direct_patch_workflow":1,
+            "commands":[{"name":"inspect"},{"name":"scan"},{"name":"export"},{"name":"patch"},{"name":"patch --dry-run"},{"name":"verify"},
                 {"name":"catalog validate|index|show|import-x99fix"},{"name":"catalog add|list|remove"},{"name":"tools doctor|paths"}],
             "documents":[{"name":"plan","schema":"bme.plan/1"},{"name":"manifest","schema":"bme.manifest/1"},{"name":"catalog","schema":"bme.catalog/1"},{"name":"patch","schema":"bme.patch/1"}]
         }).as_object().unwrap().clone());

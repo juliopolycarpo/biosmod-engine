@@ -72,12 +72,14 @@ pub struct SourceReport {
     pub trust: String,
     pub catalog: String,
     pub catalog_version: String,
+    pub snapshot_sha256: String,
     pub report: Report,
 }
 #[derive(Debug, Clone, Deserialize)]
 pub struct Report {
     pub firmware: Option<String>,
     pub boards: Vec<String>,
+    pub recommended: Vec<String>,
     pub patches: Vec<Patch>,
 }
 

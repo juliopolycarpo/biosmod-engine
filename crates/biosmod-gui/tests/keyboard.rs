@@ -96,7 +96,8 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
     desktop.session.image = Some("/tmp/input.bin".into());
     desktop.session.scan = Some(serde_json::from_value(json!({
         "alias":"lab", "trust":"local", "catalog":"fixture", "catalog_version":"1",
-        "report":{"firmware":"synthetic","boards":[],"patches":[{
+        "snapshot_sha256": "0".repeat(64),
+        "report":{"firmware":"synthetic","boards":[],"recommended":[],"patches":[{
             "id":"PA","version":"1.0.0","title":"Correction","class":"correction",
             "tier":"optional","state":"present","plannable":true,"manual":false,"detail":"exact match"
         }]}

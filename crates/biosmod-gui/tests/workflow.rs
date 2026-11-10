@@ -229,14 +229,19 @@ fn real_engine_controller_workflow_and_plan_safety() {
 fn recommendation_is_resolved_by_engine_and_changes_invalidate_review() {
     let fixture = SyntheticEngine::new();
     let mut session = fixture.session();
-    step(&mut session, &fixture.engine, Action::Recommended);
-    let requested = session.review.as_ref().unwrap().document["requested"]
-        .as_array()
-        .unwrap();
-    assert_eq!(
-        requested,
-        &[Value::from("lab::PA@1.0.0"), Value::from("lab::PB@1.0.0")]
-    );
+    assert!(session.can_recommend());
+    session.select_recommended();
+    let scan = session.scan.as_ref().unwrap();
+    let selected: Vec<_> = scan
+        .report
+        .patches
+        .iter()
+        .filter(|patch| patch.selected)
+        .map(|patch| patch.id.as_str())
+        .collect();
+    assert_eq!(selected, ["PA", "PB"]);
+    assert!(!session.busy());
+    assert!(session.review.is_none());
     let index = session
         .scan
         .as_ref()
@@ -365,4 +370,114 @@ fn language_switch_preserves_engine_request_and_firmware_result() {
         english_manifest["verification"]
     );
     Language::En.select().unwrap();
+}
+
+#[test]
+fn guarded_engine_requests_preview_export_build_and_verify() {
+    use biosmod_gui::engine::{
+        EngineContract, PatchDestination, PatchSelection, Request, ScannedSelection,
+    };
+    use std::sync::{Arc, atomic::AtomicBool};
+
+    let fixture = SyntheticEngine::new();
+    let cancel = AtomicBool::new(false);
+    let capabilities = fixture.engine.handshake(&cancel).unwrap();
+    let contract = EngineContract::from_capabilities(&capabilities.data).unwrap();
+    let engine = fixture.engine.clone().with_contract(Arc::new(contract));
+    let image = fixture.image.clone();
+    let scan = engine
+        .run(
+            &Request::Scan {
+                image: image.clone(),
+                source: "lab".into(),
+            },
+            &cancel,
+        )
+        .unwrap()
+        .data;
+    let scanned = ScannedSelection {
+        source: "lab".into(),
+        ids: vec!["lab::PA@1.0.0".into()],
+        input_sha256: scan["input"]["sha256"].as_str().unwrap().into(),
+        source_sha256: scan["sources"][0]["snapshot_sha256"]
+            .as_str()
+            .unwrap()
+            .into(),
+    };
+    let root = fixture.directory.path();
+    let recipe = root.join("selection file.json");
+    let output = root.join("new image.bin");
+    let preview = engine
+        .run(
+            &Request::Build {
+                image: image.clone(),
+                selection: PatchSelection::Scanned(scanned.clone()),
+                destination: PatchDestination::Preview,
+            },
+            &cancel,
+        )
+        .unwrap()
+        .data;
+    assert_eq!(preview["dry_run"], true);
+    assert_eq!(
+        preview["plan"]["requested"],
+        serde_json::json!(["lab::PA@1.0.0"])
+    );
+    assert!(!output.exists());
+    assert!(!recipe.exists());
+
+    let export = engine
+        .run(
+            &Request::Export {
+                image: image.clone(),
+                selection: scanned.clone(),
+                output: recipe.clone(),
+            },
+            &cancel,
+        )
+        .unwrap()
+        .data;
+    assert_eq!(export["plan"], preview["plan"]);
+    let replay = engine
+        .run(
+            &Request::Build {
+                image: image.clone(),
+                selection: PatchSelection::Recipe(recipe.clone()),
+                destination: PatchDestination::Preview,
+            },
+            &cancel,
+        )
+        .unwrap()
+        .data;
+    assert_eq!(replay["plan"], preview["plan"]);
+    assert!(!output.exists());
+
+    let build = engine
+        .run(
+            &Request::Build {
+                image: image.clone(),
+                selection: PatchSelection::Scanned(scanned),
+                destination: PatchDestination::Publish(output.clone()),
+            },
+            &cancel,
+        )
+        .unwrap()
+        .data;
+    assert_eq!(build["manifest"]["plan"], preview["plan"]);
+    for recipe in [None, Some(recipe)] {
+        let verification = engine
+            .run(
+                &Request::VerifyResult {
+                    input: image.clone(),
+                    output: output.clone(),
+                    manifest: manifest_path(&output),
+                    recipe,
+                },
+                &cancel,
+            )
+            .unwrap()
+            .data;
+        assert_eq!(verification["complete"], true);
+        assert_eq!(verification["manifest_sha256"], build["manifest_sha256"]);
+    }
 }

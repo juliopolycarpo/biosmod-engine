@@ -50,9 +50,10 @@ fn fake_review(generated: bool) -> Arc<Review> {
 fn fake_scan() -> SourceReport {
     serde_json::from_value(json!({
         "alias": "lab", "trust": "local", "catalog": "fixture", "catalog_version": "1",
-        "report": {"firmware": "synthetic", "boards": [], "patches": [{
+        "snapshot_sha256": "0".repeat(64),
+        "report": {"firmware": "synthetic", "boards": [], "recommended": ["PA"], "patches": [{
             "id": "PA", "version": "1.0.0", "title": "Correction", "class": "correction",
-            "tier": "optional", "state": "present", "plannable": true, "manual": false,
+            "tier": "recommended", "state": "present", "plannable": true, "manual": false,
             "detail": "present", "requires_facts": [], "evidence": []
         }]}
     }))
@@ -415,6 +416,30 @@ fn make_reviewable(state: &Shared, generated: bool) {
     state.session.output = Some(PathBuf::from("/tmp/output.bin"));
     state.session.scan = Some(fake_scan());
     state.session.review = Some(fake_review(generated));
+}
+
+#[test]
+fn recommended_selects_rows_without_starting_a_worker() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    make_reviewable(&state, true);
+    sync(&window, &state.lock().unwrap());
+    window.invoke_recommended();
+    {
+        let state = state.lock().unwrap();
+        let session = &state.session;
+        assert!(session.scan.as_ref().unwrap().report.patches[0].selected);
+        assert!(session.review.is_none());
+        assert!(!session.busy());
+        assert_eq!(session.source, "lab");
+    }
+    assert!(window.get_can_plan());
+
+    let mut state = state.lock().unwrap();
+    let report = &mut state.session.scan.as_mut().unwrap().report;
+    report.recommended.push("unavailable".into());
+    sync(&window, &state);
+    assert!(!window.get_can_recommend());
 }
 
 #[test]

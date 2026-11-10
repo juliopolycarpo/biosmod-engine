@@ -15,6 +15,29 @@ use std::time::{Duration, Instant};
 
 const MAX_JSON: usize = 64 * 1024 * 1024;
 const MAX_DIAGNOSTICS: usize = 256 * 1024;
+/// Concrete patch IDs bound to the input and catalog displayed by a scan.
+#[derive(Debug, Clone)]
+pub struct ScannedSelection {
+    pub source: String,
+    pub ids: Vec<String>,
+    pub input_sha256: String,
+    pub source_sha256: String,
+}
+
+/// The selection to build or preview.
+#[derive(Debug, Clone)]
+pub enum PatchSelection {
+    Scanned(ScannedSelection),
+    Recipe(PathBuf),
+}
+
+/// How to return the result of preparing a patched copy.
+#[derive(Debug, Clone)]
+pub enum PatchDestination {
+    Preview,
+    Publish(PathBuf),
+}
+
 /// Operations supported by this client. Paths remain OS strings until passed to `bme`.
 #[derive(Debug, Clone)]
 pub enum Request {
@@ -47,6 +70,22 @@ pub enum Request {
         output: PathBuf,
         plan: PathBuf,
     },
+    Build {
+        image: PathBuf,
+        selection: PatchSelection,
+        destination: PatchDestination,
+    },
+    Export {
+        image: PathBuf,
+        selection: ScannedSelection,
+        output: PathBuf,
+    },
+    VerifyResult {
+        input: PathBuf,
+        output: PathBuf,
+        manifest: PathBuf,
+        recipe: Option<PathBuf>,
+    },
     ToolsDoctor,
     ToolsPaths,
 }
@@ -61,11 +100,24 @@ impl Request {
             Self::CatalogList => "catalog list",
             Self::CatalogShow { .. } => "catalog show",
             Self::Plan { .. } => "plan",
-            Self::Patch { .. } => "patch",
-            Self::Verify { .. } => "verify",
+            Self::Patch { .. } | Self::Build { .. } => "patch",
+            Self::Export { .. } => "export",
+            Self::Verify { .. } | Self::VerifyResult { .. } => "verify",
             Self::ToolsDoctor => "tools doctor",
             Self::ToolsPaths => "tools paths",
         }
+    }
+
+    fn publishes(&self) -> bool {
+        matches!(
+            self,
+            Self::Patch { .. }
+                | Self::Build {
+                    destination: PatchDestination::Publish(_),
+                    ..
+                }
+                | Self::Export { .. }
+        )
     }
 
     fn args(&self, cwd: &Path) -> Result<Vec<OsString>, EngineError> {
@@ -82,6 +134,7 @@ impl Request {
             arg.push(value);
             arg
         };
+        let mut selected_ids = None;
         match self {
             Self::Inspect { image } => args.push(path(image)),
             Self::Scan { image, source } => {
@@ -124,9 +177,66 @@ impl Request {
                 args.extend([path(input), path(output)]);
                 args.push(option("--plan=", &path(plan)));
             }
+            Self::Build {
+                image,
+                selection,
+                destination,
+            } => {
+                args.push(path(image));
+                match selection {
+                    PatchSelection::Scanned(selection) => selected_ids = Some(selection),
+                    PatchSelection::Recipe(recipe) => args.push(option("--from=", &path(recipe))),
+                }
+                match destination {
+                    PatchDestination::Preview => args.push("--dry-run".into()),
+                    PatchDestination::Publish(output) => {
+                        args.push(option("--output=", &path(output)))
+                    }
+                }
+            }
+            Self::Export {
+                image,
+                selection,
+                output,
+            } => {
+                args.push(path(image));
+                args.push(option("--output=", &path(output)));
+                selected_ids = Some(selection);
+            }
+            Self::VerifyResult {
+                input,
+                output,
+                manifest,
+                recipe,
+            } => {
+                args.extend([path(input), path(output)]);
+                args.push(option("--manifest=", &path(manifest)));
+                if let Some(recipe) = recipe {
+                    args.push(option("--from=", &path(recipe)));
+                }
+            }
             _ => {}
         }
         args.extend([OsString::from("--json"), OsString::from("--offline")]);
+        if let Some(selection) = selected_ids {
+            if selection.ids.is_empty() || selection.ids.iter().any(String::is_empty) {
+                return Err(EngineError::new(
+                    ErrorKind::Configuration,
+                    "selection: expected one or more nonempty patch IDs",
+                ));
+            }
+            args.push(option("--catalog=", OsStr::new(&selection.source)));
+            args.push(option(
+                "--expect-input-sha256=",
+                OsStr::new(&selection.input_sha256),
+            ));
+            args.push(option(
+                "--expect-source-sha256=",
+                OsStr::new(&selection.source_sha256),
+            ));
+            args.push("--".into());
+            args.extend(selection.ids.iter().map(OsString::from));
+        }
         Ok(args)
     }
 }
@@ -595,7 +705,7 @@ impl Engine {
         let stderr = child.stderr.take().expect("stderr was piped");
         #[cfg(unix)]
         if let Err(error) = nonblocking(&stdout).and_then(|()| nonblocking(&stderr)) {
-            if matches!(request, Request::Patch { .. }) {
+            if request.publishes() {
                 // Publication may already have started. Drain both pipes and wait for it
                 // rather than treating a local setup failure as safe to interrupt.
                 let out =
@@ -652,7 +762,7 @@ impl Engine {
             if leader_done && stdout.is_some() && stderr.is_some() {
                 break;
             }
-            if !matches!(request, Request::Patch { .. })
+            if !request.publishes()
                 && (cancel.load(Ordering::Relaxed) || started.elapsed() >= self.timeout)
             {
                 stopped = Some(if cancel.load(Ordering::Relaxed) {
@@ -681,7 +791,7 @@ impl Engine {
             }
         }
         if stopped.is_some() || process_error.is_some() {
-            if matches!(request, Request::Patch { .. }) {
+            if request.publishes() {
                 // A supervision error cannot make it safe to interrupt publication.
                 let _ = child.wait();
             } else {
@@ -1012,19 +1122,13 @@ fn terminate_group(child: &mut std::process::Child) {
 
 fn validate_handshake(version: &Reply, capabilities: &Reply) -> Result<(), EngineError> {
     let fail = |message: String| EngineError::new(ErrorKind::Protocol, message);
-    if capabilities
-        .data
-        .get("desktop_workflow")
-        .and_then(Value::as_u64)
-        != Some(1)
-    {
-        return Err(fail(format!(
-            "engine capability desktop_workflow: expected revision 1 | received {}; use the matching bundled bme",
-            capabilities
-                .data
-                .get("desktop_workflow")
-                .unwrap_or(&Value::Null)
-        )));
+    for field in ["desktop_workflow", "direct_patch_workflow"] {
+        let revision = &capabilities.data[field];
+        if revision.as_u64() != Some(1) {
+            return Err(fail(format!(
+                "engine capability {field}: expected revision 1 | received {revision}; use the matching bundled bme"
+            )));
+        }
     }
     let version_protocol = version.data.get("protocol").and_then(Value::as_str);
     let capabilities_protocol = capabilities.data.get("protocol").and_then(Value::as_str);
@@ -1054,8 +1158,9 @@ fn validate_handshake(version: &Reply, capabilities: &Reply) -> Result<(), Engin
     for required in [
         "inspect",
         "scan",
-        "plan",
+        "export",
         "patch",
+        "patch --dry-run",
         "verify",
         "catalog validate|index|show|import-x99fix",
         "catalog add|list|remove",

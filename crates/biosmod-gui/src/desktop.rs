@@ -103,7 +103,18 @@ fn bind_with_language_selector(
     action!(on_refresh_engine, Action::Connect);
     action!(on_inspect, Action::Inspect);
     action!(on_scan, Action::Scan);
-    action!(on_recommended, Action::Recommended);
+    let shared = state.clone();
+    let weak = ui.as_weak();
+    ui.on_recommended(move || {
+        let mut state = shared.lock().unwrap();
+        if state.dialog_open || state.exporting {
+            return;
+        }
+        state.session.select_recommended();
+        if let Some(ui) = weak.upgrade() {
+            sync(&ui, &state);
+        }
+    });
     action!(on_generate_plan, Action::Plan);
     action!(on_apply_plan, Action::Apply);
     action!(on_verify, Action::Verify);
@@ -842,7 +853,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             .iter()
             .any(|p| p.selected && p.selectable())
     }));
-    ui.set_can_recommend(session.connected && session.scan.is_some());
+    ui.set_can_recommend(session.can_recommend());
     ui.set_manifest_path(
         session
             .output
@@ -990,7 +1001,7 @@ pub fn localized_activity(ui: &AppWindow, action: Action) -> SharedString {
         Action::Connect => t.get_operation_connect(),
         Action::Inspect => t.get_operation_inspect(),
         Action::Scan => t.get_operation_scan(),
-        Action::Plan | Action::Recommended => t.get_operation_plan(),
+        Action::Plan => t.get_operation_plan(),
         Action::Apply => t.get_operation_apply(),
         Action::Verify => t.get_operation_verify(),
         Action::Sources => t.get_operation_sources(),

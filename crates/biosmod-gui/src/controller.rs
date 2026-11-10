@@ -24,7 +24,6 @@ pub enum Action {
     Inspect,
     Scan,
     Plan,
-    Recommended,
     Apply,
     Verify,
     Sources,
@@ -40,7 +39,7 @@ impl Action {
             Self::Connect => "Checking engine",
             Self::Inspect => "Inspecting image",
             Self::Scan => "Scanning image",
-            Self::Plan | Self::Recommended => "Generating plan",
+            Self::Plan => "Generating plan",
             Self::Apply => "Building patched copy",
             Self::Verify => "Verifying output",
             Self::Sources => "Reading sources",
@@ -449,6 +448,36 @@ impl Session {
         self.set_status(Status::Selection);
     }
 
+    /// Check whether the desktop can select every patch recommended by the current scan.
+    /// Example: an empty recommendation list disables the Recommended button.
+    pub fn can_recommend(&self) -> bool {
+        self.connected
+            && !self.busy()
+            && self.scan.as_ref().is_some_and(|scan| {
+                !scan.report.recommended.is_empty()
+                    && scan.report.recommended.iter().all(|id| {
+                        scan.report
+                            .patches
+                            .iter()
+                            .any(|patch| &patch.id == id && patch.selectable())
+                    })
+            })
+    }
+
+    /// Select the exact recommendation from the current scan without starting a worker.
+    /// Example: call `session.select_recommended()` from the Recommended button.
+    pub fn select_recommended(&mut self) {
+        if !self.can_recommend() {
+            return;
+        }
+        let report = &mut self.scan.as_mut().expect("current scan").report;
+        for patch in &mut report.patches {
+            patch.selected = report.recommended.contains(&patch.id);
+        }
+        self.clear_results();
+        self.set_status(Status::Selection);
+    }
+
     /// Drop the review, manifest, and result text after any input that makes them stale.
     /// Example: `session.clear_results()` before offering a new output path.
     pub fn clear_results(&mut self) {
@@ -488,18 +517,15 @@ impl Session {
                 image: image()?,
                 source: self.source.clone(),
             },
-            Action::Plan | Action::Recommended => {
+            Action::Plan => {
                 let scan = self.scan.as_ref().ok_or(PreparationError::Scan)?;
-                let selection = if action == Action::Recommended {
-                    vec!["recommended".into()]
-                } else {
-                    scan.report
-                        .patches
-                        .iter()
-                        .filter(|p| p.selected && p.selectable())
-                        .map(|p| p.qualified(&scan.alias))
-                        .collect::<Vec<_>>()
-                };
+                let selection = scan
+                    .report
+                    .patches
+                    .iter()
+                    .filter(|p| p.selected && p.selectable())
+                    .map(|p| p.qualified(&scan.alias))
+                    .collect::<Vec<_>>();
                 if selection.is_empty() {
                     return Err(PreparationError::Selection);
                 }
@@ -543,7 +569,7 @@ impl Session {
             Action::Tools => Request::ToolsDoctor,
         };
         let token = self.begin(action);
-        if matches!(action, Action::Plan | Action::Recommended) {
+        if action == Action::Plan {
             self.review = None;
         }
         Ok(Job {
@@ -620,7 +646,7 @@ impl Session {
                 self.source_details = payload.extra.map(|v| pretty(&v)).unwrap_or_default();
                 self.set_status(Status::Scanned);
             }
-            Action::Plan | Action::Recommended => {
+            Action::Plan => {
                 let review = payload
                     .review
                     .ok_or_else(|| local_error("plan: expected retained review bytes"))?;
@@ -743,7 +769,7 @@ impl Session {
             }
             _ => Outcome::Failed,
         };
-        if matches!(action, Action::Apply | Action::Plan | Action::Recommended) {
+        if matches!(action, Action::Apply | Action::Plan) {
             self.review = None;
         }
         let message = error.to_string();
