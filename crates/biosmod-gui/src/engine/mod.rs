@@ -150,6 +150,8 @@ pub enum ErrorKind {
 pub struct EngineError {
     pub kind: ErrorKind,
     pub message: String,
+    /// Engine version from a validated controlled-error envelope, when present.
+    pub version: Option<Box<String>>,
     pub code: Option<String>,
     pub details: Option<Value>,
     pub diagnostics: String,
@@ -160,6 +162,7 @@ impl EngineError {
         Self {
             kind,
             message: message.into(),
+            version: None,
             code: None,
             details: None,
             diagnostics: String::new(),
@@ -312,6 +315,7 @@ fn decode_with_contract(
         return Err(EngineError {
             kind: ErrorKind::Engine,
             message: error.message,
+            version: Some(Box::new(envelope.version)),
             code: Some(error.code),
             details: error.details,
             diagnostics: diagnostics.to_owned(),
@@ -527,10 +531,28 @@ impl Engine {
     ///
     /// Example: `engine.handshake(&std::sync::atomic::AtomicBool::new(false))`.
     pub fn handshake(&self, cancel: &AtomicBool) -> Result<Reply, EngineError> {
-        let version = self.run(&Request::Version, cancel)?;
-        let capabilities = self.run(&Request::Capabilities, cancel)?;
-        validate_handshake(&version, &capabilities)?;
-        Ok(capabilities)
+        let (version, mut capabilities) = run_pair(
+            cancel,
+            |pair_cancel| self.run(&Request::Version, pair_cancel),
+            |pair_cancel| self.run(&Request::Capabilities, pair_cancel),
+        )?;
+        let validation = validate_handshake(&version, &capabilities);
+        let mut diagnostics = version.diagnostics;
+        if diagnostics.is_empty() {
+            std::mem::swap(&mut diagnostics, &mut capabilities.diagnostics);
+        } else {
+            append_diagnostics(&mut diagnostics, &capabilities.diagnostics);
+        }
+        match validation {
+            Ok(()) => {
+                capabilities.diagnostics = diagnostics;
+                Ok(capabilities)
+            }
+            Err(mut error) => {
+                append_diagnostics(&mut error.diagnostics, &diagnostics);
+                Err(error)
+            }
+        }
     }
     /// Run one command, draining both output streams while waiting for it to exit.
     /// Non-handshake commands require the contract from a successful handshake.
@@ -577,9 +599,9 @@ impl Engine {
                 // Publication may already have started. Drain both pipes and wait for it
                 // rather than treating a local setup failure as safe to interrupt.
                 let out =
-                    thread::spawn(move || drain_until(stdout, MAX_JSON, &AtomicBool::new(false)));
+                    thread::spawn(move || drain_pipe(stdout, MAX_JSON, &AtomicBool::new(false)));
                 let err = thread::spawn(move || {
-                    drain_until(stderr, MAX_DIAGNOSTICS, &AtomicBool::new(false))
+                    drain_pipe(stderr, MAX_DIAGNOSTICS, &AtomicBool::new(false))
                 });
                 let _ = child.wait();
                 let _ = out.join();
@@ -597,11 +619,11 @@ impl Engine {
         let out_stop = stop_readers.clone();
         let out_sender = sender.clone();
         let out = thread::spawn(move || {
-            let _ = out_sender.send((true, drain_until(stdout, MAX_JSON, &out_stop)));
+            let _ = out_sender.send((true, drain_pipe(stdout, MAX_JSON, &out_stop)));
         });
         let err_stop = stop_readers.clone();
         let err = thread::spawn(move || {
-            let _ = sender.send((false, drain_until(stderr, MAX_DIAGNOSTICS, &err_stop)));
+            let _ = sender.send((false, drain_pipe(stderr, MAX_DIAGNOSTICS, &err_stop)));
         });
         let started = Instant::now();
         let mut stdout = None;
@@ -640,7 +662,23 @@ impl Engine {
                 });
                 break;
             }
-            thread::sleep(Duration::from_millis(10));
+            match receiver.recv_timeout(Duration::from_millis(10)) {
+                Ok((true, result)) => stdout = Some(result),
+                Ok((false, result)) => stderr = Some(result),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected)
+                    if stdout.is_some() && stderr.is_some() =>
+                {
+                    // Both pipes closed before the process exited; keep checking
+                    // its deadline without spinning on the disconnected channel.
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    process_error =
+                        Some(io::Error::other("engine reader stopped without a result"));
+                    break;
+                }
+            }
         }
         if stopped.is_some() || process_error.is_some() {
             if matches!(request, Request::Patch { .. }) {
@@ -718,6 +756,116 @@ impl Engine {
     }
 }
 
+/// Run two independent read-only requests and stop the peer after either fails.
+/// Example: `run_pair(&cancel, |c| engine.run(&a, c), |c| engine.run(&b, c))`.
+pub(crate) fn run_pair<F, G>(
+    cancel: &AtomicBool,
+    first: F,
+    second: G,
+) -> Result<(Reply, Reply), EngineError>
+where
+    F: FnOnce(&AtomicBool) -> Result<Reply, EngineError> + Send,
+    G: FnOnce(&AtomicBool) -> Result<Reply, EngineError> + Send,
+{
+    if cancel.load(Ordering::Relaxed) {
+        return Err(EngineError::new(
+            ErrorKind::Cancelled,
+            "engine operation cancelled",
+        ));
+    }
+    let pair_cancel = AtomicBool::new(false);
+    thread::scope(|scope| {
+        let (sender, receiver) = mpsc::channel();
+        let first_sender = sender.clone();
+        let pair_cancel_ref = &pair_cancel;
+        scope.spawn(move || pair_worker(first, pair_cancel_ref, first_sender, 0));
+        let pair_cancel_ref = &pair_cancel;
+        let second_sender = sender.clone();
+        scope.spawn(move || pair_worker(second, pair_cancel_ref, second_sender, 1));
+        drop(sender);
+        let mut results = [None, None];
+        while results.iter().any(Option::is_none) {
+            if cancel.load(Ordering::Relaxed) {
+                pair_cancel.store(true, Ordering::Relaxed);
+            }
+            match receiver.recv_timeout(Duration::from_millis(10)) {
+                Ok((index, result)) => {
+                    if result.is_err() {
+                        pair_cancel.store(true, Ordering::Relaxed);
+                    }
+                    results[index] = Some(result);
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(EngineError::new(
+                        ErrorKind::Io,
+                        "engine pair stopped without both results",
+                    ));
+                }
+            }
+        }
+        let [first, second] = results.map(Option::unwrap);
+        if cancel.load(Ordering::Relaxed) {
+            let mut error = EngineError::new(ErrorKind::Cancelled, "engine operation cancelled");
+            for result in [&first, &second] {
+                let diagnostics = match result {
+                    Ok(reply) => &reply.diagnostics,
+                    Err(error) => &error.diagnostics,
+                };
+                append_diagnostics(&mut error.diagnostics, diagnostics);
+            }
+            return Err(error);
+        }
+        match (first, second) {
+            (Ok(first), Ok(second)) => Ok((first, second)),
+            (Err(first), Err(mut second))
+                if first.kind == ErrorKind::Cancelled && second.kind != ErrorKind::Cancelled =>
+            {
+                append_diagnostics(&mut second.diagnostics, &first.diagnostics);
+                Err(second)
+            }
+            (Err(mut first), Err(second)) => {
+                append_diagnostics(&mut first.diagnostics, &second.diagnostics);
+                Err(first)
+            }
+            (Err(mut error), Ok(peer)) | (Ok(peer), Err(mut error)) => {
+                append_diagnostics(&mut error.diagnostics, &peer.diagnostics);
+                Err(error)
+            }
+        }
+    })
+}
+
+/// Retain both streams' diagnostics when independent requests complete.
+/// Example: appending `"paths"` to `"doctor"` yields `"doctor\npaths"`.
+pub(crate) fn append_diagnostics(destination: &mut String, extra: &str) {
+    if !extra.is_empty() {
+        if !destination.is_empty() {
+            destination.push('\n');
+        }
+        destination.push_str(extra);
+    }
+}
+
+/// Execute one paired request and always report its result to the coordinator.
+fn pair_worker<F>(
+    operation: F,
+    cancel: &AtomicBool,
+    sender: mpsc::Sender<(usize, Result<Reply, EngineError>)>,
+    index: usize,
+) where
+    F: FnOnce(&AtomicBool) -> Result<Reply, EngineError>,
+{
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(cancel)))
+        .unwrap_or_else(|_| {
+            Err(EngineError::new(
+                ErrorKind::Io,
+                "engine pair worker panicked",
+            ))
+        });
+    let _ = sender.send((index, result));
+}
+
 struct Drained {
     bytes: Vec<u8>,
     overflow: bool,
@@ -734,9 +882,47 @@ impl Drained {
 }
 #[cfg(test)]
 fn drain(reader: impl Read, limit: usize) -> io::Result<Drained> {
-    drain_until(reader, limit, &AtomicBool::new(false))
+    drain_until(reader, limit, &AtomicBool::new(false), |_| Ok(()))
 }
-fn drain_until(mut reader: impl Read, limit: usize, stop: &AtomicBool) -> io::Result<Drained> {
+
+#[cfg(unix)]
+fn drain_pipe(
+    reader: impl Read + std::os::fd::AsRawFd,
+    limit: usize,
+    stop: &AtomicBool,
+) -> io::Result<Drained> {
+    drain_until(reader, limit, stop, |reader| {
+        let mut descriptor = libc::pollfd {
+            fd: reader.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: descriptor names a live child pipe for the duration of this call.
+        let result = unsafe { libc::poll(&mut descriptor, 1, 10) };
+        if result < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+        Ok(())
+    })
+}
+
+#[cfg(not(unix))]
+fn drain_pipe(reader: impl Read, limit: usize, stop: &AtomicBool) -> io::Result<Drained> {
+    drain_until(reader, limit, stop, |_| {
+        thread::sleep(Duration::from_millis(10));
+        Ok(())
+    })
+}
+
+fn drain_until<R: Read>(
+    mut reader: R,
+    limit: usize,
+    stop: &AtomicBool,
+    mut wait: impl FnMut(&R) -> io::Result<()>,
+) -> io::Result<Drained> {
     let mut bytes = Vec::new();
     let mut overflow = false;
     let mut buf = [0; 16384];
@@ -748,7 +934,7 @@ fn drain_until(mut reader: impl Read, limit: usize, stop: &AtomicBool) -> io::Re
             Ok(count) => count,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(10));
+                wait(&reader)?;
                 continue;
             }
             Err(error) => return Err(error),

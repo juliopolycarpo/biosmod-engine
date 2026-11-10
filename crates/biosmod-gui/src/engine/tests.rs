@@ -636,3 +636,369 @@ fn malformed_verification_fields_name_the_expected_type_and_received_value() {
         );
     }
 }
+
+/// Measure one complete version request or an 8 MiB JSON reply; run only during a reserved timing slot.
+#[cfg(unix)]
+#[test]
+#[ignore = "manual supervision timing probe"]
+fn supervision_timing_probe() {
+    let scenario = std::env::var("BME_SUPERVISION_SCENARIO").expect("BME_SUPERVISION_SCENARIO");
+    let cancel = AtomicBool::new(false);
+    if scenario == "version" {
+        let binary = PathBuf::from(std::env::var_os("BME_TEST_ENGINE").expect("BME_TEST_ENGINE"));
+        let directory = tempfile::tempdir().unwrap();
+        let engine = Engine::new(binary, directory.path()).unwrap();
+        let start = Instant::now();
+        let reply = engine.run(&Request::Version, &cancel).unwrap();
+        let elapsed = start.elapsed();
+        assert!(!reply.version.is_empty());
+        println!(
+            "supervision_sample scenario=version elapsed_ns={}",
+            elapsed.as_nanos()
+        );
+    } else if scenario == "handshake" {
+        let binary = PathBuf::from(std::env::var_os("BME_TEST_ENGINE").expect("BME_TEST_ENGINE"));
+        let directory = tempfile::tempdir().unwrap();
+        let engine = Engine::new(binary, directory.path()).unwrap();
+        let start = Instant::now();
+        let reply = engine.handshake(&cancel).unwrap();
+        let elapsed = start.elapsed();
+        assert!(!reply.version.is_empty());
+        println!(
+            "supervision_sample scenario=handshake elapsed_ns={}",
+            elapsed.as_nanos()
+        );
+    } else if scenario == "scan" || scenario == "tools" {
+        use crate::controller::{Action, Outcome, Session};
+        let binary = PathBuf::from(std::env::var_os("BME_TEST_ENGINE").expect("BME_TEST_ENGINE"));
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let fixture = root.join("fixture");
+        let mut command = Command::new(&binary);
+        command
+            .env("BME_CONFIG_HOME", root.join("config"))
+            .env("BME_CACHE_HOME", root.join("cache"))
+            .env("BME_DATA_HOME", root.join("data"));
+        let output = command
+            .args(["dev", "synthetic", "-o"])
+            .arg(&fixture)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "synthetic fixture: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = Command::new(&binary)
+            .env("BME_CONFIG_HOME", root.join("config"))
+            .env("BME_CACHE_HOME", root.join("cache"))
+            .env("BME_DATA_HOME", root.join("data"))
+            .args(["catalog", "add", "lab"])
+            .arg(fixture.join("catalog"))
+            .arg("--allow-unsigned-local")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "catalog fixture: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let engine = Engine::new(&binary, root)
+            .unwrap()
+            .with_env("BME_CONFIG_HOME", root.join("config"))
+            .with_env("BME_CACHE_HOME", root.join("cache"))
+            .with_env("BME_DATA_HOME", root.join("data"));
+        let mut session = Session::new().unwrap();
+        let result = session.prepare(Action::Connect).unwrap().run(&engine);
+        assert!(session.finish(result));
+        assert!(session.connected, "connect: {}", session.status);
+        session.image = Some(fixture.join("synthetic.bin"));
+        session.source = "lab".into();
+        let action = if scenario == "scan" {
+            Action::Scan
+        } else {
+            Action::Tools
+        };
+        let job = session.prepare(action).unwrap();
+        let start = Instant::now();
+        let completion = job.run(&engine);
+        let elapsed = start.elapsed();
+        assert!(session.finish(completion));
+        assert_eq!(
+            session.outcome,
+            Outcome::Idle,
+            "{scenario}: {}",
+            session.status
+        );
+        if scenario == "scan" {
+            assert!(session.scan.is_some());
+        } else {
+            assert!(session.tool_report.is_some());
+        }
+        println!(
+            "supervision_sample scenario={scenario} elapsed_ns={}",
+            elapsed.as_nanos()
+        );
+    } else if scenario == "large" {
+        let fake = FakeEngine::new(concat!(
+            "printf '%s' '{\"product\":\"biosmod-engine\",\"protocol\":\"bme/1\",\"version\":\"0.1.0\",\"command\":\"version\",\"ok\":true,\"data\":{\"payload\":\"'\n",
+            "head -c 8388608 /dev/zero | tr '\\000' a\n",
+            "printf '%s' '\"}}'\n"
+        ));
+        let engine = fake.engine();
+        let start = Instant::now();
+        let reply = engine.run(&Request::Version, &cancel).unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(
+            reply.data["payload"].as_str().unwrap().len(),
+            8 * 1024 * 1024
+        );
+        println!(
+            "supervision_sample scenario=large elapsed_ns={}",
+            elapsed.as_nanos()
+        );
+    } else {
+        panic!(
+            "BME_SUPERVISION_SCENARIO: expected version, handshake, or large | received {scenario:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn timeout_still_applies_when_child_closes_both_pipes() {
+    let fake = FakeEngine::new("exec 1>&- 2>&-; sleep 10");
+    let started = Instant::now();
+    let error = fake
+        .engine()
+        .with_timeout(Duration::from_millis(50))
+        .run(&Request::Version, &AtomicBool::new(false))
+        .unwrap_err();
+    assert_eq!(
+        error.kind,
+        ErrorKind::Timeout,
+        "closed pipes: expected timeout | received {error:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_millis(700),
+        "closed pipes: expected bounded timeout | received {:?}",
+        started.elapsed()
+    );
+}
+
+/// Named read-only pair fake that observes overlap and cancellation.
+struct PairFixture {
+    started: std::sync::atomic::AtomicUsize,
+    observed_cancel: AtomicBool,
+}
+
+impl PairFixture {
+    fn new() -> Self {
+        Self {
+            started: std::sync::atomic::AtomicUsize::new(0),
+            observed_cancel: AtomicBool::new(false),
+        }
+    }
+
+    fn execute(&self, cancel: &AtomicBool, fail: bool) -> Result<Reply, EngineError> {
+        self.started.fetch_add(1, Ordering::SeqCst);
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while self.started.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(1));
+        }
+        if self.started.load(Ordering::SeqCst) < 2 {
+            return Err(EngineError::new(
+                ErrorKind::Timeout,
+                "pair: both workers did not start",
+            ));
+        }
+        if fail {
+            return Err(EngineError::new(ErrorKind::Protocol, "fixture failure"));
+        }
+        while !cancel.load(Ordering::Relaxed) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(1));
+        }
+        if cancel.load(Ordering::Relaxed) {
+            self.observed_cancel.store(true, Ordering::SeqCst);
+            return Err(EngineError::new(ErrorKind::Cancelled, "fixture cancelled")
+                .diagnostics("fixture cancellation diagnostic"));
+        }
+        Err(EngineError::new(
+            ErrorKind::Timeout,
+            "pair: cancellation was not delivered",
+        ))
+    }
+}
+
+#[test]
+fn pair_starts_both_workers_and_cancels_peer_on_failure() {
+    let fixture = PairFixture::new();
+    let cancel = AtomicBool::new(false);
+    let result = run_pair(
+        &cancel,
+        |c| fixture.execute(c, true),
+        |c| fixture.execute(c, false),
+    );
+    let error = result.unwrap_err();
+    assert_eq!(
+        error.kind,
+        ErrorKind::Protocol,
+        "pair: expected fixture failure | received {error:?}"
+    );
+    assert!(
+        fixture.observed_cancel.load(Ordering::SeqCst),
+        "pair: expected peer cancellation"
+    );
+}
+
+#[test]
+fn pair_forwards_user_cancellation_to_both_workers() {
+    let fixture = PairFixture::new();
+    let cancel = AtomicBool::new(false);
+    thread::scope(|scope| {
+        scope.spawn(|| {
+            while fixture.started.load(Ordering::SeqCst) < 2 {
+                thread::yield_now();
+            }
+            cancel.store(true, Ordering::SeqCst);
+        });
+        let error = run_pair(
+            &cancel,
+            |c| fixture.execute(c, false),
+            |c| fixture.execute(c, false),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.kind,
+            ErrorKind::Cancelled,
+            "pair: expected user cancellation | received {error:?}"
+        );
+        assert!(fixture.observed_cancel.load(Ordering::SeqCst));
+        assert!(
+            error
+                .diagnostics
+                .contains("fixture cancellation diagnostic")
+        );
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn pair_reaps_the_running_engine_when_its_peer_fails() {
+    let failing = FakeEngine::new("sleep 0.1; printf invalid");
+    let waiting = FakeEngine::new("echo $$ > child.pid; exec sleep 10");
+    let first = failing.engine();
+    let second = waiting.engine();
+    let started = Instant::now();
+    let error = run_pair(
+        &AtomicBool::new(false),
+        |cancel| first.run(&Request::Version, cancel),
+        |cancel| second.run(&Request::Version, cancel),
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.kind,
+        ErrorKind::Protocol,
+        "pair: expected malformed reply | received {error:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "pair: expected prompt peer termination | received {:?}",
+        started.elapsed()
+    );
+    let pid: u32 = std::fs::read_to_string(waiting.dir.path().join("child.pid"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    #[cfg(target_os = "linux")]
+    assert!(
+        !Path::new(&format!("/proc/{pid}")).exists(),
+        "pair: expected worker {pid} to be reaped"
+    );
+}
+
+#[test]
+fn append_diagnostics_retains_nonempty_messages() {
+    let mut diagnostics = String::new();
+    append_diagnostics(&mut diagnostics, "first");
+    append_diagnostics(&mut diagnostics, "");
+    append_diagnostics(&mut diagnostics, "second");
+    assert_eq!(diagnostics, "first\nsecond");
+}
+
+#[cfg(unix)]
+struct HandshakeWarningsEngine {
+    directory: tempfile::TempDir,
+}
+
+#[cfg(unix)]
+impl HandshakeWarningsEngine {
+    fn new(capability_version: &str, large_warnings: bool) -> Self {
+        let directory = tempfile::tempdir().unwrap();
+        let mut capabilities = fake_capability_contract();
+        capabilities.as_object_mut().unwrap().extend(json!({
+            "engine": capability_version, "protocol":"bme/1", "desktop_workflow":1,
+            "commands":[{"name":"inspect"},{"name":"scan"},{"name":"plan"},{"name":"patch"},{"name":"verify"},
+                {"name":"catalog validate|index|show|import-x99fix"},{"name":"catalog add|list|remove"},{"name":"tools doctor|paths"}],
+            "documents":[{"name":"plan","schema":"bme.plan/1"},{"name":"manifest","schema":"bme.manifest/1"},{"name":"catalog","schema":"bme.catalog/1"},{"name":"patch","schema":"bme.patch/1"}]
+        }).as_object().unwrap().clone());
+        for (name, version, data) in [
+            (
+                "version",
+                "0.1.0",
+                json!({"engine":"0.1.0","protocol":"bme/1"}),
+            ),
+            ("capabilities", capability_version, capabilities),
+        ] {
+            let response = json!({"product":"biosmod-engine","protocol":"bme/1","version":version,"command":name,"ok":true,"data":data});
+            let warning = if large_warnings {
+                "head -c 300000 /dev/zero | tr '\\000' x >&2".to_owned()
+            } else {
+                format!("printf '%s' '{name} warning' >&2")
+            };
+            let script = format!("{warning}\nprintf '%s' '{}'\n", response);
+            std::fs::write(directory.path().join(name), script).unwrap();
+        }
+        Self { directory }
+    }
+
+    fn engine(&self) -> Engine {
+        Engine::new("/bin/sh", self.directory.path()).unwrap()
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn handshake_keeps_warnings_from_both_successful_replies() {
+    let fake = HandshakeWarningsEngine::new("0.1.0", false);
+    let reply = fake.engine().handshake(&AtomicBool::new(false)).unwrap();
+    assert_eq!(reply.diagnostics, "version warning\ncapabilities warning");
+}
+
+#[cfg(unix)]
+#[test]
+fn handshake_mismatch_keeps_warnings_from_both_replies() {
+    let fake = HandshakeWarningsEngine::new("0.2.0", false);
+    let error = fake
+        .engine()
+        .handshake(&AtomicBool::new(false))
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Protocol);
+    assert!(error.message.contains("0.1.0") && error.message.contains("0.2.0"));
+    assert_eq!(error.diagnostics, "version warning\ncapabilities warning");
+}
+
+#[cfg(unix)]
+#[test]
+fn handshake_warnings_remain_bounded_for_both_processes() {
+    let fake = HandshakeWarningsEngine::new("0.1.0", true);
+    let reply = fake.engine().handshake(&AtomicBool::new(false)).unwrap();
+    assert_eq!(
+        reply.diagnostics.matches("[diagnostics truncated]").count(),
+        2
+    );
+    assert!(
+        reply.diagnostics.len() <= 2 * (MAX_DIAGNOSTICS + "\n[diagnostics truncated]".len()) + 1
+    );
+}

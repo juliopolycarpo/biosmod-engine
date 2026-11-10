@@ -1,7 +1,8 @@
 //! Session transitions and reviewed-plan ownership, independent of the windowing backend.
 
 use crate::engine::{
-    Engine, EngineContract, EngineError, ErrorKind, Reply, Request, verification_complete,
+    Engine, EngineContract, EngineError, ErrorKind, Reply, Request, append_diagnostics, run_pair,
+    verification_complete,
 };
 use crate::model::{Scan, SourceReport, pretty};
 use serde_json::Value;
@@ -945,12 +946,8 @@ impl Job {
             bound_engine = engine.clone().with_contract(contract);
             &bound_engine
         };
-        let reply = if self.token.2 == Action::Connect {
-            engine.handshake(&self.cancel)?
-        } else {
-            engine.run(&self.request, &self.cancel)?
-        };
-        let extra = match self.token.2 {
+        let (reply, extra) = match self.token.2 {
+            Action::Connect => (engine.handshake(&self.cancel)?, None),
             Action::Scan => {
                 let Request::Scan { source, .. } = &self.request else {
                     unreachable!("scan jobs carry a scan request");
@@ -958,10 +955,45 @@ impl Job {
                 let show = Request::CatalogShow {
                     source: source.clone(),
                 };
-                Some(engine.run(&show, &self.cancel)?.data)
+                let (mut scan, catalog) = run_pair(
+                    &self.cancel,
+                    |cancel| engine.run(&self.request, cancel),
+                    |cancel| engine.run(&show, cancel),
+                )?;
+                if scan.version != catalog.version {
+                    let mut error = local_error(format!(
+                        "scan: expected matching scan and catalog versions | received {} and {}",
+                        scan.version, catalog.version
+                    ));
+                    append_diagnostics(&mut error.diagnostics, &scan.diagnostics);
+                    append_diagnostics(&mut error.diagnostics, &catalog.diagnostics);
+                    return Err(error);
+                }
+                append_diagnostics(&mut scan.diagnostics, &catalog.diagnostics);
+                (scan, Some(catalog.data))
             }
-            Action::Tools => Some(engine.run(&Request::ToolsPaths, &self.cancel)?.data),
-            _ => None,
+            Action::Tools => {
+                let mut doctor = run_doctor(engine, &self.request, &self.cancel)?;
+                let paths =
+                    engine
+                        .run(&Request::ToolsPaths, &self.cancel)
+                        .map_err(|mut error| {
+                            append_diagnostics(&mut error.diagnostics, &doctor.diagnostics);
+                            error
+                        })?;
+                if doctor.version != paths.version {
+                    let mut error = local_error(format!(
+                        "tools: expected matching doctor and paths versions | received {} and {}",
+                        doctor.version, paths.version
+                    ));
+                    append_diagnostics(&mut error.diagnostics, &doctor.diagnostics);
+                    append_diagnostics(&mut error.diagnostics, &paths.diagnostics);
+                    return Err(error);
+                }
+                append_diagnostics(&mut doctor.diagnostics, &paths.diagnostics);
+                (doctor, Some(paths.data))
+            }
+            _ => (engine.run(&self.request, &self.cancel)?, None),
         };
         let review = if let Request::Plan { output, .. } = &self.request {
             let bytes = read_plan(output)?;
@@ -981,6 +1013,55 @@ impl Job {
             extra,
             review,
         })
+    }
+}
+
+/// Retain a controlled missing-tools doctor report without accepting malformed errors.
+fn run_doctor(
+    engine: &Engine,
+    request: &Request,
+    cancel: &AtomicBool,
+) -> Result<Reply, EngineError> {
+    match engine.run(request, cancel) {
+        Ok(reply) => Ok(reply),
+        Err(error)
+            if error.kind == ErrorKind::Engine
+                && error.code.as_deref() == Some("TOOL_UNAVAILABLE") =>
+        {
+            let details = error.details.as_ref();
+            let home = details.and_then(|value| value.get("ghidra_home"));
+            let checks = details.and_then(|value| value.get("checks"));
+            let valid_home =
+                home.is_some_and(|home| home["path"].is_string() && home["origin"].is_string());
+            let valid_checks = checks.and_then(Value::as_array).is_some_and(|checks| {
+                !checks.is_empty()
+                    && checks.iter().all(|check| {
+                        check["check"].is_string()
+                            && check["ok"].is_boolean()
+                            && check["detail"].is_string()
+                    })
+                    && checks.iter().any(|check| check["ok"] == false)
+            });
+            if !valid_home || !valid_checks || error.version.is_none() {
+                return Err(EngineError {
+                    kind: ErrorKind::Protocol,
+                    message: format!(
+                        "tools doctor: expected a structured failed-check report | received {}",
+                        details.unwrap_or(&Value::Null)
+                    ),
+                    ..error
+                });
+            }
+            let mut report = details.cloned().unwrap();
+            report["error"] =
+                serde_json::json!({"code":"TOOL_UNAVAILABLE", "message":error.message});
+            Ok(Reply {
+                version: *error.version.unwrap(),
+                data: report,
+                diagnostics: error.diagnostics,
+            })
+        }
+        Err(error) => Err(error),
     }
 }
 
