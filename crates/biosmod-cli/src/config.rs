@@ -36,7 +36,11 @@ impl Paths {
     /// Example: `Paths::resolve(&|k| (k == "HOME").then(|| "/home/u".into()), "linux")`
     /// gives `/home/u/.config/biosmod-engine` for configuration.
     pub fn resolve(get: &dyn Fn(&str) -> Option<OsString>, os: &str) -> Result<Paths> {
-        let base = |var: &str| get(var).map(PathBuf::from);
+        let base = |var: &str| {
+            get(var)
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        };
         let default = |kind: usize| -> Option<PathBuf> {
             match os {
                 "windows" => {
@@ -257,6 +261,25 @@ mod tests {
             paths.data,
             PathBuf::from("/home/user/.local/share/biosmod-engine"),
             "relative XDG_DATA_HOME must use HOME"
+        );
+    }
+
+    #[test]
+    fn empty_explicit_home_uses_xdg_directory() {
+        let paths = Paths::resolve(
+            &env(&[
+                ("HOME", "/home/user"),
+                ("BME_CONFIG_HOME", ""),
+                ("XDG_CONFIG_HOME", "/xdg"),
+            ]),
+            "linux",
+        )
+        .unwrap();
+        assert_eq!(
+            paths.config,
+            PathBuf::from("/xdg/biosmod-engine"),
+            "empty BME_CONFIG_HOME: expected XDG directory | received {:?}",
+            paths.config
         );
     }
 
