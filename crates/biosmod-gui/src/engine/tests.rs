@@ -636,3 +636,67 @@ fn malformed_verification_fields_name_the_expected_type_and_received_value() {
         );
     }
 }
+
+/// Measure one complete version request or an 8 MiB JSON reply; run only during a reserved timing slot.
+#[cfg(unix)]
+#[test]
+#[ignore = "manual supervision timing probe"]
+fn supervision_timing_probe() {
+    let scenario = std::env::var("BME_SUPERVISION_SCENARIO").expect("BME_SUPERVISION_SCENARIO");
+    let cancel = AtomicBool::new(false);
+    if scenario == "version" {
+        let binary = PathBuf::from(std::env::var_os("BME_TEST_ENGINE").expect("BME_TEST_ENGINE"));
+        let directory = tempfile::tempdir().unwrap();
+        let engine = Engine::new(binary, directory.path()).unwrap();
+        let start = Instant::now();
+        let reply = engine.run(&Request::Version, &cancel).unwrap();
+        let elapsed = start.elapsed();
+        assert!(!reply.version.is_empty());
+        println!(
+            "supervision_sample scenario=version elapsed_ns={}",
+            elapsed.as_nanos()
+        );
+    } else if scenario == "large" {
+        let fake = FakeEngine::new(concat!(
+            "printf '%s' '{\"product\":\"biosmod-engine\",\"protocol\":\"bme/1\",\"version\":\"0.1.0\",\"command\":\"version\",\"ok\":true,\"data\":{\"payload\":\"'\n",
+            "head -c 8388608 /dev/zero | tr '\\000' a\n",
+            "printf '%s' '\"}}'\n"
+        ));
+        let engine = fake.engine();
+        let start = Instant::now();
+        let reply = engine.run(&Request::Version, &cancel).unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(
+            reply.data["payload"].as_str().unwrap().len(),
+            8 * 1024 * 1024
+        );
+        println!(
+            "supervision_sample scenario=large elapsed_ns={}",
+            elapsed.as_nanos()
+        );
+    } else {
+        panic!("BME_SUPERVISION_SCENARIO: expected version or large | received {scenario:?}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn timeout_still_applies_when_child_closes_both_pipes() {
+    let fake = FakeEngine::new("exec 1>&- 2>&-; sleep 10");
+    let started = Instant::now();
+    let error = fake
+        .engine()
+        .with_timeout(Duration::from_millis(50))
+        .run(&Request::Version, &AtomicBool::new(false))
+        .unwrap_err();
+    assert_eq!(
+        error.kind,
+        ErrorKind::Timeout,
+        "closed pipes: expected timeout | received {error:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_millis(700),
+        "closed pipes: expected bounded timeout | received {:?}",
+        started.elapsed()
+    );
+}

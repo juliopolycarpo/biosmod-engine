@@ -581,9 +581,9 @@ impl Engine {
                 // Publication may already have started. Drain both pipes and wait for it
                 // rather than treating a local setup failure as safe to interrupt.
                 let out =
-                    thread::spawn(move || drain_until(stdout, MAX_JSON, &AtomicBool::new(false)));
+                    thread::spawn(move || drain_pipe(stdout, MAX_JSON, &AtomicBool::new(false)));
                 let err = thread::spawn(move || {
-                    drain_until(stderr, MAX_DIAGNOSTICS, &AtomicBool::new(false))
+                    drain_pipe(stderr, MAX_DIAGNOSTICS, &AtomicBool::new(false))
                 });
                 let _ = child.wait();
                 let _ = out.join();
@@ -601,11 +601,11 @@ impl Engine {
         let out_stop = stop_readers.clone();
         let out_sender = sender.clone();
         let out = thread::spawn(move || {
-            let _ = out_sender.send((true, drain_until(stdout, MAX_JSON, &out_stop)));
+            let _ = out_sender.send((true, drain_pipe(stdout, MAX_JSON, &out_stop)));
         });
         let err_stop = stop_readers.clone();
         let err = thread::spawn(move || {
-            let _ = sender.send((false, drain_until(stderr, MAX_DIAGNOSTICS, &err_stop)));
+            let _ = sender.send((false, drain_pipe(stderr, MAX_DIAGNOSTICS, &err_stop)));
         });
         let started = Instant::now();
         let mut stdout = None;
@@ -644,7 +644,23 @@ impl Engine {
                 });
                 break;
             }
-            thread::sleep(Duration::from_millis(10));
+            match receiver.recv_timeout(Duration::from_millis(10)) {
+                Ok((true, result)) => stdout = Some(result),
+                Ok((false, result)) => stderr = Some(result),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected)
+                    if stdout.is_some() && stderr.is_some() =>
+                {
+                    // Both pipes closed before the process exited; keep checking
+                    // its deadline without spinning on the disconnected channel.
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    process_error =
+                        Some(io::Error::other("engine reader stopped without a result"));
+                    break;
+                }
+            }
         }
         if stopped.is_some() || process_error.is_some() {
             if matches!(request, Request::Patch { .. }) {
@@ -738,9 +754,47 @@ impl Drained {
 }
 #[cfg(test)]
 fn drain(reader: impl Read, limit: usize) -> io::Result<Drained> {
-    drain_until(reader, limit, &AtomicBool::new(false))
+    drain_until(reader, limit, &AtomicBool::new(false), |_| Ok(()))
 }
-fn drain_until(mut reader: impl Read, limit: usize, stop: &AtomicBool) -> io::Result<Drained> {
+
+#[cfg(unix)]
+fn drain_pipe(
+    reader: impl Read + std::os::fd::AsRawFd,
+    limit: usize,
+    stop: &AtomicBool,
+) -> io::Result<Drained> {
+    drain_until(reader, limit, stop, |reader| {
+        let mut descriptor = libc::pollfd {
+            fd: reader.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: descriptor names a live child pipe for the duration of this call.
+        let result = unsafe { libc::poll(&mut descriptor, 1, 10) };
+        if result < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+        Ok(())
+    })
+}
+
+#[cfg(not(unix))]
+fn drain_pipe(reader: impl Read, limit: usize, stop: &AtomicBool) -> io::Result<Drained> {
+    drain_until(reader, limit, stop, |_| {
+        thread::sleep(Duration::from_millis(10));
+        Ok(())
+    })
+}
+
+fn drain_until<R: Read>(
+    mut reader: R,
+    limit: usize,
+    stop: &AtomicBool,
+    mut wait: impl FnMut(&R) -> io::Result<()>,
+) -> io::Result<Drained> {
     let mut bytes = Vec::new();
     let mut overflow = false;
     let mut buf = [0; 16384];
@@ -752,7 +806,7 @@ fn drain_until(mut reader: impl Read, limit: usize, stop: &AtomicBool) -> io::Re
             Ok(count) => count,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(10));
+                wait(&reader)?;
                 continue;
             }
             Err(error) => return Err(error),
