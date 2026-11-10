@@ -419,7 +419,7 @@ msgid ""
 "compatibility or boot behavior."
 msgstr ""
 
-#: ui/app-window.slint:546
+#: ui/app-window.slint:549
 msgctxt "AppWindow"
 msgid "Cancel"
 msgstr ""
