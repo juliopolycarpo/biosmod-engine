@@ -24,6 +24,8 @@ runs under X11 or Wayland use `--test-threads 1` so windows do not compete for
 focus; headless tests use nextest's default parallelism. Build the CLI before
 running GUI integration tests because they launch `target/debug/bme`.
 
+To check the native file-picker portal on a running desktop, use `cargo test -p biosmod-gui --test native_dialog -- --ignored --nocapture`. It opens the Portuguese plan picker for two seconds; the test process then exits and closes the dialog. Run it with each display backend.
+
 Core and CLI retain Rust 1.88 and Linux, Windows and macOS coverage. The Linux GUI requires Rust 1.92 and its native windowing and graphics libraries. CI checks it separately on Ubuntu 24.04, with X11 and Wayland software-renderer smoke tests. Check both desktop sessions, keyboard navigation, scaling and file dialogs when changing the interface; headless tests alone do not qualify desktop integration.
 
 - The core never does I/O; the CLI never interprets firmware on its own (see [docs/architecture.md](docs/architecture.md)).

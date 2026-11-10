@@ -19,6 +19,8 @@ cargo test --locked --doc -p biosmod-gui
 
 Use `--profile ci` para os limites de tempo e relatórios de falha da CI. Execuções gráficas nativas em X11 ou Wayland usam `--test-threads 1` para que as janelas não disputem o foco; testes sem monitor usam o paralelismo padrão do nextest. Compile a CLI antes dos testes de integração da interface, pois eles executam `target/debug/bme`.
 
+Para verificar o portal de seleção de arquivos em uma sessão de desktop, use `cargo test -p biosmod-gui --test native_dialog -- --ignored --nocapture`. O teste abre o seletor de planos em português por dois segundos; em seguida, o processo termina e fecha o diálogo. Execute-o com cada backend de exibição.
+
 Core e CLI mantêm Rust 1.88 e cobertura de Linux, Windows e macOS. A interface Linux exige Rust 1.92 e suas bibliotecas nativas de janelas e gráficos. A CI a verifica separadamente em Ubuntu 24.04, com testes básicos de renderização por software em X11 e Wayland. Ao alterar a interface, confira ambas as sessões, navegação por teclado, escala e diálogos de arquivo; testes sem monitor não qualificam a integração gráfica por si só.
 
 - O core nunca faz I/O; a CLI nunca interpreta firmware por conta própria (veja [arquitetura](docs/pt-BR/architecture.md)).
