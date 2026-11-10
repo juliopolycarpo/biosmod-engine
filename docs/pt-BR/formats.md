@@ -15,6 +15,8 @@
 
 Limites: imagens de até 64 MiB, profundidade de aninhamento 16, arquivos de catálogo de até 8 MiB e 4096 arquivos por catálogo.
 
+Várias DSDTs sem sobreposição em uma seção RAW podem ser selecionadas independentemente por `table_offset`. Quando o catálogo identifica várias tabelas em um arquivo, seus intervalos não podem se sobrepor e nenhuma tabela pode ser redimensionada. O patch de cada tabela deve manter seu próprio checksum.
+
 Não suportados (`FORMAT_UNSUPPORTED` ou `PACKING_REFUSED` explícito): compressão padrão EFI, TianoCompress, Brotli e outras codificações definidas por GUID, cápsulas, contêineres de atualização assinados, mover PEI ou outros módulos executados no local, redimensionar um módulo no meio da imagem e edição semântica de ACPI.
 
 Checksums válidos não são uma assinatura. O bme nunca remove nem recalcula dados de autenticação e não pode dizer se uma plataforma aceitará uma imagem modificada.

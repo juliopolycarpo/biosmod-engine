@@ -17,7 +17,7 @@
 //! ```
 
 use crate::analysis::{
-    self, State, check_context, included, match_component, minimal, module_bytes, related,
+    self, State, check_context, included, match_component, minimal, module_bytes, related_component,
 };
 use crate::catalog::{Catalog, Component, LeafKind, Packing, Patch, PatchClass, Tier};
 use crate::error::{Code, Error, Result};
@@ -57,6 +57,13 @@ pub struct ComponentChange {
     pub result_sha256: Digest256,
     pub file_size_change: i64,
     pub rebuilt: bool,
+}
+
+/// Pending edits to one leaf before rebuilding its containing FFS file.
+struct PendingFile {
+    leaf: crate::firmware::LeafRef,
+    body: Vec<u8>,
+    changed: Vec<usize>,
 }
 
 /// A byte range `[start, end)` of the image.
@@ -248,8 +255,7 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
     };
     let (chosen, mut notes) = resolve(catalog, &firmware, request)?;
     let offsets = analysis::TableOffsetIndex::new(catalog, &firmware);
-    // Related patch matching currently keys on GUID and leaf type. Refuse an
-    // ambiguous catalog before matching or composing different ACPI tables.
+    // Refuse overlapping table ranges before matching or composing them.
     for id in &chosen {
         for component in catalog.patches[id].components(&firmware) {
             if let Some(message) = offsets.conflict(component) {
@@ -293,10 +299,11 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
     for id in &chosen {
         let patch = &catalog.patches[id];
         for component in patch.components(&firmware) {
-            if plan
-                .iter()
-                .any(|(c, _)| c.ffs_guid == component.ffs_guid && c.leaf == component.leaf)
-            {
+            if plan.iter().any(|(c, _)| {
+                c.ffs_guid == component.ffs_guid
+                    && c.leaf == component.leaf
+                    && c.table_offset == component.table_offset
+            }) {
                 continue;
             }
             let count = analysis::copies(image, component);
@@ -314,6 +321,9 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
                 let code = if state == State::Unsupported { Code::FormatUnsupported } else { Code::PatchSourceMismatch };
                 Error::new(code, format!("{id}/{}: module differs from the {firmware} original this patch was made for ({detail})", component.name))
             })?;
+            if let Some(message) = offsets.extent_error(component, found.current.len()) {
+                return Err(Error::new(Code::FormatUnsupported, message));
+            }
             plan.push((component, found));
         }
         check_context(
@@ -324,9 +334,10 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
     }
     let mut carried_all = BTreeSet::new();
     let mut by_volume: BTreeMap<usize, Vec<Replacement>> = BTreeMap::new();
+    let mut pending: BTreeMap<(usize, usize), PendingFile> = BTreeMap::new();
     let mut components = Vec::new();
     for (component, found) in &plan {
-        let related = related(catalog, &firmware, component.ffs_guid, component.leaf);
+        let related = related_component(catalog, &firmware, component);
         let related_ids: BTreeSet<String> = related.iter().map(|(p, _)| p.id.clone()).collect();
         let carried = carried_fixes(catalog, &found.fixed, &wanted)?;
         carried_all.extend(carried.iter().cloned());
@@ -340,6 +351,9 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
             k
         };
         let result = compose(&firmware, component, &found.original, &keep, &related)?;
+        if let Some(message) = offsets.extent_error(component, result.len()) {
+            return Err(Error::new(Code::FormatUnsupported, message));
+        }
         check_structure(image, found, &related, &keep)?;
         let file = image.file(&found.leaf);
         let mut change = ComponentChange {
@@ -358,36 +372,71 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
             components.push(change);
             continue;
         }
-        let mut body = result.clone();
-        if component.leaf == LeafKind::AcpiTable {
-            let container = image.leaf_body(&found.leaf);
-            let at = component.table_offset;
-            body = [
-                &container[..at],
-                &result[..],
-                &container[at + found.current.len()..],
-            ]
-            .concat();
-        }
-        let data = rebuild::keep_extent(
-            rebuild::rebuilt_file(image, &found.leaf, &body)?,
-            file.extent(),
-            file.header_size,
-        )?;
-        change.file_size_change = align(data.len(), 8) as i64 - file.extent() as i64;
-        change.rebuilt = true;
-        let slot = by_volume.entry(found.leaf.volume).or_default();
-        if slot.iter().any(|(i, _)| *i == found.leaf.file) {
+        let key = (found.leaf.volume, found.leaf.file);
+        let entry = pending.entry(key).or_insert_with(|| PendingFile {
+            leaf: found.leaf.clone(),
+            body: image.leaf_body(&found.leaf).to_vec(),
+            changed: Vec::new(),
+        });
+        if entry.leaf != found.leaf
+            || (!entry.changed.is_empty()
+                && (component.leaf != LeafKind::AcpiTable
+                    || components[entry.changed[0]].leaf != LeafKind::AcpiTable))
+        {
             return Err(Error::new(
                 Code::FormatUnsupported,
                 format!(
-                    "{}: two selected components live in the same FFS file",
+                    "{}: selected components occupy different sections of one FFS file",
                     component.name
                 ),
             ));
         }
-        slot.push((found.leaf.file, data));
+        if component.leaf == LeafKind::AcpiTable {
+            if result.len() != found.current.len() && offsets.has_other(component) {
+                return Err(Error::new(
+                    Code::FormatUnsupported,
+                    format!(
+                        "{}: cannot resize an ACPI table with other cataloged tables in the same FFS file",
+                        component.name
+                    ),
+                ));
+            }
+            let at = component.table_offset;
+            let end = at
+                .checked_add(found.current.len())
+                .filter(|end| *end <= entry.body.len())
+                .ok_or_else(|| {
+                    Error::new(
+                        Code::FormatUnsupported,
+                        format!(
+                            "{}: table offset {at:#x} exceeds its RAW section",
+                            component.name
+                        ),
+                    )
+                })?;
+            entry.body.splice(at..end, result);
+        } else {
+            entry.body = result;
+        }
+        change.rebuilt = true;
+        entry.changed.push(components.len());
         components.push(change);
+    }
+    for ((volume, file_index), pending_file) in pending {
+        let file = image.file(&pending_file.leaf);
+        let data = rebuild::keep_extent(
+            rebuild::rebuilt_file(image, &pending_file.leaf, &pending_file.body)?,
+            file.extent(),
+            file.header_size,
+        )?;
+        let delta = align(data.len(), 8) as i64 - file.extent() as i64;
+        for index in pending_file.changed {
+            components[index].file_size_change = delta;
+        }
+        by_volume
+            .entry(volume)
+            .or_default()
+            .push((file_index, data));
     }
     let mut out = image.bytes.clone();
     let mut allowlist = Vec::new();
@@ -437,6 +486,23 @@ fn compose(
     related: &[(&Patch, &Component)],
 ) -> Result<Vec<u8>> {
     let lookup = |id: &String| related.iter().find(|(p, _)| &p.id == id).map(|(_, c)| *c);
+    let original_digest = Digest256::of(original);
+    for id in keep {
+        let source = lookup(id).expect("kept patch is related");
+        if source.source_size != original.len() as u64 || source.source_sha256 != original_digest {
+            return Err(Error::new(
+                Code::PatchSourceMismatch,
+                format!(
+                    "{id}/{}: expected source size {} and hash {} | received size {} and hash {}",
+                    source.name,
+                    source.source_size,
+                    source.source_sha256,
+                    original.len(),
+                    original_digest
+                ),
+            ));
+        }
+    }
     let (layered, base): (Vec<&String>, Vec<&String>) = keep
         .iter()
         .partition(|id| lookup(id).is_some_and(|c| !c.layer_on.is_empty()));
@@ -448,9 +514,10 @@ fn compose(
     )
     .map_err(|e| e.context(format!("{} on {firmware}", component.name)))?;
     if !layered.is_empty() {
+        let input_digest = Digest256::of(&result);
         for id in &layered {
             let layer = lookup(id).expect("partitioned");
-            if Some(Digest256::of(&result)) != layer.input_sha256 {
+            if Some(input_digest) != layer.input_sha256 {
                 return Err(Error::new(
                     Code::PatchSourceMismatch,
                     format!(
@@ -469,11 +536,11 @@ fn compose(
         )?;
     }
     let expect_single = |id: &String, c: &Component| {
-        if Digest256::of(&result) != c.result_sha256 {
+        if result.len() as u64 != c.result_size || Digest256::of(&result) != c.result_sha256 {
             return Err(Error::new(
                 Code::OutputVerificationFailed,
                 format!(
-                    "{}: result hash differs from the published {id} result",
+                    "{}: result size or hash differs from the published {id} result",
                     component.name
                 ),
             ));

@@ -878,3 +878,126 @@ fn verification_reports_selected_and_carried_patch_states() {
         ])
     );
 }
+
+#[test]
+fn verify_independently_checks_two_tables_in_one_file() {
+    use biosmod_core::catalog::{Patch, Variant};
+    use biosmod_core::firmware::{Image, rebuild};
+    use biosmod_core::synthetic;
+    use biosmod_core::util::Digest256;
+    let sandbox = Sandbox::new();
+    let (image_path, catalog) = sandbox.synthetic();
+    let image = Image::parse(fs::read(&image_path).unwrap()).unwrap();
+    let leaf = image.leaves[&synthetic::TABLE_GUID][0].clone();
+    let make_table = |seed| {
+        let mut table = synthetic::acpi(&synthetic::module(seed, 28));
+        table[9] = 0u8.wrapping_sub(table.iter().fold(0u8, |sum, byte| sum.wrapping_add(*byte)));
+        table
+    };
+    let first = make_table(12);
+    let second = make_table(13);
+    let mut body = first.clone();
+    body.extend_from_slice(&[0x5a; 4]);
+    body.extend_from_slice(&second);
+    let file = rebuild::rebuilt_file(&image, &leaf, &body).unwrap();
+    let mut bytes = image.bytes.clone();
+    rebuild::write_in_place(
+        &mut bytes,
+        &image.volumes[leaf.volume],
+        &[(leaf.file, file)],
+    );
+    fs::write(&image_path, bytes).unwrap();
+    let record = catalog.join("patches/TB.json");
+    let mut patch: Patch = serde_json::from_slice(&fs::read(&record).unwrap()).unwrap();
+    let Variant::Applicable(variant) = patch.variants.get_mut(synthetic::FIRMWARE).unwrap() else {
+        panic!("applicable variant")
+    };
+    let template = variant.components[0].clone();
+    let component = |table: &[u8], offset, replacement: u8| {
+        let mut item = template.clone();
+        item.name = format!("DSDT-{offset}");
+        item.table_offset = offset;
+        let checksum = table[9].wrapping_sub(replacement.wrapping_sub(table[40]));
+        item.hunks = vec![
+            synthetic::hunk(table, 9, &[checksum]),
+            synthetic::hunk(table, 40, &[replacement]),
+        ];
+        let result = biosmod_core::patch::apply(table, &item.hunks).unwrap();
+        item.source_sha256 = Digest256::of(table);
+        item.source_size = table.len() as u64;
+        item.result_sha256 = Digest256::of(&result);
+        item.result_size = result.len() as u64;
+        item
+    };
+    variant.components = vec![component(&first, 0, 0x91), component(&second, 68, 0x92)];
+    fs::write(&record, biosmod_core::json::pretty(&patch)).unwrap();
+    let indexed = sandbox.run(["catalog", "index", s(&catalog), "--json"]);
+    assert_eq!(
+        indexed.code, 0,
+        "index: {} {}",
+        indexed.stdout, indexed.stderr
+    );
+    let plan = sandbox.path("tables-plan.json");
+    let output = sandbox.path("tables-output.bin");
+    let made = sandbox.run([
+        "plan",
+        s(&image_path),
+        "--catalog",
+        s(&catalog),
+        "--allow-unsigned-local",
+        "--select",
+        "TB",
+        "-o",
+        s(&plan),
+        "--json",
+    ]);
+    assert_eq!(made.code, 0, "plan: {} {}", made.stdout, made.stderr);
+    assert_eq!(
+        made.json()["data"]["plan"]["components"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    let patched = sandbox.run([
+        "patch",
+        s(&image_path),
+        "--plan",
+        s(&plan),
+        "--allow-unsigned-local",
+        "-o",
+        s(&output),
+        "--json",
+    ]);
+    assert_eq!(
+        patched.code, 0,
+        "patch: {} {}",
+        patched.stdout, patched.stderr
+    );
+    let verified = sandbox.run([
+        "verify",
+        s(&image_path),
+        s(&output),
+        "--plan",
+        s(&plan),
+        "--json",
+    ]);
+    assert_eq!(
+        verified.code, 0,
+        "verify: {} {}",
+        verified.stdout, verified.stderr
+    );
+    let doc = verified.json();
+    assert_eq!(doc["data"]["complete"], true);
+    let checks = doc["data"]["checks"].as_array().unwrap();
+    assert!(
+        checks
+            .iter()
+            .any(|check| check["check"] == "patch-states" && check["ok"] == true)
+    );
+    assert!(
+        checks
+            .iter()
+            .any(|check| check["check"] == "reproduced-from-catalog" && check["ok"] == true)
+    );
+}

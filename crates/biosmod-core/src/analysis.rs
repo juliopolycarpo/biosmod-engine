@@ -42,10 +42,13 @@ pub fn module_bytes<'a>(
             let length = if header_end.is_some_and(|end| body.len() >= end) {
                 le32(body, table_offset + 4, "ACPI length").ok()? as usize
             } else {
-                0
+                return None;
             };
-            let start = table_offset.min(body.len());
-            let table = &body[start..table_offset.saturating_add(length).min(body.len())];
+            let end = table_offset.checked_add(length)?;
+            if length < 36 || end > body.len() {
+                return None;
+            }
+            let table = &body[table_offset..end];
             table.starts_with(b"DSDT").then_some(table)
         }
     }
@@ -89,6 +92,9 @@ pub fn minimal(catalog: &Catalog, ids: &[String]) -> Vec<String> {
 }
 
 /// Patches with a component at `(guid, kind)` for `firmware`, in id order.
+///
+/// This returns the first matching component per patch without distinguishing
+/// table offsets. Use [`related_component`] for an exact component identity.
 pub fn related<'a>(
     catalog: &'a Catalog,
     firmware: &str,
@@ -107,51 +113,141 @@ pub fn related<'a>(
         .collect()
 }
 
-/// First two distinct offsets for each ACPI FFS identity in catalog order.
+/// Patches targeting the same physical component, including its table offset.
 ///
-/// For example, offsets 0 and 8 make either component unsafe to compose.
-pub(crate) struct TableOffsetIndex(BTreeMap<Guid, (usize, Option<usize>)>);
+/// Example: `related_component(&catalog, "build", &component)` excludes tables
+/// at other offsets in the same RAW section.
+pub fn related_component<'a>(
+    catalog: &'a Catalog,
+    firmware: &str,
+    component: &Component,
+) -> Vec<(&'a Patch, &'a Component)> {
+    catalog
+        .patches_for(firmware)
+        .filter_map(|patch| {
+            patch
+                .components(firmware)
+                .iter()
+                .find(|other| {
+                    other.ffs_guid == component.ffs_guid
+                        && other.leaf == component.leaf
+                        && other.table_offset == component.table_offset
+                })
+                .map(|other| (patch, other))
+        })
+        .collect()
+}
+
+/// Indexed ACPI table ranges for one firmware, including conflicting ranges.
+pub(crate) struct TableOffsetIndex {
+    ranges: BTreeMap<Guid, BTreeMap<usize, u128>>,
+    conflicts: BTreeMap<(Guid, usize), usize>,
+}
 
 impl TableOffsetIndex {
-    /// Index offsets for one firmware; irrelevant variants and non-ACPI leaves are ignored.
+    /// Collect the largest declared extent at each table offset and index overlaps.
     ///
-    /// Example: `TableOffsetIndex::new(&catalog, "build")` indexes that build only.
+    /// Example: ranges 0..64 and 68..132 are disjoint.
     pub(crate) fn new(catalog: &Catalog, firmware: &str) -> Self {
-        let mut offsets = BTreeMap::new();
+        let mut ranges: BTreeMap<Guid, BTreeMap<usize, u128>> = BTreeMap::new();
         for component in catalog
             .patches_for(firmware)
-            .flat_map(|patch| patch.components(firmware))
+            .flat_map(|p| p.components(firmware))
         {
             if component.leaf != LeafKind::AcpiTable {
                 continue;
             }
-            let entry = offsets
+            let end = component.table_offset as u128
+                + u128::from(component.source_size.max(component.result_size));
+            let existing = ranges
                 .entry(component.ffs_guid)
-                .or_insert((component.table_offset, None));
-            if entry.0 != component.table_offset && entry.1.is_none() {
-                entry.1 = Some(component.table_offset);
+                .or_default()
+                .entry(component.table_offset)
+                .or_insert(end);
+            *existing = (*existing).max(end);
+        }
+        let mut conflicts = BTreeMap::new();
+        for (guid, tables) in &ranges {
+            let mut furthest: Option<(usize, u128)> = None;
+            for (&start, &end) in tables {
+                if let Some((previous, previous_end)) = furthest {
+                    if (start as u128) < previous_end {
+                        conflicts.entry((*guid, previous)).or_insert(start);
+                        conflicts.entry((*guid, start)).or_insert(previous);
+                    }
+                    if end > previous_end {
+                        furthest = Some((start, end));
+                    }
+                } else {
+                    furthest = Some((start, end));
+                }
             }
         }
-        Self(offsets)
+        Self { ranges, conflicts }
     }
 
-    /// Describe the first catalog offset that differs from this component.
+    /// Describe an overlapping ACPI table identity, if any.
     ///
-    /// Example: a component at offset 0 reports an indexed offset 8 as a conflict.
+    /// Example: offsets 0 and 8 overlap when the first table is 64 bytes long.
     pub(crate) fn conflict(&self, component: &Component) -> Option<String> {
         if component.leaf != LeafKind::AcpiTable {
             return None;
         }
-        let &(first, second) = self.0.get(&component.ffs_guid)?;
-        let other = if first == component.table_offset {
-            second?
-        } else {
-            first
-        };
+        let tables = self.ranges.get(&component.ffs_guid)?;
+        let other = self
+            .conflicts
+            .get(&(component.ffs_guid, component.table_offset))
+            .copied()
+            .or_else(|| {
+                let end = component.table_offset as u128
+                    + u128::from(component.source_size.max(component.result_size));
+                if tables
+                    .get(&component.table_offset)
+                    .is_some_and(|known_end| end <= *known_end)
+                {
+                    return None;
+                }
+                tables
+                    .iter()
+                    .filter(|(start, _)| **start != component.table_offset)
+                    .find(|(start, other_end)| {
+                        (**start as u128) < end && (component.table_offset as u128) < **other_end
+                    })
+                    .map(|(start, _)| *start)
+            })?;
         Some(format!(
-            "{}: FFS {} has ACPI table offsets {:#x} and {:#x}; expected one table offset per FFS file",
+            "{}: FFS {} has overlapping ACPI table offsets {:#x} and {:#x}; expected disjoint table ranges",
             component.name, component.ffs_guid, component.table_offset, other
         ))
+    }
+
+    /// Return an error when the decoded table exceeds its indexed range.
+    ///
+    /// Example: a 68-byte table exceeds a recorded 64-byte extent.
+    pub(crate) fn extent_error(&self, component: &Component, size: usize) -> Option<String> {
+        if component.leaf != LeafKind::AcpiTable {
+            return None;
+        }
+        let end = self
+            .ranges
+            .get(&component.ffs_guid)
+            .and_then(|tables| tables.get(&component.table_offset))
+            .copied()
+            .unwrap_or_else(|| {
+                component.table_offset as u128
+                    + u128::from(component.source_size.max(component.result_size))
+            });
+        let actual_end = component.table_offset as u128 + size as u128;
+        (actual_end > end).then(|| format!("{}: ACPI table at {:#x} has {size} bytes | expected at most {} bytes from the catalog", component.name, component.table_offset, end - component.table_offset as u128))
+    }
+
+    /// Tell whether an ACPI file has another cataloged table at a different offset.
+    ///
+    /// Example: offsets 0 and 68 require preserving both positions when rebuilding.
+    pub(crate) fn has_other(&self, component: &Component) -> bool {
+        self.ranges
+            .get(&component.ffs_guid)
+            .is_some_and(|tables| tables.len() > 1 || !tables.contains_key(&component.table_offset))
     }
 }
 
@@ -175,7 +271,7 @@ pub fn match_component(
     if copies(image, component) > 1 {
         return None;
     }
-    let related = related(catalog, firmware, component.ffs_guid, component.leaf);
+    let related = related_component(catalog, firmware, component);
     let (layered, base): (Vec<_>, Vec<_>) =
         related.iter().partition(|(_, c)| !c.layer_on.is_empty());
     for leaf in image.leaves.get(&component.ffs_guid)? {
@@ -196,7 +292,9 @@ pub fn match_component(
         let Some((original, base_fixed)) = undo(catalog, &intermediate, &base) else {
             continue;
         };
-        if Digest256::of(&original) == component.source_sha256 {
+        if original.len() as u64 == component.source_size
+            && Digest256::of(&original) == component.source_sha256
+        {
             let fixed = base_fixed.into_iter().chain(layered_fixed).collect();
             return Some(Match {
                 leaf: leaf.clone(),
@@ -266,10 +364,10 @@ pub struct Detection {
 pub fn detect(image: &Image, catalog: &Catalog) -> Detection {
     let mut scores = Vec::new();
     for (firmware, boards) in catalog.firmware_builds() {
-        let mut keys: BTreeMap<(Guid, LeafKind), &Component> = BTreeMap::new();
+        let mut keys: BTreeMap<(Guid, LeafKind, usize), &Component> = BTreeMap::new();
         for patch in catalog.patches_for(firmware) {
             for component in patch.components(firmware) {
-                keys.entry((component.ffs_guid, component.leaf))
+                keys.entry((component.ffs_guid, component.leaf, component.table_offset))
                     .or_insert(component);
             }
         }
@@ -470,6 +568,9 @@ pub(crate) fn patch_state_indexed(
         }
         match match_component(image, catalog, firmware, component) {
             Some(m) => {
+                if let Some(message) = offsets.extent_error(component, m.current.len()) {
+                    return (State::Unsupported, message);
+                }
                 let fixed = included(catalog, &m.fixed).contains(&patch.id);
                 states.insert(if fixed { State::Fixed } else { State::Present });
             }

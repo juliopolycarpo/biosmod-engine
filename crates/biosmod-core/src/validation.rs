@@ -274,14 +274,41 @@ fn record(
             }
         }
         let mut keys = BTreeSet::new();
+        let mut tables: BTreeMap<_, Vec<(usize, u128)>> = BTreeMap::new();
         for component in &variant.components {
-            if !keys.insert((component.ffs_guid, component.leaf)) {
+            if !keys.insert((component.ffs_guid, component.leaf, component.table_offset)) {
                 return Err(invalid(format!(
                     "{at}: component {} listed twice",
                     component.name
                 )));
             }
             component_geometry(component, patch, &at)?;
+            if component.leaf == LeafKind::AcpiTable {
+                let end = component.table_offset as u128
+                    + u128::from(component.source_size.max(component.result_size));
+                tables
+                    .entry(component.ffs_guid)
+                    .or_default()
+                    .push((component.table_offset, end));
+            }
+        }
+        for (guid, ranges) in &mut tables {
+            ranges.sort_unstable();
+            let mut furthest: Option<(usize, u128)> = None;
+            for &(start, end) in ranges.iter() {
+                if let Some((previous, previous_end)) = furthest {
+                    if (start as u128) < previous_end {
+                        return Err(invalid(format!(
+                            "{at}: FFS {guid} has overlapping ACPI table offsets {previous:#x} and {start:#x}"
+                        )));
+                    }
+                    if end > previous_end {
+                        furthest = Some((start, end));
+                    }
+                } else {
+                    furthest = Some((start, end));
+                }
+            }
         }
     }
     Ok(())
