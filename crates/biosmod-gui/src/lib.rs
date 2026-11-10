@@ -6,6 +6,8 @@ pub mod engine;
 pub mod i18n;
 pub mod model;
 pub mod settings;
+#[cfg(target_os = "linux")]
+pub mod software_scale;
 
 pub mod ui {
     slint::include_modules!();
