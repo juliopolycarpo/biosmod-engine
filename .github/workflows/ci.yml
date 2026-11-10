@@ -132,6 +132,12 @@ jobs:
               done
             done
           done
+      - name: Scaled Portuguese gallery on X11
+        shell: bash
+        run: |
+          out="$RUNNER_TEMP/gui-gallery/pt-BR/760x600/theme-2-scale-1.5"
+          mkdir -p "$out"
+          env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software SLINT_SCALE_FACTOR=1.5 BME_GUI_NATIVE_SMOKE=1 BME_GUI_LANGUAGE=pt-BR BME_GUI_SIZE=760x600 BME_GUI_THEME=2 BME_GUI_GALLERY="$out" xvfb-run -a cargo nextest run --locked --profile ci --test-threads 1 -p biosmod-gui --test gallery gallery_states_build_and_capture
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:

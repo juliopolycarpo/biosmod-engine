@@ -129,15 +129,15 @@ fn gallery_states_build_and_capture() {
     };
     language.select().unwrap();
     window.set_language_index(language.index());
-    if let Some(size) = std::env::var("BME_GUI_SIZE").ok().filter(|s| !s.is_empty()) {
-        let (w, h) = size
-            .split_once('x')
-            .expect("BME_GUI_SIZE: expected WIDTHxHEIGHT");
-        window.window().set_size(slint::LogicalSize::new(
-            w.parse().unwrap(),
-            h.parse().unwrap(),
-        ));
-    }
+    let requested_size = std::env::var("BME_GUI_SIZE")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|size| {
+            let (w, h) = size
+                .split_once('x')
+                .expect("BME_GUI_SIZE: expected WIDTHxHEIGHT");
+            slint::LogicalSize::new(w.parse().unwrap(), h.parse().unwrap())
+        });
     if let Some(theme) = std::env::var("BME_GUI_THEME")
         .ok()
         .and_then(|t| t.parse::<i32>().ok())
@@ -146,6 +146,11 @@ fn gallery_states_build_and_capture() {
         window.invoke_apply_theme();
     }
     window.show().unwrap();
+    // Showing initializes the native scale factor. Resizing before that would
+    // interpret logical dimensions using the initial, unscaled factor.
+    if let Some(size) = requested_size {
+        window.window().set_size(size);
+    }
     populate(&window);
     let dir = std::env::var_os("BME_GUI_GALLERY").map(std::path::PathBuf::from);
     let shot = |name: &str| {
@@ -155,6 +160,17 @@ fn gallery_states_build_and_capture() {
                 let _ = slint::quit_event_loop();
             });
             slint::run_event_loop().unwrap();
+            if let Some(size) = requested_size {
+                let scale = window.window().scale_factor();
+                let actual = window.window().size();
+                let expected_width = (size.width * scale).round() as u32;
+                let expected_height = (size.height * scale).round() as u32;
+                assert_eq!(
+                    (actual.width, actual.height),
+                    (expected_width, expected_height),
+                    "(gallery window): expected {size:?} logical pixels at scale {scale} | received {actual:?} physical pixels"
+                );
+            }
             capture(&window, dir, name);
         }
     };
