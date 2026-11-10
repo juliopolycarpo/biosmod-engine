@@ -60,9 +60,11 @@ jobs:
           bme dev synthetic -o "$RUNNER_TEMP/syn"
           bme catalog add lab "$RUNNER_TEMP/syn/catalog" --allow-unsigned-local
           bme scan "$RUNNER_TEMP/syn/synthetic.bin" --catalog lab --json > /dev/null
-          bme plan "$RUNNER_TEMP/syn/synthetic.bin" --select lab::PA lab::DG -o "$RUNNER_TEMP/plan.json"
-          bme patch "$RUNNER_TEMP/syn/synthetic.bin" --plan "$RUNNER_TEMP/plan.json" -o "$RUNNER_TEMP/out.bin" --offline
-          bme verify "$RUNNER_TEMP/syn/synthetic.bin" "$RUNNER_TEMP/out.bin" --plan "$RUNNER_TEMP/plan.json" --json
+          bme patch "$RUNNER_TEMP/syn/synthetic.bin" lab::PA lab::DG --offline
+          bme verify "$RUNNER_TEMP/syn/synthetic.bin" "$RUNNER_TEMP/syn/synthetic.patched.bin" --json
+          bme export "$RUNNER_TEMP/syn/synthetic.bin" lab::PA lab::DG -o "$RUNNER_TEMP/selection.json"
+          bme patch "$RUNNER_TEMP/syn/synthetic.bin" --from "$RUNNER_TEMP/selection.json" -o "$RUNNER_TEMP/replay.bin" --offline
+          cmp "$RUNNER_TEMP/syn/synthetic.patched.bin" "$RUNNER_TEMP/replay.bin"
 
   msrv:
     runs-on: ubuntu-latest
