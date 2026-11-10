@@ -192,6 +192,18 @@ fn gallery_states_build_and_capture() {
         }
     };
     shot("1-selected");
+    window.set_stage(2);
+    let plan = serde_json::json!({"schema":"bme.plan/1", "firmware":"synthetic", "source":{"alias":"lab"}});
+    let review = biosmod_gui::controller::Review::new(
+        "/tmp/gallery-plan.json".into(),
+        Vec::new(),
+        plan.clone(),
+        true,
+    );
+    window.set_plan_details(biosmod_gui::desktop::plan_summary(&window, &review));
+    window.set_plan_snapshot(serde_json::to_string_pretty(&plan).unwrap().into());
+    shot("10-review");
+    window.set_stage(1);
     window.set_page(4);
     shot("9-settings");
     window.set_page(0);
@@ -254,6 +266,7 @@ fn manual_paths_keep_footer_inside_minimum_window() {
         .window()
         .set_size(slint::LogicalSize::new(760.0, 600.0));
     window.show().unwrap();
+    slint::platform::update_timers_and_animations();
     populate(&window);
     window.set_paths_open(true);
     let button = ElementHandle::find_by_accessible_label(
@@ -288,6 +301,7 @@ fn wide_window_centers_content_column() {
         .window()
         .set_size(slint::LogicalSize::new(1600.0, 1000.0));
     window.show().unwrap();
+    slint::platform::update_timers_and_animations();
     populate(&window);
     let button = ElementHandle::find_by_accessible_label(
         &window,
@@ -340,6 +354,7 @@ fn minimum_width_keeps_navigation_and_path_controls_visible() {
                 .window()
                 .set_size(slint::LogicalSize::new(width, 600.0));
             window.show().unwrap();
+            slint::platform::update_timers_and_animations();
             populate(&window);
             for label in labels {
                 let element = ElementHandle::find_by_accessible_label(&window, label)
@@ -360,5 +375,88 @@ fn minimum_width_keeps_navigation_and_path_controls_visible() {
             }
             window.hide().unwrap();
         }
+    }
+}
+
+#[test]
+fn review_fields_keep_build_control_above_status_at_minimum_size() {
+    i_slint_backend_testing::init_no_event_loop();
+    for (language, label) in [
+        (biosmod_gui::i18n::Language::En, "Build patched copy"),
+        (biosmod_gui::i18n::Language::PtBr, "Gerar cópia modificada"),
+    ] {
+        let window = AppWindow::new().unwrap();
+        language.select().unwrap();
+        window
+            .window()
+            .set_size(slint::LogicalSize::new(760.0, 600.0));
+        window.show().unwrap();
+        populate(&window);
+        window.set_stage(2);
+        window.set_plan_details("Plan summary".into());
+        window.set_plan_snapshot("{\"schema\":\"bme.plan/1\"}".into());
+        let button = ElementHandle::find_by_accessible_label(&window, label)
+            .next()
+            .unwrap_or_else(|| panic!("review: expected {label:?} control | received none"));
+        let bottom = button.absolute_position().y + button.size().height;
+        assert!(
+            bottom <= 556.0,
+            "review ({language:?}): expected build control bottom <= 556 above status bar | received {bottom}"
+        );
+    }
+    biosmod_gui::i18n::Language::En.select().unwrap();
+}
+
+#[test]
+fn resizing_open_paths_preserves_the_minimum_window() {
+    let native = std::env::var_os("BME_GUI_NATIVE_RESIZE").is_some();
+    if native {
+        slint::BackendSelector::new().select().unwrap();
+    } else {
+        i_slint_backend_testing::init_no_event_loop();
+    }
+    let window = AppWindow::new().unwrap();
+    biosmod_gui::i18n::Language::En.select().unwrap();
+    window.show().unwrap();
+    if native {
+        slint::Timer::single_shot(std::time::Duration::from_millis(100), || {
+            let _ = slint::quit_event_loop();
+        });
+        slint::run_event_loop().unwrap();
+    }
+    populate(&window);
+    window.set_paths_open(true);
+    for (width, height) in [(1400, 780), (760, 600), (1200, 780), (760, 600)] {
+        let scale = window.window().scale_factor();
+        let expected = slint::PhysicalSize::new(
+            (width as f32 * scale).round() as u32,
+            (height as f32 * scale).round() as u32,
+        );
+        window.window().set_size(expected);
+        if native {
+            slint::Timer::single_shot(std::time::Duration::from_millis(250), || {
+                let _ = slint::quit_event_loop();
+            });
+            slint::run_event_loop().unwrap();
+        } else {
+            slint::platform::update_timers_and_animations();
+        }
+        let actual = window.window().size();
+        assert_eq!(
+            (actual.width, actual.height),
+            (expected.width, expected.height),
+            "(window resize): expected {width}x{height} at scale {scale} | received {}x{} physical pixels",
+            actual.width,
+            actual.height
+        );
+        let button = ElementHandle::find_by_accessible_label(&window, "Review selected")
+            .next()
+            .expect("element: Review selected button | received: none");
+        let bottom = button.absolute_position().y + button.size().height;
+        assert!(
+            bottom <= height as f32 - 44.0,
+            "(footer at {width}x{height}, scale {scale}): expected bottom <= {} | received {bottom}",
+            height - 44
+        );
     }
 }

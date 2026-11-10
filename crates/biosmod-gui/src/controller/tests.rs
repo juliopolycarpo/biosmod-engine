@@ -81,7 +81,11 @@ fn semantic_incomplete_verification_is_not_reported_as_verified() {
         .unwrap();
     assert_eq!(session.outcome, Outcome::VerificationIncomplete);
     assert!(session.status.contains("incomplete"));
-    assert!(session.result_details.contains("catalog unavailable"));
+    assert_eq!(
+        session.verification_report.as_ref().unwrap()["skipped"][0]["reason"],
+        "catalog unavailable",
+        "incomplete verification: expected the retained report"
+    );
 }
 
 #[test]
@@ -119,10 +123,10 @@ fn engine_reported_incomplete_verification_is_summarized_not_dumped() {
     session.fail(Action::Verify, error);
     assert_eq!(session.outcome, Outcome::VerificationIncomplete);
     assert!(
-        session
-            .result_details
-            .contains("SKIPPED  patch-states and reproduction"),
-        "incomplete verification details: expected the check summary | received {}",
+        session.result_details.is_empty()
+            && session.verification_report.as_ref().unwrap()["skipped"][0]["check"]
+                == "patch-states and reproduction",
+        "incomplete verification: expected the retained report instead of a dump | received {}",
         session.result_details
     );
 }
@@ -154,7 +158,7 @@ fn diagnostics_export_refuses_to_overwrite_and_manifest_keeps_os_path() {
 }
 
 #[test]
-fn retained_review_reuses_its_formatted_presentation() {
+fn imported_review_prepares_its_snapshot_before_presentation() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("plan.json");
     std::fs::write(
@@ -164,14 +168,11 @@ fn retained_review_reuses_its_formatted_presentation() {
     .unwrap();
     let mut session = Session::new().unwrap();
     session.import_review(&path).unwrap();
-    let first = session.review_text();
-    let second = session.review_text();
-    assert!(first.contains("Read-only imported plan"));
-    assert!(first.contains("retained source snapshot"));
-    assert_eq!(
-        first.as_ptr(),
-        second.as_ptr(),
-        "unchanged review: expected cached presentation | received a second allocation"
+    let review = session.review.as_ref().unwrap();
+    assert!(
+        !review.generated && review.snapshot.as_str() == pretty(&review.document),
+        "imported review: expected a read-only review with its pretty snapshot | received {:?}",
+        review.snapshot
     );
 }
 
@@ -192,5 +193,48 @@ fn review_snapshots_share_the_retained_bytes_and_document() {
     assert!(
         std::ptr::eq(&review.document, &snapshot.document),
         "review snapshot: expected a shared immutable document"
+    );
+}
+
+#[test]
+fn dismissed_notice_restores_the_status_it_replaced_once() {
+    let mut session = Session::new().unwrap();
+    session.set_detailed_status(Status::Failed, "engine stopped", "", "engine stopped");
+    session.set_notice(Status::PreferencesError, "read-only", "", "first");
+    session.set_notice(Status::PreferencesNoLocation, "", "", "second");
+    session.dismiss_notice();
+    assert_eq!(
+        (
+            session.status_kind,
+            session.status_detail.as_str(),
+            session.status.as_str()
+        ),
+        (Status::Failed, "engine stopped", "engine stopped"),
+        "dismissed notices: expected the status before the first notice"
+    );
+    session.set_notice(Status::PreferencesError, "read-only", "", "notice");
+    session.set_status(Status::Scanned);
+    session.dismiss_notice();
+    assert_eq!(
+        session.status_kind,
+        Status::Scanned,
+        "workflow status after a notice: expected dismiss_notice to keep it"
+    );
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "set_status(Failed): expected a status without details")]
+fn set_status_rejects_a_status_that_needs_details() {
+    Session::new().unwrap().set_status(Status::Failed);
+}
+
+#[test]
+fn new_session_starts_with_the_start_guidance() {
+    let session = Session::new().unwrap();
+    assert_eq!(
+        (session.status_kind, session.status.as_str()),
+        (Status::Start, "Choose a firmware image to get started."),
+        "new session status"
     );
 }

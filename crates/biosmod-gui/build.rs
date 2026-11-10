@@ -1,4 +1,6 @@
 fn main() {
+    // slint-build reads this variable but does not register it as a build input.
+    println!("cargo:rerun-if-env-changed=SLINT_COMPILER_DENY_WARNINGS");
     // The fixture has a deliberately incomplete catalog to exercise fallback.
     slint_build::compile_with_config(
         "tests/locale-fixture.slint",

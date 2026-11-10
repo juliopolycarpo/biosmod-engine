@@ -226,6 +226,11 @@ msgctxt "AppWindow"
 msgid "Plan details"
 msgstr "Detalhes do plano"
 
+#: ui/app-window.slint:301
+msgctxt "AppWindow"
+msgid "Complete plan and source snapshot"
+msgstr "Plano completo e instantâneo da origem"
+
 #: ui/app-window.slint:293 ui/app-window.slint:294
 msgctxt "AppWindow"
 msgid "New output image path"
@@ -627,6 +632,15 @@ msgstr "Não foi possível salvar as preferências: não há local de configura�
 
 #: ui/translations.slint:39
 msgctxt "UiText"
+msgid ""
+"Preferences not saved: {} could not be read. Fix or remove that file, then "
+"restart."
+msgstr ""
+"Preferências não salvas: não foi possível ler {}. Corrija ou remova esse "
+"arquivo e reinicie."
+
+#: ui/translations.slint:39
+msgctxt "UiText"
 msgid "Generated in this session"
 msgstr "Gerado nesta sessão"
 
@@ -662,8 +676,8 @@ msgstr "{} · {} · deslocamento na tabela {} · deslocamento no arquivo {}\n  {
 msgctxt "UiText"
 msgid ""
 "\nHardware assertions: {}\nAllow hold: {} · Allow diagnostic: "
-"{}\n{}\n\nComplete plan and source snapshot\n{}"
-msgstr "\nAfirmações de hardware: {}\nPermitir hold: {} · Permitir diagnóstico: {}\n{}\n\nPlano completo e instantâneo da fonte\n{}"
+"{}\n{}\n\nComplete plan and source snapshot\n"
+msgstr "\nAfirmações de hardware: {}\nPermitir hold: {} · Permitir diagnóstico: {}\n{}\n\nPlano completo e instantâneo da fonte\n"
 
 #: ui/translations.slint:52
 msgctxt "UiText"

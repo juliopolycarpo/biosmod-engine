@@ -3,7 +3,7 @@
 use biosmod_gui::controller::Review;
 use biosmod_gui::desktop::{Desktop, bind};
 use biosmod_gui::i18n::Language;
-use biosmod_gui::settings::Settings;
+use biosmod_gui::settings::{PreferencesStore, Settings};
 use biosmod_gui::ui::AppWindow;
 use i_slint_backend_testing::ElementHandle;
 use serde_json::json;
@@ -89,7 +89,7 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
             },
             ..Settings::default()
         },
-        Some(settings_path.clone()),
+        PreferencesStore::Writable(settings_path.clone()),
     )
     .unwrap();
     desktop.session.connected = true;

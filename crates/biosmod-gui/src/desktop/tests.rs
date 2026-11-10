@@ -60,12 +60,138 @@ fn fake_scan() -> SourceReport {
 }
 
 fn bound_window(settings: Settings, settings_path: Option<PathBuf>) -> (AppWindow, Shared) {
+    let preferences =
+        settings_path.map_or(PreferencesStore::Unavailable, PreferencesStore::Writable);
+    bound_window_with_store(settings, preferences)
+}
+
+fn bound_window_with_store(
+    settings: Settings,
+    preferences: PreferencesStore,
+) -> (AppWindow, Shared) {
     let window = AppWindow::new().unwrap();
     settings.language.select().unwrap();
-    let desktop =
-        Desktop::new(PathBuf::from("/missing/fake-bme"), settings, settings_path).unwrap();
+    let desktop = Desktop::new(PathBuf::from("/missing/fake-bme"), settings, preferences).unwrap();
     let state = bind(&window, desktop);
     (window, state)
+}
+
+struct MissingPortugueseCatalog;
+
+impl MissingPortugueseCatalog {
+    fn select(language: Language) -> Result<(), slint::SelectBundledTranslationError> {
+        assert_eq!(language, Language::PtBr);
+        Err(slint::SelectBundledTranslationError::LanguageNotFound {
+            available_languages: ["en".into()].as_slice().into(),
+        })
+    }
+}
+
+#[test]
+fn rejected_language_restores_selector_and_preserves_review_and_preferences() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("gui.json");
+    let settings = Settings::default();
+    settings.save(&path).unwrap();
+    let saved = std::fs::read(&path).unwrap();
+    let window = AppWindow::new().unwrap();
+    Language::En.select().unwrap();
+    let desktop = Desktop::new(
+        PathBuf::from("/missing/fake-bme"),
+        settings,
+        PreferencesStore::Writable(path.clone()),
+    )
+    .unwrap();
+    let state = bind_with_language_selector(&window, desktop, MissingPortugueseCatalog::select);
+    make_reviewable(&state, true);
+    let review = state.lock().unwrap().session.review.clone().unwrap();
+    // ComboBox updates its two-way index before calling the native callback.
+    window.set_language_index(1);
+    window.invoke_language_changed(1);
+    assert_eq!(
+        window.get_language_index(),
+        0,
+        "language selector: expected active English index 0 after rejection"
+    );
+    assert!(
+        window.get_status().starts_with("language pt-BR:"),
+        "language error: expected rejected pt-BR catalog | received {:?}",
+        window.get_status()
+    );
+    assert!(
+        window
+            .get_plan_details()
+            .starts_with("Generated in this session")
+    );
+    let state = state.lock().unwrap();
+    assert_eq!(state.settings.language, Language::En);
+    assert!(Arc::ptr_eq(&review, state.session.review.as_ref().unwrap()));
+    assert_eq!(std::fs::read(path).unwrap(), saved);
+}
+
+#[test]
+fn protected_preferences_name_the_unreadable_file_and_stay_untouched() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gui.json");
+    std::fs::write(&path, b"{bad-json").unwrap();
+    let (window, state) = bound_window_with_store(
+        Settings::default(),
+        PreferencesStore::Protected(path.clone()),
+    );
+    window.invoke_theme_changed(2);
+    let status = window.get_status();
+    assert_eq!(
+        state.lock().unwrap().session.status_kind,
+        Status::PreferencesProtected,
+        "protected preferences: expected status PreferencesProtected | received {status:?}"
+    );
+    assert!(
+        status.contains(path.to_str().unwrap()) && !status.contains("no writable configuration"),
+        "protected preferences: expected the malformed file path | received {status:?}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), b"{bad-json");
+}
+
+#[test]
+fn plan_summary_keeps_component_identity_and_policy() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _state) = bound_window(Settings::default(), None);
+    let plan = json!({"firmware":"synthetic", "components":[{"name":"ACPI", "ffs_guid":"guid", "table_offset":128, "file_offset":4096, "patches":["A"]}], "facts":["board-rev"], "allow_hold":true, "allow_diagnostic":false, "source":{"manifest_sha256":"pinned"}});
+    let review = Review::new(PathBuf::from("/tmp/plan.json"), Vec::new(), plan, true);
+    let text = plan_summary(&window, &review);
+    for expected in [
+        "Generated in this session\n\nFirmware: synthetic",
+        "ACPI · guid · table offset 128 · file offset 4096\n  A\n",
+        "Hardware assertions: board-rev",
+        "Allow hold: true · Allow diagnostic: false\nNone\n",
+        "Complete plan and source snapshot\n",
+    ] {
+        assert!(
+            text.contains(expected),
+            "plan summary: expected {expected:?} | received {text:?}"
+        );
+    }
+}
+
+#[test]
+fn verification_summary_preserves_passes_skips_and_notice() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _state) = bound_window(Settings::default(), None);
+    let report = json!({"checks":[{"check":"input-digest","ok":true},{"check":"new-check","ok":false}],"skipped":[{"check":"reproduction","reason":"catalog unavailable"}],"notice":"Offline checks only"});
+    let text = verification_summary(&window, &report);
+    for expected in [
+        "PASS  Original image digest",
+        "INCOMPLETE  new-check",
+        "SKIPPED  reproduction\ncatalog unavailable",
+        "Offline checks only",
+    ] {
+        assert!(
+            text.contains(expected),
+            "verification summary: expected {expected:?} | received {text:?}"
+        );
+    }
 }
 
 #[test]
@@ -73,7 +199,7 @@ fn portuguese_verification_translates_missing_skip_and_notice_fields() {
     i_slint_backend_testing::init_no_event_loop();
     let (window, _state) = bound_window(Settings::default(), None);
     Language::PtBr.select().unwrap();
-    let text = localized_verification(&window, &json!({"skipped": [{}]}));
+    let text = verification_summary(&window, &json!({"skipped": [{}]}));
     Language::En.select().unwrap();
     assert!(
         !text.contains("unknown") && text.matches("desconhecido").count() == 3,
@@ -122,7 +248,12 @@ fn language_switch_refreshes_review_rows_and_verification_without_changing_sessi
         localized_status(&window, Status::Failed, "", "UNKNOWN_CODE: original detail"),
         "Falha na operação: UNKNOWN_CODE: original detail"
     );
-    assert!(window.get_plan_details().contains("{}"));
+    assert_eq!(window.get_plan_snapshot(), "{}");
+    assert_eq!(
+        window.get_plan_snapshot().as_str().as_ptr(),
+        review.snapshot.as_str().as_ptr(),
+        "language switch: expected shared snapshot | received a copy"
+    );
     assert!(window.get_result_details().contains("Raw notice"));
     assert_eq!(Settings::load(&path).unwrap().language, Language::PtBr);
     {
@@ -140,7 +271,7 @@ fn language_switch_refreshes_review_rows_and_verification_without_changing_sessi
         window.get_patches().row_data(0).unwrap().state,
         "Defect present"
     );
-    assert_eq!(window.get_plan_details().as_str(), review.text.as_str());
+    assert_eq!(window.get_plan_details(), plan_summary(&window, &review));
     assert_eq!(Settings::load(&path).unwrap().language, Language::En);
 }
 
@@ -178,6 +309,29 @@ fn switching_language_during_import_preserves_job_and_localizes_completion() {
     );
     assert!(!state.lock().unwrap().session.busy());
     Language::En.select().unwrap();
+}
+
+#[test]
+fn successful_save_restores_the_status_a_save_error_replaced() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config");
+    std::fs::write(&config, b"blocks the directory").unwrap();
+    let (window, state) = bound_window(Settings::default(), Some(config.join("gui.json")));
+    state.lock().unwrap().session.set_status(Status::Scanned);
+    window.invoke_theme_changed(2);
+    assert_eq!(
+        state.lock().unwrap().session.status_kind,
+        Status::PreferencesError
+    );
+    std::fs::remove_file(&config).unwrap();
+    window.invoke_theme_changed(1);
+    assert_eq!(
+        window.get_status(),
+        localized_status(&window, Status::Scanned, "", ""),
+        "status after a recovered save: expected the scan guidance | received {:?}",
+        window.get_status()
+    );
 }
 
 #[test]
@@ -585,6 +739,29 @@ fn patch_model_survives_selection_and_unrelated_sync() {
 }
 
 #[test]
+fn review_presentation_shares_the_prepared_snapshot() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    let document = json!({"source": {"manifest_sha256": "pinned"}, "notes": ["preserved"]});
+    let review = Arc::new(Review::new(
+        "/tmp/plan.json".into(),
+        b"exact bytes".to_vec(),
+        document.clone(),
+        false,
+    ));
+    state.lock().unwrap().session.review = Some(review.clone());
+    sync(&window, &state.lock().unwrap());
+    let snapshot = window.get_plan_snapshot();
+    assert_eq!(snapshot.as_str(), crate::model::pretty(&document));
+    assert_eq!(snapshot, review.snapshot);
+    assert_eq!(
+        snapshot.as_str().as_ptr(),
+        review.snapshot.as_str().as_ptr(),
+        "review snapshot: expected the UI to share the worker-prepared bytes | received a copy"
+    );
+}
+
+#[test]
 fn review_presentation_tracks_replacement_and_invalidation() {
     i_slint_backend_testing::init_no_event_loop();
     let (window, state) = bound_window(Settings::default(), None);
@@ -596,15 +773,11 @@ fn review_presentation_tracks_replacement_and_invalidation() {
             .starts_with("Generated in this session")
     );
     let first = window.get_plan_details();
-    assert_eq!(
-        first.as_str().as_ptr(),
-        state.lock().unwrap().session.review_text().as_ptr(),
-        "review presentation: expected one allocation shared with Slint | received a duplicate full document"
-    );
     window.invoke_output_edited("/tmp/other.bin".into());
     assert_eq!(
         first.as_str().as_ptr(),
-        window.get_plan_details().as_str().as_ptr()
+        window.get_plan_details().as_str().as_ptr(),
+        "unchanged review: expected the presented plan to be reused | received a new rendering"
     );
     state.lock().unwrap().session.review = Some(fake_review(false));
     sync(&window, &state.lock().unwrap());
@@ -615,6 +788,7 @@ fn review_presentation_tracks_replacement_and_invalidation() {
     );
     window.invoke_back_to_selection();
     assert!(window.get_plan_details().is_empty());
+    assert!(window.get_plan_snapshot().is_empty());
 }
 
 struct FakeExportWriter {
@@ -882,13 +1056,15 @@ fn opening_a_plan_resets_the_previous_operations_elapsed_time() {
 
 #[test]
 fn patch_rows_separate_detail_from_limits_and_gate_selection_on_idleness() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _state) = bound_window(Settings::default(), None);
     let patch: Patch = serde_json::from_value(json!({
         "id":"PA","version":"1.0.0","title":"Correction","class":"correction","tier":"optional",
         "state":"likely-present","plannable":false,"manual":false,"detail":"signature in another build",
         "evidence":["obs-1"]
     }))
     .unwrap();
-    let row = patch_row("lab", &patch, true);
+    let row = patch_row(&window, "lab", &patch, true);
     assert_eq!(row.id, "lab::PA@1.0.0");
     assert_eq!(row.state, "Likely present");
     assert_eq!(row.tone, Tone::Quiet);
@@ -905,24 +1081,64 @@ fn patch_rows_separate_detail_from_limits_and_gate_selection_on_idleness() {
     present.state = "present".into();
     present.plannable = true;
     present.evidence.clear();
-    assert!(patch_row("lab", &present, true).selectable);
+    assert!(patch_row(&window, "lab", &present, true).selectable);
     assert!(
-        !patch_row("lab", &present, false).selectable,
+        !patch_row(&window, "lab", &present, false).selectable,
         "busy session: expected the row to be disabled"
     );
-    let row = patch_row("lab", &present, true);
+    let row = patch_row(&window, "lab", &present, true);
     assert_eq!(row.tone, Tone::Attention);
     assert_eq!(row.blocker, "");
     assert_eq!(
         row.evidence,
         "No hardware observations for this patch version."
     );
+
+    let mut blocked = present.clone();
+    blocked.plannable = false;
+    blocked.blocked = Some("needs prerequisite".into());
+    blocked.requires_facts.push("physical-board".into());
+    let blocker = patch_row(&window, "lab", &blocked, true).blocker;
+    let limits: Vec<_> = blocker.lines().collect();
+    assert!(
+        limits.len() == 3
+            && limits[0] == "needs prerequisite"
+            && limits[1].contains("physical-board"),
+        "blocker: expected engine blocker, facts, selection notice without the detail | received {limits:?}"
+    );
+}
+
+#[test]
+fn patch_rows_name_every_engine_state_in_english() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _state) = bound_window(Settings::default(), None);
+    let mut patch = fake_scan().report.patches.remove(0);
+    for (state, label) in [
+        ("present", "Defect present"),
+        ("partial", "Partially patched"),
+        ("fixed", "Fixed"),
+        ("likely-present", "Likely present"),
+        ("likely-fixed", "Likely fixed"),
+        ("not-detected", "Not detected"),
+        ("not-applicable", "Not applicable"),
+        ("unsupported", "Unsupported"),
+        ("new-state", "new-state"),
+    ] {
+        patch.state = state.into();
+        assert_eq!(
+            patch_row(&window, "lab", &patch, true).state,
+            label,
+            "state {state}: label"
+        );
+    }
 }
 
 #[test]
 fn facts_describe_the_image_and_scan_source() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _state) = bound_window(Settings::default(), None);
     let inspection = json!({"length": 36864, "volumes": [{}, {}], "sha256": "abc123", "descriptor_regions": null});
-    let facts = image_facts(Some(&inspection));
+    let facts = image_facts(&window, Some(&inspection));
     let pairs: Vec<_> = facts
         .iter()
         .map(|f| (f.label.to_string(), f.value.to_string()))
@@ -937,9 +1153,9 @@ fn facts_describe_the_image_and_scan_source() {
         "image facts"
     );
     assert_eq!(image_sha(Some(&inspection)), "abc123");
-    assert!(image_facts(None).is_empty() && image_sha(None).is_empty());
+    assert!(image_facts(&window, None).is_empty() && image_sha(None).is_empty());
 
-    let scan = scan_facts(&fake_scan());
+    let scan = scan_facts(&window, &fake_scan());
     assert_eq!(scan[0].value, "lab · fixture 1");
     assert_eq!(scan[2].value, "synthetic");
     assert_eq!(scan[3].value, "none matched");

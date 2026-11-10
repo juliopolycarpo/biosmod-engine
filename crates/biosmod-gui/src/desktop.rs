@@ -6,7 +6,7 @@ use crate::controller::{
 use crate::engine::Engine;
 use crate::i18n::Language;
 use crate::model::{Patch, StateTone};
-use crate::settings::Settings;
+use crate::settings::{PreferencesStore, Settings};
 use crate::ui::{AppWindow, Fact, PatchRow, Tone, UiText};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
@@ -18,7 +18,7 @@ pub struct Desktop {
     pub session: Session,
     pub engine_path: PathBuf,
     settings: Settings,
-    settings_path: Option<PathBuf>,
+    preferences: PreferencesStore,
     started: Instant,
     dialog_open: bool,
     exporting: bool,
@@ -42,17 +42,17 @@ impl ExportWriter for NewFileWriter {
 
 impl Desktop {
     /// Build the window controller without performing engine I/O.
-    /// Example: `Desktop::new(engine_path, settings, settings_path)?`.
+    /// Example: `Desktop::new(engine_path, settings, PreferencesStore::Writable(path))?`.
     pub fn new(
         engine_path: PathBuf,
         settings: Settings,
-        settings_path: Option<PathBuf>,
+        preferences: PreferencesStore,
     ) -> std::io::Result<Self> {
         Ok(Self {
             session: Session::new()?,
             engine_path,
             settings,
-            settings_path,
+            preferences,
             started: Instant::now(),
             dialog_open: false,
             exporting: false,
@@ -66,6 +66,16 @@ impl Desktop {
 /// Connect native controls to session transitions and background workers.
 /// Example: `let state = bind(&window, desktop);` then call `connect(&window, &state)`.
 pub fn bind(ui: &AppWindow, desktop: Desktop) -> Shared {
+    bind_with_language_selector(ui, desktop, Language::select)
+}
+
+// Keep language selection replaceable so tests can exercise catalog failures
+// through the same callback used by the native window.
+fn bind_with_language_selector(
+    ui: &AppWindow,
+    desktop: Desktop,
+    select_language: fn(Language) -> Result<(), slint::SelectBundledTranslationError>,
+) -> Shared {
     let state = Arc::new(Mutex::new(desktop));
     ui.set_app_version(env!("CARGO_PKG_VERSION").into());
     ui.set_theme_choice(state.lock().unwrap().settings.theme.into());
@@ -225,7 +235,7 @@ pub fn bind(ui: &AppWindow, desktop: Desktop) -> Shared {
         };
         let mut state = shared.lock().unwrap();
         // Keep the selector on the language actually presented when a catalog is missing.
-        if let Err(error) = language.select() {
+        if let Err(error) = select_language(language) {
             ui.set_language_index(state.settings.language.index());
             state
                 .session
@@ -581,25 +591,26 @@ pub fn default_engine() -> PathBuf {
 }
 
 fn save_settings(state: &mut Desktop) {
-    match &state.settings_path {
-        Some(path) => match state.settings.save(path) {
-            Err(error) => state.session.set_detailed_status(
+    match &state.preferences {
+        PreferencesStore::Writable(path) => match state.settings.save(path) {
+            Err(error) => state.session.set_notice(
                 Status::PreferencesError,
                 error.clone(),
                 "",
                 format!("Could not save preferences: {error}"),
             ),
-            Ok(())
-                if matches!(
-                    state.session.status_kind,
-                    Status::PreferencesError | Status::PreferencesNoLocation
-                ) =>
-            {
-                state.session.set_raw_status("")
-            }
-            Ok(()) => {}
+            Ok(()) => state.session.dismiss_notice(),
         },
-        None => state.session.set_detailed_status(
+        PreferencesStore::Protected(path) => {
+            let path = path.display().to_string();
+            let fallback = format!(
+                "Preferences not saved: {path} could not be read. Fix or remove that file, then restart."
+            );
+            state
+                .session
+                .set_notice(Status::PreferencesProtected, path, "", fallback)
+        }
+        PreferencesStore::Unavailable => state.session.set_notice(
             Status::PreferencesNoLocation,
             "",
             "",
@@ -847,7 +858,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
     }
     sync_rows(
         ui.get_image_facts(),
-        localized_image_facts(ui, session.inspection.as_ref()),
+        image_facts(ui, session.inspection.as_ref()),
         |m| ui.set_image_facts(m),
     );
     ui.set_image_sha(image_sha(session.inspection.as_ref()).into());
@@ -856,7 +867,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
         session
             .scan
             .as_ref()
-            .map(|scan| localized_scan_facts(ui, scan))
+            .map(|scan| scan_facts(ui, scan))
             .unwrap_or_default(),
         |m| ui.set_scan_facts(m),
     );
@@ -868,7 +879,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             s.report
                 .patches
                 .iter()
-                .map(|p| localized_patch_row(ui, &s.alias, p, selectable))
+                .map(|p| patch_row(ui, &s.alias, p, selectable))
                 .collect()
         })
         .unwrap_or_default();
@@ -878,7 +889,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
         session
             .verification_report
             .as_ref()
-            .map(|report| localized_verification(ui, report))
+            .map(|report| verification_summary(ui, report))
             .unwrap_or_else(|| session.result_details.as_str().into()),
     );
     ui.set_result_title(match session.outcome {
@@ -996,6 +1007,7 @@ fn localized_status_with_extra(
         Status::Raw => raw.into(),
         Status::PreferencesError => t.invoke_preferences_error(detail.into()),
         Status::PreferencesNoLocation => t.get_preferences_no_location(),
+        Status::PreferencesProtected => t.invoke_preferences_protected(detail.into()),
         Status::PickerError => t.invoke_picker_error(detail.into()),
         Status::ExportingPlan => t.get_exporting_plan(),
         Status::ExportingDiagnostics => t.get_exporting_diagnostics(),
@@ -1025,19 +1037,23 @@ fn sync_review(ui: &AppWindow, state: &Desktop) {
             .session
             .review
             .as_ref()
-            .map(|r| {
-                if state.settings.language == Language::En {
-                    r.text.clone()
-                } else {
-                    localized_plan(ui, r)
-                }
-            })
+            .map(|review| plan_summary(ui, review))
+            .unwrap_or_default(),
+    );
+    ui.set_plan_snapshot(
+        state
+            .session
+            .review
+            .as_ref()
+            .map(|review| review.snapshot.clone())
             .unwrap_or_default(),
     );
     *presented = state.session.review.clone();
 }
 
-fn localized_plan(ui: &AppWindow, review: &Review) -> SharedString {
+/// Render a reviewed plan's summary in the selected language.
+/// Example: `plan_summary(&window, &review)` starts with `Generated in this session` in English.
+pub fn plan_summary(ui: &AppWindow, review: &Review) -> SharedString {
     let t = ui.global::<UiText>();
     let plan = &review.document;
     let value = |v: &serde_json::Value| -> SharedString { v.as_str().unwrap_or("?").into() };
@@ -1058,9 +1074,9 @@ fn localized_plan(ui: &AppWindow, review: &Review) -> SharedString {
     } else {
         t.get_imported_plan()
     };
-    let mut output = format!(
-        "{}\n\n{}",
-        header,
+    let mut output = header;
+    output.push_str("\n\n");
+    output.push_str(
         t.invoke_plan_intro(
             value(&plan["firmware"]),
             value(&plan["source"]["alias"]),
@@ -1075,6 +1091,7 @@ fn localized_plan(ui: &AppWindow, review: &Review) -> SharedString {
             value(&plan["engine"]["version"]),
             value(&plan["engine"]["codec"]),
         )
+        .as_str(),
     );
     if let Some(components) = plan["components"].as_array() {
         for component in components {
@@ -1096,14 +1113,15 @@ fn localized_plan(ui: &AppWindow, review: &Review) -> SharedString {
             plan["allow_hold"].to_string().into(),
             plan["allow_diagnostic"].to_string().into(),
             joined(&plan["notes"]),
-            crate::model::pretty(plan).into(),
         )
         .as_str(),
     );
-    output.into()
+    output
 }
 
-fn localized_verification(ui: &AppWindow, report: &serde_json::Value) -> SharedString {
+/// Present each reported verification check, its result and limits, in the selected language.
+/// Example: a skipped reproduction check reads `SKIPPED  reproduction` in English.
+pub fn verification_summary(ui: &AppWindow, report: &serde_json::Value) -> SharedString {
     let t = ui.global::<UiText>();
     let mut lines = vec![t.get_offline_checks().to_string(), String::new()];
     if let Some(checks) = report["checks"].as_array() {
@@ -1165,41 +1183,11 @@ pub fn status_tone(outcome: Outcome) -> Tone {
     }
 }
 
-/// Present one scan row, enabling its checkbox only while no operation is running.
-/// Example: `patch_row("lab", &patch, true).id` is `lab::PA@1.0.0`.
-pub fn patch_row(alias: &str, patch: &Patch, idle: bool) -> PatchRow {
-    PatchRow {
-        id: patch.qualified(alias).into(),
-        title: patch.title.as_str().into(),
-        version: patch.version.as_str().into(),
-        class: patch.class.as_str().into(),
-        tier: patch.tier.as_str().into(),
-        state: patch.state_label().into(),
-        tone: match patch.state_tone() {
-            StateTone::Attention => Tone::Attention,
-            StateTone::Good => Tone::Good,
-            StateTone::Quiet => Tone::Quiet,
-        },
-        detail: patch.detail.as_str().into(),
-        blocker: patch.limits().join("\n").into(),
-        evidence: if patch.evidence.is_empty() {
-            "No hardware observations for this patch version.".into()
-        } else {
-            format!(
-                "Scoped evidence: {}. See Sources & tools for image, board and scenario.",
-                patch.evidence.join(", ")
-            )
-            .into()
-        },
-        selectable: patch.selectable() && idle,
-        selected: patch.selected,
-    }
-}
-
-fn localized_patch_row(ui: &AppWindow, alias: &str, patch: &Patch, idle: bool) -> PatchRow {
+/// Present one scan row in the selected language, enabling its checkbox only while idle.
+/// Example: `patch_row(&window, "lab", &patch, true).id` is `lab::PA@1.0.0`.
+pub fn patch_row(ui: &AppWindow, alias: &str, patch: &Patch, idle: bool) -> PatchRow {
     let text = ui.global::<UiText>();
-    let mut row = patch_row(alias, patch, idle);
-    row.state = match patch.state.as_str() {
+    let state = match patch.state.as_str() {
         "present" => text.get_defect_present(),
         "fixed" => text.get_fixed(),
         "partial" => text.get_partially_patched(),
@@ -1210,6 +1198,7 @@ fn localized_patch_row(ui: &AppWindow, alias: &str, patch: &Patch, idle: bool) -
         "unsupported" => text.get_unsupported(),
         _ => patch.state.as_str().into(),
     };
+    // Engine detail stays in `detail`; `blocker` lists only why the desktop cannot select it.
     let mut limits = Vec::new();
     if let Some(blocked) = &patch.blocked {
         limits.push(blocked.clone());
@@ -1223,13 +1212,28 @@ fn localized_patch_row(ui: &AppWindow, alias: &str, patch: &Patch, idle: bool) -
     if !patch.selectable() {
         limits.push(text.get_selection_limit().to_string());
     }
-    row.blocker = limits.join("\n").into();
-    row.evidence = if patch.evidence.is_empty() {
-        text.get_no_evidence()
-    } else {
-        text.invoke_scoped_evidence(patch.evidence.join(", ").into())
-    };
-    row
+    PatchRow {
+        id: patch.qualified(alias).into(),
+        title: patch.title.as_str().into(),
+        version: patch.version.as_str().into(),
+        class: patch.class.as_str().into(),
+        tier: patch.tier.as_str().into(),
+        state,
+        tone: match patch.state_tone() {
+            StateTone::Attention => Tone::Attention,
+            StateTone::Good => Tone::Good,
+            StateTone::Quiet => Tone::Quiet,
+        },
+        detail: patch.detail.as_str().into(),
+        blocker: limits.join("\n").into(),
+        evidence: if patch.evidence.is_empty() {
+            text.get_no_evidence()
+        } else {
+            text.invoke_scoped_evidence(patch.evidence.join(", ").into())
+        },
+        selectable: patch.selectable() && idle,
+        selected: patch.selected,
+    }
 }
 
 /// Update a Slint list in place so unchanged rows are not re-rendered.
@@ -1261,28 +1265,9 @@ fn fact(label: &str, value: impl Into<SharedString>) -> Fact {
     }
 }
 
-/// Summarize an inspection for the findings header.
-/// Example: a 36864-byte image with two volumes reads `Size 36,864 bytes` and `Volumes 2`.
-pub fn image_facts(inspection: Option<&serde_json::Value>) -> Vec<Fact> {
-    let Some(v) = inspection else {
-        return Vec::new();
-    };
-    let layout = if v["descriptor_regions"].is_null() {
-        "Bare BIOS / firmware volumes"
-    } else {
-        "Intel flash descriptor"
-    };
-    vec![
-        fact("Size", group_digits(&v["length"].to_string()) + " bytes"),
-        fact(
-            "Volumes",
-            v["volumes"].as_array().map_or(0, Vec::len).to_string(),
-        ),
-        fact("Layout", layout),
-    ]
-}
-
-fn localized_image_facts(ui: &AppWindow, inspection: Option<&serde_json::Value>) -> Vec<Fact> {
+/// Summarize an inspection for the findings header in the selected language.
+/// Example: in English a 36864-byte image with two volumes reads `Size 36,864 bytes` and `Volumes 2`.
+pub fn image_facts(ui: &AppWindow, inspection: Option<&serde_json::Value>) -> Vec<Fact> {
     let Some(value) = inspection else {
         return Vec::new();
     };
@@ -1315,32 +1300,9 @@ pub fn image_sha(inspection: Option<&serde_json::Value>) -> String {
         .unwrap_or_default()
 }
 
-/// Summarize the catalog source behind a scan.
+/// Summarize the catalog source behind a scan in the selected language.
 /// Example: alias `lab` with catalog `synthetic 1.0.0` reads `lab · synthetic 1.0.0`.
-pub fn scan_facts(scan: &crate::model::SourceReport) -> Vec<Fact> {
-    let boards = if scan.report.boards.is_empty() {
-        "none matched".to_owned()
-    } else {
-        scan.report.boards.join(", ")
-    };
-    vec![
-        fact(
-            "Source",
-            format!("{} · {} {}", scan.alias, scan.catalog, scan.catalog_version),
-        ),
-        fact("Trust", scan.trust.as_str()),
-        fact(
-            "Firmware",
-            scan.report
-                .firmware
-                .as_deref()
-                .unwrap_or("unknown or ambiguous"),
-        ),
-        fact("Boards", boards),
-    ]
-}
-
-fn localized_scan_facts(ui: &AppWindow, scan: &crate::model::SourceReport) -> Vec<Fact> {
+pub fn scan_facts(ui: &AppWindow, scan: &crate::model::SourceReport) -> Vec<Fact> {
     let text = ui.global::<UiText>();
     vec![
         fact(

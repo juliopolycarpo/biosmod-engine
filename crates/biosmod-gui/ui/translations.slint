@@ -36,6 +36,7 @@ export global UiText {
     out property <string> open-image: @tr("Open firmware image");
     public pure function preferences-error(error: string) -> string { return @tr("Could not save preferences: {}", error); }
     out property <string> preferences-no-location: @tr("Could not save preferences: no writable configuration location is available.");
+    public pure function preferences-protected(path: string) -> string { return @tr("Preferences not saved: {} could not be read. Fix or remove that file, then restart.", path); }
     out property <string> generated-plan: @tr("Generated in this session");
     out property <string> imported-plan: @tr("Read-only imported plan");
     out property <string> none: @tr("None");
@@ -46,8 +47,8 @@ export global UiText {
     public pure function plan-component(name: string, guid: string, table: string, file: string, patches: string) -> string {
         return @tr("{} · {} · table offset {} · file offset {}\n  {}\n", name, guid, table, file, patches);
     }
-    public pure function plan-end(facts: string, hold: string, diagnostic: string, notes: string, document: string) -> string {
-        return @tr("\nHardware assertions: {}\nAllow hold: {} · Allow diagnostic: {}\n{}\n\nComplete plan and source snapshot\n{}", facts, hold, diagnostic, notes, document);
+    public pure function plan-end(facts: string, hold: string, diagnostic: string, notes: string) -> string {
+        return @tr("\nHardware assertions: {}\nAllow hold: {} · Allow diagnostic: {}\n{}\n\nComplete plan and source snapshot\n", facts, hold, diagnostic, notes);
     }
     out property <string> offline-checks: @tr("Independent offline checks");
     out property <string> input-digest: @tr("Original image digest");

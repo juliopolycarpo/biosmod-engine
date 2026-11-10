@@ -134,7 +134,7 @@ fn real_engine_controller_workflow_and_plan_safety() {
     step(&mut session, &fixture.engine, Action::Plan);
     let reviewed = session.review.as_ref().unwrap().clone();
     assert!(reviewed.generated);
-    assert!(session.review_text().contains("PA"));
+    assert!(reviewed.document["selected"].to_string().contains("PA"));
 
     let root = fixture.directory.path();
     let output = root.join("gui output.bin");
@@ -296,7 +296,7 @@ fn language_switch_preserves_engine_request_and_firmware_result() {
     use biosmod_gui::{
         desktop::{Desktop, bind},
         i18n::Language,
-        settings::Settings,
+        settings::{PreferencesStore, Settings},
         ui::AppWindow,
     };
     use std::os::unix::fs::PermissionsExt;
@@ -354,7 +354,7 @@ fn language_switch_preserves_engine_request_and_firmware_result() {
     let mut desktop = Desktop::new(
         wrapper.clone(),
         Settings::default(),
-        Some(root.join("gui.json")),
+        PreferencesStore::Writable(root.join("gui.json")),
     )
     .unwrap();
     desktop.session = session;
