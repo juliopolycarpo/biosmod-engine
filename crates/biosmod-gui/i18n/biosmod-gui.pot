@@ -1,0 +1,1095 @@
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: ui/app-window.slint:24
+msgctxt "AppWindow"
+msgid "Checking engine…"
+msgstr ""
+
+#: ui/app-window.slint:25
+msgctxt "AppWindow"
+msgid "Choose a firmware image to get started."
+msgstr ""
+
+#: ui/app-window.slint:33
+msgctxt "AppWindow"
+msgid "Output & verification"
+msgstr ""
+
+#: ui/app-window.slint:123 ui/app-window.slint:493
+msgctxt "AppWindow"
+msgid "BIOS Mod Engine"
+msgstr ""
+
+#: ui/app-window.slint:125
+msgctxt "AppWindow"
+msgid "Workflow"
+msgstr ""
+
+#: ui/app-window.slint:126 ui/app-window.slint:356
+msgctxt "AppWindow"
+msgid "Sources & tools"
+msgstr ""
+
+#: ui/app-window.slint:127 ui/app-window.slint:455
+msgctxt "AppWindow"
+msgid "Diagnostics"
+msgstr ""
+
+#: ui/app-window.slint:133 ui/app-window.slint:145 ui/app-window.slint:388
+msgctxt "AppWindow"
+msgid "Settings"
+msgstr ""
+
+#: ui/app-window.slint:134 ui/app-window.slint:146
+msgctxt "AppWindow"
+msgid "About"
+msgstr ""
+
+#: ui/app-window.slint:165 ui/app-window.slint:174 ui/app-window.slint:190
+msgctxt "AppWindow"
+msgid "Open plan"
+msgstr ""
+
+#: ui/app-window.slint:166 ui/app-window.slint:175 ui/app-window.slint:195
+msgctxt "AppWindow"
+msgid "Open output"
+msgstr ""
+
+#: ui/app-window.slint:167 ui/app-window.slint:176
+msgctxt "AppWindow"
+msgid "Hide paths"
+msgstr ""
+
+#: ui/app-window.slint:167 ui/app-window.slint:176
+msgctxt "AppWindow"
+msgid "Enter paths"
+msgstr ""
+
+#: ui/app-window.slint:188
+msgctxt "AppWindow"
+msgid "Plan"
+msgstr ""
+
+#: ui/app-window.slint:189
+msgctxt "AppWindow"
+msgid "Plan file path"
+msgstr ""
+
+#: ui/app-window.slint:193 ui/app-window.slint:310
+msgctxt "AppWindow"
+msgid "Output"
+msgstr ""
+
+#: ui/app-window.slint:194
+msgctxt "AppWindow"
+msgid "Existing output image path"
+msgstr ""
+
+#: ui/app-window.slint:198
+msgctxt "AppWindow"
+msgid "Save as"
+msgstr ""
+
+#: ui/app-window.slint:199
+msgctxt "AppWindow"
+msgid "New plan export path"
+msgstr ""
+
+#: ui/app-window.slint:200
+msgctxt "AppWindow"
+msgid "Save plan"
+msgstr ""
+
+#: ui/app-window.slint:214
+msgctxt "AppWindow"
+msgid "Image"
+msgstr ""
+
+#: ui/app-window.slint:216 ui/app-window.slint:217
+msgctxt "AppWindow"
+msgid "Original firmware image path"
+msgstr ""
+
+#: ui/app-window.slint:222 ui/app-window.slint:418
+msgctxt "AppWindow"
+msgid "Browse…"
+msgstr ""
+
+#: ui/app-window.slint:223
+msgctxt "AppWindow"
+msgid "Inspect"
+msgstr ""
+
+#: ui/app-window.slint:226
+msgctxt "AppWindow"
+msgid "Source: {}"
+msgstr ""
+
+#: ui/app-window.slint:230
+msgctxt "AppWindow"
+msgid "Source"
+msgstr ""
+
+#: ui/app-window.slint:232 ui/app-window.slint:233
+msgctxt "AppWindow"
+msgid "Catalog source alias"
+msgstr ""
+
+#: ui/app-window.slint:238
+msgctxt "AppWindow"
+msgid "Scan image"
+msgstr ""
+
+#: ui/app-window.slint:246
+msgctxt "AppWindow"
+msgid "Findings"
+msgstr ""
+
+#: ui/app-window.slint:249
+msgctxt "AppWindow"
+msgid "{n} finding"
+msgid_plural "{n} findings"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/app-window.slint:271
+msgctxt "AppWindow"
+msgid "No findings to show"
+msgstr ""
+
+#: ui/app-window.slint:272
+msgctxt "AppWindow"
+msgid "Press Scan image to look for corrections in the catalog."
+msgstr ""
+
+#: ui/app-window.slint:272
+msgctxt "AppWindow"
+msgid "Choose an image and enter a catalog source alias to enable scanning."
+msgstr ""
+
+#: ui/app-window.slint:280
+msgctxt "AppWindow"
+msgid ""
+"Board profiles are catalog information, not physical board identification. "
+"Hardware-dependent findings and corrections that require joint selection "
+"cannot be applied here yet."
+msgstr ""
+
+#: ui/app-window.slint:280
+msgctxt "AppWindow"
+msgid ""
+"Hardware-dependent findings and corrections that require joint selection "
+"cannot be applied here yet."
+msgstr ""
+
+#: ui/app-window.slint:283
+msgctxt "AppWindow"
+msgid "Recommended"
+msgstr ""
+
+#: ui/app-window.slint:285
+msgctxt "AppWindow"
+msgid "Review selected"
+msgstr ""
+
+#: ui/app-window.slint:292 ui/app-window.slint:336
+msgctxt "AppWindow"
+msgid "Review plan"
+msgstr ""
+
+#: ui/app-window.slint:294
+msgctxt "AppWindow"
+msgid "Export plan…"
+msgstr ""
+
+#: ui/app-window.slint:295
+msgctxt "AppWindow"
+msgid "Show output"
+msgstr ""
+
+#: ui/app-window.slint:296 ui/app-window.slint:337
+msgctxt "AppWindow"
+msgid "Back to findings"
+msgstr ""
+
+#: ui/app-window.slint:298
+msgctxt "AppWindow"
+msgid "Confirm the source, changes, and expected output before building."
+msgstr ""
+
+#: ui/app-window.slint:299
+msgctxt "AppWindow"
+msgid "Plan details"
+msgstr ""
+
+#: ui/app-window.slint:312 ui/app-window.slint:313
+msgctxt "AppWindow"
+msgid "New output image path"
+msgstr ""
+
+#: ui/app-window.slint:318
+msgctxt "AppWindow"
+msgid "Choose…"
+msgstr ""
+
+#: ui/app-window.slint:320 ui/app-window.slint:340
+msgctxt "AppWindow"
+msgid "Manifest: {}"
+msgstr ""
+
+#: ui/app-window.slint:323
+msgctxt "AppWindow"
+msgid "The original image will not be overwritten."
+msgstr ""
+
+#: ui/app-window.slint:325
+msgctxt "AppWindow"
+msgid "Build patched copy"
+msgstr ""
+
+#: ui/app-window.slint:339
+msgctxt "AppWindow"
+msgid "Output: {}"
+msgstr ""
+
+#: ui/app-window.slint:341
+msgctxt "AppWindow"
+msgid "Verification results"
+msgstr ""
+
+#: ui/app-window.slint:344
+msgctxt "AppWindow"
+msgid "Offline verification does not establish hardware boot behavior."
+msgstr ""
+
+#: ui/app-window.slint:346
+msgctxt "AppWindow"
+msgid "Verify output"
+msgstr ""
+
+#: ui/app-window.slint:357
+msgctxt "AppWindow"
+msgid ""
+"Read-only status of the configured catalog sources and engine tools. Use the "
+"CLI to change them."
+msgstr ""
+
+#: ui/app-window.slint:364 ui/app-window.slint:368
+msgctxt "AppWindow"
+msgid "Catalog sources"
+msgstr ""
+
+#: ui/app-window.slint:366
+msgctxt "AppWindow"
+msgid "Refresh sources"
+msgstr ""
+
+#: ui/app-window.slint:368
+msgctxt "AppWindow"
+msgid "Refresh to view configured sources."
+msgstr ""
+
+#: ui/app-window.slint:374
+msgctxt "AppWindow"
+msgid "Tools"
+msgstr ""
+
+#: ui/app-window.slint:376
+msgctxt "AppWindow"
+msgid "Check tools"
+msgstr ""
+
+#: ui/app-window.slint:378
+msgctxt "AppWindow"
+msgid "Check tools to view their status."
+msgstr ""
+
+#: ui/app-window.slint:378
+msgctxt "AppWindow"
+msgid "Tool diagnostics"
+msgstr ""
+
+#: ui/app-window.slint:389
+msgctxt "AppWindow"
+msgid "Changes are saved as you make them."
+msgstr ""
+
+#: ui/app-window.slint:400
+msgctxt "AppWindow"
+msgid "Engine"
+msgstr ""
+
+#: ui/app-window.slint:402
+msgctxt "AppWindow"
+msgid "Path to bme executable"
+msgstr ""
+
+#: ui/app-window.slint:403
+msgctxt "AppWindow"
+msgid "Engine executable path"
+msgstr ""
+
+#: ui/app-window.slint:419
+msgctxt "AppWindow"
+msgid "Check engine"
+msgstr ""
+
+#: ui/app-window.slint:422 ui/app-window.slint:424
+msgctxt "AppWindow"
+msgid "Language"
+msgstr ""
+
+#: ui/app-window.slint:434
+msgctxt "AppWindow"
+msgid "Theme"
+msgstr ""
+
+#: ui/app-window.slint:436
+msgctxt "AppWindow"
+msgid "Appearance"
+msgstr ""
+
+#: ui/app-window.slint:437
+msgctxt "AppWindow"
+msgid "Follow system"
+msgstr ""
+
+#: ui/app-window.slint:437
+msgctxt "AppWindow"
+msgid "Light"
+msgstr ""
+
+#: ui/app-window.slint:437
+msgctxt "AppWindow"
+msgid "Dark"
+msgstr ""
+
+#: ui/app-window.slint:456
+msgctxt "AppWindow"
+msgid "Recent operation details. Select text to copy it."
+msgstr ""
+
+#: ui/app-window.slint:457
+msgctxt "AppWindow"
+msgid "Recent diagnostics"
+msgstr ""
+
+#: ui/app-window.slint:460
+msgctxt "AppWindow"
+msgid "Copy all"
+msgstr ""
+
+#: ui/app-window.slint:461
+msgctxt "AppWindow"
+msgid "Export…"
+msgstr ""
+
+#: ui/app-window.slint:494
+msgctxt "AppWindow"
+msgid "Version {}"
+msgstr ""
+
+#: ui/app-window.slint:497
+msgctxt "AppWindow"
+msgid ""
+"Inspect firmware and build a reviewed copy using the BIOS Mod Engine command-"
+"line tool."
+msgstr ""
+
+#: ui/app-window.slint:498
+msgctxt "AppWindow"
+msgid ""
+"Firmware matches and offline verification do not establish physical hardware "
+"compatibility or boot behavior."
+msgstr ""
+
+#: ui/app-window.slint:537
+msgctxt "AppWindow"
+msgid "Cancel"
+msgstr ""
+
+#: ui/facts.slint:57
+msgctxt "FindingsSummary"
+msgid "SHA-256"
+msgstr ""
+
+#: ui/facts.slint:65
+msgctxt "FindingsSummary"
+msgid "Image SHA-256"
+msgstr ""
+
+#: ui/patch-card.slint:119
+msgctxt "PatchCard"
+msgid "{}  ·  v{}"
+msgstr ""
+
+#: ui/stepper.slint:28
+msgctxt "Stepper"
+msgid "Select"
+msgstr ""
+
+#: ui/stepper.slint:28
+msgctxt "Stepper"
+msgid "Review"
+msgstr ""
+
+#: ui/stepper.slint:28
+msgctxt "Stepper"
+msgid "Verify"
+msgstr ""
+
+#: ui/stepper.slint:30
+msgctxt "Stepper"
+msgid "All 3 steps complete"
+msgstr ""
+
+#: ui/stepper.slint:30
+msgctxt "Stepper"
+msgid "Step {} of 3: {}"
+msgstr ""
+
+#: ui/translations.slint:3
+msgctxt "UiText"
+msgid "Defect present"
+msgstr ""
+
+#: ui/translations.slint:4
+msgctxt "UiText"
+msgid "Fixed"
+msgstr ""
+
+#: ui/translations.slint:5
+msgctxt "UiText"
+msgid "Partially patched"
+msgstr ""
+
+#: ui/translations.slint:6
+msgctxt "UiText"
+msgid "Likely present"
+msgstr ""
+
+#: ui/translations.slint:7
+msgctxt "UiText"
+msgid "Likely fixed"
+msgstr ""
+
+#: ui/translations.slint:8
+msgctxt "UiText"
+msgid "Not detected"
+msgstr ""
+
+#: ui/translations.slint:9
+msgctxt "UiText"
+msgid "Not applicable"
+msgstr ""
+
+#: ui/translations.slint:10
+msgctxt "UiText"
+msgid "Unsupported"
+msgstr ""
+
+#: ui/translations.slint:11
+msgctxt "UiText"
+msgid ""
+"Desktop selection requires a present, independently plannable correction "
+"without hold or hardware gates. Joint prerequisites require the CLI."
+msgstr ""
+
+#: ui/translations.slint:12
+msgctxt "UiText"
+msgid "No hardware observations for this patch version."
+msgstr ""
+
+#: ui/translations.slint:13
+msgctxt "UiText"
+msgid "Requires physical observations: {}. Review with the CLI."
+msgstr ""
+
+#: ui/translations.slint:14
+msgctxt "UiText"
+msgid "Scoped evidence: {}. See Sources & tools for image, board and scenario."
+msgstr ""
+
+#: ui/translations.slint:16
+msgctxt "UiText"
+msgid "Size"
+msgstr ""
+
+#: ui/translations.slint:17
+msgctxt "UiText"
+msgid "Volumes"
+msgstr ""
+
+#: ui/translations.slint:18
+msgctxt "UiText"
+msgid "Layout"
+msgstr ""
+
+#: ui/translations.slint:19
+msgctxt "UiText"
+msgid "Bare BIOS / firmware volumes"
+msgstr ""
+
+#: ui/translations.slint:20
+msgctxt "UiText"
+msgid "Intel flash descriptor"
+msgstr ""
+
+#: ui/translations.slint:21
+msgctxt "UiText"
+msgid "{} bytes"
+msgstr ""
+
+#: ui/translations.slint:22
+msgctxt "UiText"
+msgid "Source"
+msgstr ""
+
+#: ui/translations.slint:23
+msgctxt "UiText"
+msgid "Trust"
+msgstr ""
+
+#: ui/translations.slint:24
+msgctxt "UiText"
+msgid "Firmware"
+msgstr ""
+
+#: ui/translations.slint:25
+msgctxt "UiText"
+msgid "Boards"
+msgstr ""
+
+#: ui/translations.slint:26
+msgctxt "UiText"
+msgid "none matched"
+msgstr ""
+
+#: ui/translations.slint:27
+msgctxt "UiText"
+msgid "unknown or ambiguous"
+msgstr ""
+
+#: ui/translations.slint:29
+msgctxt "UiText"
+msgid "Save a new patched copy"
+msgstr ""
+
+#: ui/translations.slint:30
+msgctxt "UiText"
+msgid "Export reviewed plan to a new file"
+msgstr ""
+
+#: ui/translations.slint:31
+msgctxt "UiText"
+msgid "Export diagnostics to a new file"
+msgstr ""
+
+#: ui/translations.slint:32
+msgctxt "UiText"
+msgid "Open a plan for review"
+msgstr ""
+
+#: ui/translations.slint:33
+msgctxt "UiText"
+msgid "Plan"
+msgstr ""
+
+#: ui/translations.slint:34
+msgctxt "UiText"
+msgid "Choose bme executable"
+msgstr ""
+
+#: ui/translations.slint:35
+msgctxt "UiText"
+msgid "Open a built image with its paired manifest"
+msgstr ""
+
+#: ui/translations.slint:36
+msgctxt "UiText"
+msgid "Open firmware image"
+msgstr ""
+
+#: ui/translations.slint:37
+msgctxt "UiText"
+msgid "Could not save preferences: {}"
+msgstr ""
+
+#: ui/translations.slint:38
+msgctxt "UiText"
+msgid ""
+"Could not save preferences: no writable configuration location is available."
+msgstr ""
+
+#: ui/translations.slint:39
+msgctxt "UiText"
+msgid "Generated in this session"
+msgstr ""
+
+#: ui/translations.slint:40
+msgctxt "UiText"
+msgid "Read-only imported plan"
+msgstr ""
+
+#: ui/translations.slint:41
+msgctxt "UiText"
+msgid "None"
+msgstr ""
+
+#: ui/translations.slint:42
+msgctxt "UiText"
+msgid "unknown"
+msgstr ""
+
+#: ui/translations.slint:44
+msgctxt "UiText"
+msgid ""
+"Firmware: {}\nSource: {} · {} {} · {}\n\nRequested: {}\nSelected: "
+"{}\nAlready carried: {}\n\nInput SHA-256: {}\nOutput SHA-256: {}\nEngine: {} "
+"· {}\n\n"
+msgstr ""
+
+#: ui/translations.slint:47
+msgctxt "UiText"
+msgid "{} · {} · table offset {} · file offset {}\n  {}\n"
+msgstr ""
+
+#: ui/translations.slint:50
+msgctxt "UiText"
+msgid ""
+"\nHardware assertions: {}\nAllow hold: {} · Allow diagnostic: "
+"{}\n{}\n\nComplete plan and source snapshot\n{}"
+msgstr ""
+
+#: ui/translations.slint:52
+msgctxt "UiText"
+msgid "Independent offline checks"
+msgstr ""
+
+#: ui/translations.slint:53
+msgctxt "UiText"
+msgid "Original image digest"
+msgstr ""
+
+#: ui/translations.slint:54
+msgctxt "UiText"
+msgid "Output digest"
+msgstr ""
+
+#: ui/translations.slint:55
+msgctxt "UiText"
+msgid "Firmware structure"
+msgstr ""
+
+#: ui/translations.slint:56
+msgctxt "UiText"
+msgid "Bytes outside the allowed changes"
+msgstr ""
+
+#: ui/translations.slint:57
+msgctxt "UiText"
+msgid "Changed regions"
+msgstr ""
+
+#: ui/translations.slint:58
+msgctxt "UiText"
+msgid "Selected patch states"
+msgstr ""
+
+#: ui/translations.slint:59
+msgctxt "UiText"
+msgid "Independent reproduction from the catalog"
+msgstr ""
+
+#: ui/translations.slint:60
+msgctxt "UiText"
+msgid "unknown check"
+msgstr ""
+
+#: ui/translations.slint:61
+msgctxt "UiText"
+msgid "PASS  {}"
+msgstr ""
+
+#: ui/translations.slint:62
+msgctxt "UiText"
+msgid "INCOMPLETE  {}"
+msgstr ""
+
+#: ui/translations.slint:63
+msgctxt "UiText"
+msgid "SKIPPED  {}\n{}"
+msgstr ""
+
+#: ui/translations.slint:64
+msgctxt "UiText"
+msgid "Choose a firmware image to get started."
+msgstr ""
+
+#: ui/translations.slint:65
+msgctxt "UiText"
+msgid "Inputs changed. Inspect and scan to continue."
+msgstr ""
+
+#: ui/translations.slint:66
+msgctxt "UiText"
+msgid ""
+"Imported plan remains read-only. Verify against the chosen original image "
+"and output."
+msgstr ""
+
+#: ui/translations.slint:67
+msgctxt "UiText"
+msgid "Selection changed. Generate a new plan to review."
+msgstr ""
+
+#: ui/translations.slint:68
+msgctxt "UiText"
+msgid "Engine ready. Choose an image to inspect."
+msgstr ""
+
+#: ui/translations.slint:69
+msgctxt "UiText"
+msgid "Image inspected. Scan a source for matching corrections."
+msgstr ""
+
+#: ui/translations.slint:70
+msgctxt "UiText"
+msgid "Scan complete. Select corrections or review the engine's recommendation."
+msgstr ""
+
+#: ui/translations.slint:71
+msgctxt "UiText"
+msgid "Review the resolved plan, then choose a new output and build a copy."
+msgstr ""
+
+#: ui/translations.slint:72
+msgctxt "UiText"
+msgid "Patched copy published. Independent verification is next."
+msgstr ""
+
+#: ui/translations.slint:73
+msgctxt "UiText"
+msgid "Offline verification complete"
+msgstr ""
+
+#: ui/translations.slint:74
+msgctxt "UiText"
+msgid ""
+"Verification incomplete. Review skipped checks and retry after addressing "
+"them."
+msgstr ""
+
+#: ui/translations.slint:75
+msgctxt "UiText"
+msgid "Registered sources loaded. Firmware operations remain offline."
+msgstr ""
+
+#: ui/translations.slint:76
+msgctxt "UiText"
+msgid "Tool diagnostics complete."
+msgstr ""
+
+#: ui/translations.slint:77
+msgctxt "UiText"
+msgid ""
+"Imported plan: review and verification only. Choose its original image and "
+"output."
+msgstr ""
+
+#: ui/translations.slint:78
+msgctxt "UiText"
+msgid "Stopping operation…"
+msgstr ""
+
+#: ui/translations.slint:79
+msgctxt "UiText"
+msgid "Select corrections and generate a new plan to continue."
+msgstr ""
+
+#: ui/translations.slint:80
+msgctxt "UiText"
+msgid "Finishing file export before closing…"
+msgstr ""
+
+#: ui/translations.slint:81
+msgctxt "UiText"
+msgid "Building the copy. Close the window after publication finishes."
+msgstr ""
+
+#: ui/translations.slint:82
+msgctxt "UiText"
+msgid "Stopping operation before closing…"
+msgstr ""
+
+#: ui/translations.slint:83
+msgctxt "UiText"
+msgid "Review a plan before exporting it."
+msgstr ""
+
+#: ui/translations.slint:84
+msgctxt "UiText"
+msgid "Checking engine"
+msgstr ""
+
+#: ui/translations.slint:85
+msgctxt "UiText"
+msgid "Inspecting image"
+msgstr ""
+
+#: ui/translations.slint:86
+msgctxt "UiText"
+msgid "Scanning image"
+msgstr ""
+
+#: ui/translations.slint:87
+msgctxt "UiText"
+msgid "Generating plan"
+msgstr ""
+
+#: ui/translations.slint:88
+msgctxt "UiText"
+msgid "Building patched copy"
+msgstr ""
+
+#: ui/translations.slint:89
+msgctxt "UiText"
+msgid "Verifying output"
+msgstr ""
+
+#: ui/translations.slint:90
+msgctxt "UiText"
+msgid "Reading sources"
+msgstr ""
+
+#: ui/translations.slint:91
+msgctxt "UiText"
+msgid "Checking tools"
+msgstr ""
+
+#: ui/translations.slint:92
+msgctxt "UiText"
+msgid "Opening plan"
+msgstr ""
+
+#: ui/translations.slint:93
+msgctxt "UiText"
+msgid "Exporting file"
+msgstr ""
+
+#: ui/translations.slint:94
+msgctxt "UiText"
+msgid "Choosing file"
+msgstr ""
+
+#: ui/translations.slint:95
+msgctxt "UiText"
+msgid "Engine not connected"
+msgstr ""
+
+#: ui/translations.slint:96
+msgctxt "UiText"
+msgid "Engine unavailable"
+msgstr ""
+
+#: ui/translations.slint:97
+msgctxt "UiText"
+msgid "bme {} · offline"
+msgstr ""
+
+#: ui/translations.slint:98
+msgctxt "UiText"
+msgid "Operation failed: {}"
+msgstr ""
+
+#: ui/translations.slint:99
+msgctxt "UiText"
+msgid ""
+"Publication outcome unknown. Inspect output artifacts before retrying. {}"
+msgstr ""
+
+#: ui/translations.slint:100
+msgctxt "UiText"
+msgid "Verification incomplete"
+msgstr ""
+
+#: ui/translations.slint:101
+msgctxt "UiText"
+msgid "Publication incomplete: inspect remaining artifacts"
+msgstr ""
+
+#: ui/translations.slint:102
+msgctxt "UiText"
+msgid "Operation interrupted: review the outcome"
+msgstr ""
+
+#: ui/translations.slint:103
+msgctxt "UiText"
+msgid "Output & verification"
+msgstr ""
+
+#: ui/translations.slint:104
+msgctxt "UiText"
+msgid "File picker unavailable: {}. Enter a path manually."
+msgstr ""
+
+#: ui/translations.slint:105
+msgctxt "UiText"
+msgid "Exporting plan…"
+msgstr ""
+
+#: ui/translations.slint:106
+msgctxt "UiText"
+msgid "Exporting diagnostics…"
+msgstr ""
+
+#: ui/translations.slint:107
+msgctxt "UiText"
+msgid "Plan exported to {}"
+msgstr ""
+
+#: ui/translations.slint:108
+msgctxt "UiText"
+msgid "Diagnostics exported to {}"
+msgstr ""
+
+#: ui/translations.slint:109
+msgctxt "UiText"
+msgid "Plan export {}: file already exists; choose a new path."
+msgstr ""
+
+#: ui/translations.slint:110
+msgctxt "UiText"
+msgid "Diagnostics export {}: file already exists; choose a new path."
+msgstr ""
+
+#: ui/translations.slint:111
+msgctxt "UiText"
+msgid "Plan export {}: {}. A partial file may remain."
+msgstr ""
+
+#: ui/translations.slint:112
+msgctxt "UiText"
+msgid "Diagnostics export {}: {}. A partial file may remain."
+msgstr ""
+
+#: ui/translations.slint:113
+msgctxt "UiText"
+msgid "An operation is already running."
+msgstr ""
+
+#: ui/translations.slint:114
+msgctxt "UiText"
+msgid "Connect a compatible bme engine first."
+msgstr ""
+
+#: ui/translations.slint:115
+msgctxt "UiText"
+msgid "Choose an original image first."
+msgstr ""
+
+#: ui/translations.slint:116
+msgctxt "UiText"
+msgid "Plan import requires an explicit path."
+msgstr ""
+
+#: ui/translations.slint:117
+msgctxt "UiText"
+msgid "Scan this image and source before planning."
+msgstr ""
+
+#: ui/translations.slint:118
+msgctxt "UiText"
+msgid "Select an eligible correction first."
+msgstr ""
+
+#: ui/translations.slint:119
+msgctxt "UiText"
+msgid "Build requires a current generated plan and a new output path."
+msgstr ""
+
+#: ui/translations.slint:120
+msgctxt "UiText"
+msgid "Choose a built output first."
+msgstr ""
+
+#: ui/translations.slint:121
+msgctxt "UiText"
+msgid "Open or generate the matching plan first."
+msgstr ""
+
+#: ui/translations.slint:122
+msgctxt "UiText"
+msgid "Choose an output with its paired manifest first."
+msgstr ""
+
+#: ui/translations.slint:123
+msgctxt "UiText"
+msgid "Wait for the active operation before importing a plan."
+msgstr ""
+
+#: ui/translations.slint:124
+msgctxt "UiText"
+msgid "Paths"
+msgstr ""
+
+#: ui/widget-translations.slint:6
+msgctxt "LineEditBase"
+msgid "Undo"
+msgstr ""
+
+#: ui/widget-translations.slint:6
+msgctxt "LineEditBase"
+msgid "Redo"
+msgstr ""
+
+#: ui/widget-translations.slint:6
+msgctxt "LineEditBase"
+msgid "Cut"
+msgstr ""
+
+#: ui/widget-translations.slint:6
+msgctxt "LineEditBase"
+msgid "Copy"
+msgstr ""
+
+#: ui/widget-translations.slint:6
+msgctxt "LineEditBase"
+msgid "Paste"
+msgstr ""
+
+#: ui/widget-translations.slint:6
+msgctxt "LineEditBase"
+msgid "Select All"
+msgstr ""
+
+#: ui/widget-translations.slint:9
+msgctxt "TextEditBase"
+msgid "Cut"
+msgstr ""
+
+#: ui/widget-translations.slint:9
+msgctxt "TextEditBase"
+msgid "Copy"
+msgstr ""
+
+#: ui/widget-translations.slint:9
+msgctxt "TextEditBase"
+msgid "Paste"
+msgstr ""
+
+#: ui/widget-translations.slint:9
+msgctxt "TextEditBase"
+msgid "Select All"
+msgstr ""

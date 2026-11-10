@@ -61,10 +61,173 @@ fn fake_scan() -> SourceReport {
 
 fn bound_window(settings: Settings, settings_path: Option<PathBuf>) -> (AppWindow, Shared) {
     let window = AppWindow::new().unwrap();
+    settings.language.select().unwrap();
     let desktop =
         Desktop::new(PathBuf::from("/missing/fake-bme"), settings, settings_path).unwrap();
     let state = bind(&window, desktop);
     (window, state)
+}
+
+#[test]
+fn language_switch_refreshes_review_rows_and_verification_without_changing_session() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gui.json");
+    let (window, state) = bound_window(Settings::default(), Some(path.clone()));
+    make_reviewable(&state, true);
+    {
+        let mut state = state.lock().unwrap();
+        state.session.set_status(Status::Scanned);
+        state.session.verification_report = Some(
+            json!({"checks":[{"check":"input-digest","ok":true},{"check":"future-code","ok":false}],"skipped":[{"check":"opaque-code","reason":"original reason"}],"notice":"Raw notice"}),
+        );
+        sync(&window, &state);
+    }
+    let review = state.lock().unwrap().session.review.clone().unwrap();
+    assert_eq!(
+        window.get_patches().row_data(0).unwrap().state,
+        "Defect present"
+    );
+    window.invoke_language_changed(1);
+    assert_eq!(
+        window.get_patches().row_data(0).unwrap().state,
+        "Defeito presente"
+    );
+    assert!(window.get_plan_details().starts_with("Gerado nesta sessão"));
+    assert_eq!(
+        window.get_status(),
+        "Exame concluído. Selecione correções ou revise a recomendação do mecanismo."
+    );
+    assert!(
+        window
+            .get_result_details()
+            .contains("APROVADO  Hash da imagem original")
+    );
+    assert!(window.get_result_details().contains("future-code"));
+    assert!(window.get_result_details().contains("original reason"));
+    assert_eq!(
+        localized_status(&window, Status::Failed, "", "UNKNOWN_CODE: original detail"),
+        "Falha na operação: UNKNOWN_CODE: original detail"
+    );
+    assert!(window.get_plan_details().contains("{}"));
+    assert!(window.get_result_details().contains("Raw notice"));
+    assert_eq!(Settings::load(&path).unwrap().language, Language::PtBr);
+    {
+        let state = state.lock().unwrap();
+        assert!(Arc::ptr_eq(&review, state.session.review.as_ref().unwrap()));
+        assert_eq!(
+            state.session.image.as_deref(),
+            Some(Path::new("/tmp/image.bin"))
+        );
+        assert_eq!(state.session.source, "lab");
+        assert!(!state.session.busy());
+    }
+    window.invoke_language_changed(0);
+    assert_eq!(
+        window.get_patches().row_data(0).unwrap().state,
+        "Defect present"
+    );
+    assert_eq!(window.get_plan_details().as_str(), review.text.as_str());
+    assert_eq!(Settings::load(&path).unwrap().language, Language::En);
+}
+
+#[test]
+fn switching_language_during_import_preserves_job_and_localizes_completion() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let settings_path = dir.path().join("gui.json");
+    let plan_path = dir.path().join("plan.json");
+    std::fs::write(&plan_path, br#"{"schema":"bme.plan/1"}"#).unwrap();
+    let (window, state) = bound_window(Settings::default(), Some(settings_path));
+    make_reviewable(&state, true);
+    let review = state.lock().unwrap().session.review.clone().unwrap();
+    let job = state
+        .lock()
+        .unwrap()
+        .session
+        .prepare_import(&plan_path)
+        .unwrap();
+    window.invoke_language_changed(1);
+    {
+        let state = state.lock().unwrap();
+        assert!(state.session.busy());
+        assert!(Arc::ptr_eq(&review, state.session.review.as_ref().unwrap()));
+        assert!(!state.session.cancel.load(Ordering::Relaxed));
+    }
+    {
+        let mut state = state.lock().unwrap();
+        assert!(state.session.finish(job.run()));
+        sync(&window, &state);
+    }
+    assert_eq!(
+        window.get_status(),
+        "Plano importado: apenas revisão e verificação. Escolha sua imagem original e saída."
+    );
+    assert!(!state.lock().unwrap().session.busy());
+    Language::En.select().unwrap();
+}
+
+#[test]
+fn language_selection_survives_a_failed_save_for_the_session() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let parent_file = dir.path().join("not-a-directory");
+    std::fs::write(&parent_file, b"existing").unwrap();
+    let (window, state) = bound_window(Settings::default(), Some(parent_file.join("gui.json")));
+    window.invoke_language_changed(1);
+    assert_eq!(state.lock().unwrap().settings.language, Language::PtBr);
+    assert_eq!(
+        state.lock().unwrap().session.status_kind,
+        Status::PreferencesError
+    );
+    assert_eq!(
+        window.get_status(),
+        window
+            .global::<UiText>()
+            .invoke_preferences_error(state.lock().unwrap().session.status_detail.as_str().into())
+    );
+    window.invoke_language_changed(0);
+    assert_eq!(state.lock().unwrap().settings.language, Language::En);
+    assert!(
+        window
+            .get_status()
+            .starts_with("Could not save preferences:")
+    );
+    assert_eq!(std::fs::read(&parent_file).unwrap(), b"existing");
+}
+
+#[test]
+fn every_precondition_has_a_localized_message() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _) = bound_window(Settings::default(), None);
+    for error in [
+        PreparationError::Busy,
+        PreparationError::Engine,
+        PreparationError::Image,
+        PreparationError::ImportPath,
+        PreparationError::Scan,
+        PreparationError::Selection,
+        PreparationError::Build,
+        PreparationError::Output,
+        PreparationError::Plan,
+        PreparationError::Manifest,
+        PreparationError::WaitImport,
+    ] {
+        Language::En.select().unwrap();
+        let english = localized_status(&window, Status::Precondition(error), "", "");
+        assert_eq!(
+            english.as_str(),
+            error.to_string(),
+            "precondition {error:?}"
+        );
+        Language::PtBr.select().unwrap();
+        let portuguese = localized_status(&window, Status::Precondition(error), "", "");
+        assert_ne!(
+            portuguese, english,
+            "precondition {error:?}: untranslated {english}"
+        );
+    }
+    Language::En.select().unwrap();
 }
 
 fn make_reviewable(state: &Shared, generated: bool) {
@@ -149,6 +312,7 @@ fn imported_review_is_read_only_and_theme_choice_persists() {
     let settings = Settings {
         theme: 2,
         engine: None,
+        ..Settings::default()
     };
     settings.save(&settings_path).unwrap();
     let loaded = Settings::load(&settings_path).unwrap();
@@ -556,6 +720,7 @@ fn partial_engine_edits_do_not_persist_through_other_preference_changes() {
     let settings = Settings {
         theme: 0,
         engine: Some("/tmp/committed-bme".into()),
+        ..Settings::default()
     };
     settings.save(&path).unwrap();
     let (window, state) = bound_window(settings, Some(path.clone()));

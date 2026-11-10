@@ -1,0 +1,125 @@
+// Presentation text consumed on the UI thread by the desktop adapter.
+export global UiText {
+    out property <string> defect-present: @tr("Defect present");
+    out property <string> fixed: @tr("Fixed");
+    out property <string> partially-patched: @tr("Partially patched");
+    out property <string> likely-present: @tr("Likely present");
+    out property <string> likely-fixed: @tr("Likely fixed");
+    out property <string> not-detected: @tr("Not detected");
+    out property <string> not-applicable: @tr("Not applicable");
+    out property <string> unsupported: @tr("Unsupported");
+    out property <string> selection-limit: @tr("Desktop selection requires a present, independently plannable correction without hold or hardware gates. Joint prerequisites require the CLI.");
+    out property <string> no-evidence: @tr("No hardware observations for this patch version.");
+    public pure function requires-facts(facts: string) -> string { return @tr("Requires physical observations: {}. Review with the CLI.", facts); }
+    public pure function scoped-evidence(evidence: string) -> string { return @tr("Scoped evidence: {}. See Sources & tools for image, board and scenario.", evidence); }
+
+    out property <string> size: @tr("Size");
+    out property <string> volumes: @tr("Volumes");
+    out property <string> layout: @tr("Layout");
+    out property <string> bare-bios: @tr("Bare BIOS / firmware volumes");
+    out property <string> flash-descriptor: @tr("Intel flash descriptor");
+    public pure function bytes-size(size: string) -> string { return @tr("{} bytes", size); }
+    out property <string> source: @tr("Source");
+    out property <string> trust: @tr("Trust");
+    out property <string> firmware: @tr("Firmware");
+    out property <string> boards: @tr("Boards");
+    out property <string> no-boards: @tr("none matched");
+    out property <string> unknown-firmware: @tr("unknown or ambiguous");
+
+    out property <string> save-copy: @tr("Save a new patched copy");
+    out property <string> export-plan: @tr("Export reviewed plan to a new file");
+    out property <string> export-diagnostics: @tr("Export diagnostics to a new file");
+    out property <string> open-plan: @tr("Open a plan for review");
+    out property <string> plan-filter: @tr("Plan");
+    out property <string> choose-engine: @tr("Choose bme executable");
+    out property <string> open-output: @tr("Open a built image with its paired manifest");
+    out property <string> open-image: @tr("Open firmware image");
+    public pure function preferences-error(error: string) -> string { return @tr("Could not save preferences: {}", error); }
+    out property <string> preferences-no-location: @tr("Could not save preferences: no writable configuration location is available.");
+    out property <string> generated-plan: @tr("Generated in this session");
+    out property <string> imported-plan: @tr("Read-only imported plan");
+    out property <string> none: @tr("None");
+    out property <string> unknown: @tr("unknown");
+    public pure function plan-intro(firmware: string, alias: string, catalog: string, version: string, trust: string, requested: string, selected: string, carried: string, input: string, output: string, engine: string, codec: string) -> string {
+        return @tr("Firmware: {}\nSource: {} · {} {} · {}\n\nRequested: {}\nSelected: {}\nAlready carried: {}\n\nInput SHA-256: {}\nOutput SHA-256: {}\nEngine: {} · {}\n\n", firmware, alias, catalog, version, trust, requested, selected, carried, input, output, engine, codec);
+    }
+    public pure function plan-component(name: string, guid: string, table: string, file: string, patches: string) -> string {
+        return @tr("{} · {} · table offset {} · file offset {}\n  {}\n", name, guid, table, file, patches);
+    }
+    public pure function plan-end(facts: string, hold: string, diagnostic: string, notes: string, document: string) -> string {
+        return @tr("\nHardware assertions: {}\nAllow hold: {} · Allow diagnostic: {}\n{}\n\nComplete plan and source snapshot\n{}", facts, hold, diagnostic, notes, document);
+    }
+    out property <string> offline-checks: @tr("Independent offline checks");
+    out property <string> input-digest: @tr("Original image digest");
+    out property <string> output-digest: @tr("Output digest");
+    out property <string> structure: @tr("Firmware structure");
+    out property <string> unchanged: @tr("Bytes outside the allowed changes");
+    out property <string> changed: @tr("Changed regions");
+    out property <string> patch-states: @tr("Selected patch states");
+    out property <string> reproduced: @tr("Independent reproduction from the catalog");
+    out property <string> unknown-check: @tr("unknown check");
+    public pure function check-passed(name: string) -> string { return @tr("PASS  {}", name); }
+    public pure function check-incomplete(name: string) -> string { return @tr("INCOMPLETE  {}", name); }
+    public pure function check-skipped(name: string, reason: string) -> string { return @tr("SKIPPED  {}\n{}", name, reason); }
+    out property <string> status-start: @tr("Choose a firmware image to get started.");
+    out property <string> status-inputs: @tr("Inputs changed. Inspect and scan to continue.");
+    out property <string> status-imported-input: @tr("Imported plan remains read-only. Verify against the chosen original image and output.");
+    out property <string> status-selection: @tr("Selection changed. Generate a new plan to review.");
+    out property <string> status-ready: @tr("Engine ready. Choose an image to inspect.");
+    out property <string> status-inspected: @tr("Image inspected. Scan a source for matching corrections.");
+    out property <string> status-scanned: @tr("Scan complete. Select corrections or review the engine's recommendation.");
+    out property <string> status-planned: @tr("Review the resolved plan, then choose a new output and build a copy.");
+    out property <string> status-published: @tr("Patched copy published. Independent verification is next.");
+    out property <string> status-verified: @tr("Offline verification complete");
+    out property <string> status-incomplete: @tr("Verification incomplete. Review skipped checks and retry after addressing them.");
+    out property <string> status-sources: @tr("Registered sources loaded. Firmware operations remain offline.");
+    out property <string> status-tools: @tr("Tool diagnostics complete.");
+    out property <string> status-imported: @tr("Imported plan: review and verification only. Choose its original image and output.");
+    out property <string> status-stopping: @tr("Stopping operation…");
+    out property <string> status-back: @tr("Select corrections and generate a new plan to continue.");
+    out property <string> status-closing-export: @tr("Finishing file export before closing…");
+    out property <string> status-closing-build: @tr("Building the copy. Close the window after publication finishes.");
+    out property <string> status-closing-stop: @tr("Stopping operation before closing…");
+    out property <string> status-export-needs-plan: @tr("Review a plan before exporting it.");
+    out property <string> operation-connect: @tr("Checking engine");
+    out property <string> operation-inspect: @tr("Inspecting image");
+    out property <string> operation-scan: @tr("Scanning image");
+    out property <string> operation-plan: @tr("Generating plan");
+    out property <string> operation-apply: @tr("Building patched copy");
+    out property <string> operation-verify: @tr("Verifying output");
+    out property <string> operation-sources: @tr("Reading sources");
+    out property <string> operation-tools: @tr("Checking tools");
+    out property <string> operation-import: @tr("Opening plan");
+    out property <string> operation-export: @tr("Exporting file");
+    out property <string> operation-pick: @tr("Choosing file");
+    out property <string> engine-disconnected: @tr("Engine not connected");
+    out property <string> engine-unavailable: @tr("Engine unavailable");
+    public pure function engine-ready(version: string) -> string { return @tr("bme {} · offline", version); }
+    public pure function status-failed(detail: string) -> string { return @tr("Operation failed: {}", detail); }
+    public pure function status-publication-unknown(detail: string) -> string { return @tr("Publication outcome unknown. Inspect output artifacts before retrying. {}", detail); }
+    out property <string> title-incomplete: @tr("Verification incomplete");
+    out property <string> title-publication: @tr("Publication incomplete: inspect remaining artifacts");
+    out property <string> title-interrupted: @tr("Operation interrupted: review the outcome");
+    out property <string> title-output: @tr("Output & verification");
+    public pure function picker-error(error: string) -> string { return @tr("File picker unavailable: {}. Enter a path manually.", error); }
+    out property <string> exporting-plan: @tr("Exporting plan…");
+    out property <string> exporting-diagnostics: @tr("Exporting diagnostics…");
+    public pure function plan-exported(path: string) -> string { return @tr("Plan exported to {}", path); }
+    public pure function diagnostics-exported(path: string) -> string { return @tr("Diagnostics exported to {}", path); }
+    public pure function plan-exists(path: string) -> string { return @tr("Plan export {}: file already exists; choose a new path.", path); }
+    public pure function diagnostics-exists(path: string) -> string { return @tr("Diagnostics export {}: file already exists; choose a new path.", path); }
+    public pure function plan-export-error(path: string, error: string) -> string { return @tr("Plan export {}: {}. A partial file may remain.", path, error); }
+    public pure function diagnostics-export-error(path: string, error: string) -> string { return @tr("Diagnostics export {}: {}. A partial file may remain.", path, error); }
+    out property <string> precondition-busy: @tr("An operation is already running.");
+    out property <string> precondition-engine: @tr("Connect a compatible bme engine first.");
+    out property <string> precondition-image: @tr("Choose an original image first.");
+    out property <string> precondition-import: @tr("Plan import requires an explicit path.");
+    out property <string> precondition-scan: @tr("Scan this image and source before planning.");
+    out property <string> precondition-selection: @tr("Select an eligible correction first.");
+    out property <string> precondition-build: @tr("Build requires a current generated plan and a new output path.");
+    out property <string> precondition-output: @tr("Choose a built output first.");
+    out property <string> precondition-plan: @tr("Open or generate the matching plan first.");
+    out property <string> precondition-manifest: @tr("Choose an output with its paired manifest first.");
+    out property <string> precondition-wait-import: @tr("Wait for the active operation before importing a plan.");
+    out property <string> tool-paths: @tr("Paths");
+}

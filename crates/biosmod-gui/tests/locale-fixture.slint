@@ -1,0 +1,6 @@
+export component LocaleFixture inherits Window {
+    in-out property <int> count;
+    out property <string> translated: @tr("Translated message");
+    out property <string> fallback: @tr("Untranslated message");
+    out property <string> findings: @tr("{n} finding" | "{n} findings" % root.count);
+}

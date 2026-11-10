@@ -2,6 +2,7 @@
 
 use biosmod_gui::controller::{Outcome, manifest_path};
 use biosmod_gui::desktop::{Desktop, bind, connect};
+use biosmod_gui::i18n::Language;
 use biosmod_gui::settings::Settings;
 use biosmod_gui::ui::AppWindow;
 use slint::{ComponentHandle, Model, Timer, TimerMode};
@@ -177,9 +178,27 @@ fn real_desktop_synthetic_workflow() {
         })
         .unwrap_or_default();
     let settings = Settings {
+        language: if std::env::var("BME_GUI_LANGUAGE").as_deref() == Ok("pt-BR") {
+            Language::PtBr
+        } else {
+            Language::En
+        },
         theme,
         ..Settings::default()
     };
+    let language = settings.language;
+    language.select().unwrap();
+    let settings_label = if language == Language::PtBr {
+        "Configurações"
+    } else {
+        "Settings"
+    };
+    assert!(
+        i_slint_backend_testing::ElementHandle::find_by_accessible_label(&window, settings_label)
+            .next()
+            .is_some(),
+        "startup accessibility: expected {settings_label}"
+    );
     let mut desktop = Desktop::new(engine, settings, None).unwrap();
     desktop.session.image = Some(image);
     desktop.session.source = "lab".into();
@@ -367,6 +386,18 @@ fn real_desktop_synthetic_workflow() {
                     *tick_result.borrow_mut() = Some(Err(format!(
                         "auto-verification: expected verified | received {:?}: {}",
                         state.session.outcome, state.session.status
+                    )));
+                } else if window.get_result_title().as_str()
+                    != if language == Language::PtBr {
+                        "Verificação offline concluída"
+                    } else {
+                        "Offline verification complete"
+                    }
+                {
+                    *tick_result.borrow_mut() = Some(Err(format!(
+                        "localized completion: expected language {} | received {}",
+                        language.identifier(),
+                        window.get_result_title()
                     )));
                 } else if !tick_output.is_file() || !manifest_path(&tick_output).is_file() {
                     *tick_result.borrow_mut() =

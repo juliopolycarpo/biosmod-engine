@@ -4,8 +4,9 @@ import { Stepper } from "stepper.slint";
 import { Theme } from "theme.slint";
 import { Caption, Chip, Tone, Tones, Divider, FieldRow, NavTab, PageTitle, SectionTitle } from "widgets.slint";
 import { Fact, FindingsSummary } from "facts.slint";
+import { UiText } from "translations.slint";
 
-export { Fact, PatchRow, Theme }
+export { Fact, PatchRow, Theme, UiText }
 
 export component AppWindow inherits Window {
     title: "BIOS Mod Engine";
@@ -47,6 +48,7 @@ export component AppWindow inherits Window {
     in property <bool> can-verify;
     in property <int> stage;
     in-out property <int> theme-choice: 0;
+    in-out property <int> language-index: 0;
     in-out property <int> page: 0;
     in-out property <bool> paths-open;
     // Side padding that keeps content at most Theme.content-max wide and centered.
@@ -87,6 +89,7 @@ export component AppWindow inherits Window {
     callback refresh-engine();
     callback export-diagnostics();
     callback theme-changed(int);
+    callback language-changed(int);
     callback back-to-selection();
     callback open-plan-path(string);
     callback open-output-path(string);
@@ -117,16 +120,28 @@ export component AppWindow inherits Window {
                             Text { text: "B"; font-size: Theme.font-heading; font-weight: 700; color: Theme.accent-text; horizontal-alignment: center; vertical-alignment: center; }
                         }
                     }
-                    if root.width > 900px: Text { text: @tr("BIOS Mod Engine"); font-size: Theme.font-heading; font-weight: 700; color: Theme.text; vertical-alignment: center; }
+                    if root.width >= 1080px: Text { text: @tr("BIOS Mod Engine"); font-size: Theme.font-heading; font-weight: 700; color: Theme.text; vertical-alignment: center; }
                     Rectangle { width: Theme.space-md; }
                     NavTab { text: @tr("Workflow"); selected: root.page == 0; activated => { root.page = 0; } }
                     NavTab { text: @tr("Sources & tools"); selected: root.page == 1; activated => { root.page = 1; } }
                     NavTab { text: @tr("Diagnostics"); selected: root.page == 2; activated => { root.page = 2; } }
                     Rectangle { horizontal-stretch: 1; }
+                    if root.width >= 1000px: VerticalLayout {
+                        alignment: center;
+                        Chip { text: root.engine-status; tone: root.engine-tone; }
+                    }
+                    if root.width >= 1000px: NavTab { text: @tr("Settings"); selected: root.page == 4; activated => { root.page = 4; } }
+                    if root.width >= 1000px: NavTab { text: @tr("About"); selected: root.page == 3; activated => { root.page = 3; } }
+                }
+                if root.width < 1000px: HorizontalLayout {
+                    padding-left: root.gutter;
+                    padding-right: root.gutter;
+                    spacing: Theme.space-sm;
                     VerticalLayout {
                         alignment: center;
                         Chip { text: root.engine-status; tone: root.engine-tone; }
                     }
+                    Rectangle { horizontal-stretch: 1; }
                     NavTab { text: @tr("Settings"); selected: root.page == 4; activated => { root.page = 4; } }
                     NavTab { text: @tr("About"); selected: root.page == 3; activated => { root.page = 3; } }
                 }
@@ -143,7 +158,7 @@ export component AppWindow inherits Window {
                 spacing: Theme.space-sm;
                 Stepper { current: root.stage < 2 ? 0 : root.stage == 2 || root.show-review ? 1 : root.status-tone == Tone.good ? 3 : 2; }
                 Rectangle { horizontal-stretch: 1; }
-                VerticalLayout {
+                if root.width >= 1000px: VerticalLayout {
                     alignment: center;
                     HorizontalLayout {
                         spacing: Theme.space-sm;
@@ -152,6 +167,13 @@ export component AppWindow inherits Window {
                         Button { text: root.paths-open ? @tr("Hide paths") : @tr("Enter paths"); enabled: !root.busy; clicked => { root.paths-open = !root.paths-open; } }
                     }
                 }
+            }
+            if root.width < 1000px: HorizontalLayout {
+                spacing: Theme.space-sm;
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: @tr("Open plan"); enabled: !root.busy; clicked => { root.import-plan(); } }
+                Button { text: @tr("Open output"); enabled: !root.busy; clicked => { root.open-output(); } }
+                Button { text: root.paths-open ? @tr("Hide paths") : @tr("Enter paths"); enabled: !root.busy; clicked => { root.paths-open = !root.paths-open; } }
             }
             if root.paths-open: Rectangle {
                 background: Theme.surface;
@@ -252,10 +274,10 @@ export component AppWindow inherits Window {
                 }
                 if root.patches.length > 0: ListView {
                     vertical-stretch: 1;
-                    min-height: 80px;
+                    min-height: root.paths-open && root.height < 700px ? 0px : 80px;
                     for patch[i] in root.patches: PatchCard { patch: patch; enabled: !root.busy; toggled => { root.toggle-patch(i); } }
                 }
-                Caption { text: (root.scan-facts.length > 0 ? @tr("Board profiles are catalog information, not physical board identification.") + " " : "") + @tr("Hardware-dependent findings and corrections that require joint selection cannot be applied here yet."); }
+                Caption { text: root.scan-facts.length > 0 ? @tr("Board profiles are catalog information, not physical board identification. Hardware-dependent findings and corrections that require joint selection cannot be applied here yet.") : @tr("Hardware-dependent findings and corrections that require joint selection cannot be applied here yet."); }
                 HorizontalLayout {
                     spacing: Theme.space-sm;
                     Button { text: @tr("Recommended"); enabled: root.can-recommend && !root.busy; clicked => { root.recommended(); } }
@@ -395,6 +417,18 @@ export component AppWindow inherits Window {
                         }
                         Button { text: @tr("Browse…"); enabled: !root.busy; clicked => { root.browse-engine(); } }
                         Button { text: @tr("Check engine"); enabled: !root.busy; clicked => { root.refresh-engine(); } }
+                    }
+                    FieldRow {
+                        label: @tr("Language");
+                        ComboBox {
+                            accessible-label: @tr("Language");
+                            model: ["English", "Português (Brasil)"];
+                            current-index <=> root.language-index;
+                            selected(value) => { root.language-changed(root.language-index); }
+                            horizontal-stretch: 0;
+                            width: 200px;
+                        }
+                        Rectangle { horizontal-stretch: 1; }
                     }
                     FieldRow {
                         label: @tr("Theme");

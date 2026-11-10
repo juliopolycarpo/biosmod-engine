@@ -1,0 +1,15 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: pt-BR\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+msgctxt "LocaleFixture"
+msgid "Translated message"
+msgstr "Mensagem traduzida"
+
+msgctxt "LocaleFixture"
+msgid "{n} finding"
+msgid_plural "{n} findings"
+msgstr[0] "{n} resultado"
+msgstr[1] "{n} resultados"

@@ -2,6 +2,7 @@
 
 use biosmod_gui::controller::Review;
 use biosmod_gui::desktop::{Desktop, bind};
+use biosmod_gui::i18n::Language;
 use biosmod_gui::settings::Settings;
 use biosmod_gui::ui::AppWindow;
 use i_slint_backend_testing::ElementHandle;
@@ -35,6 +36,18 @@ fn click(window: &AppWindow, x: f32, y: f32) {
 /// Click the centre of the element exposing `label`, so layout changes do not move the target.
 /// Example: `click_label(&window, "Engine executable path")`.
 fn click_label(window: &AppWindow, label: &str) {
+    let label = if window.get_language_index() == 1 {
+        match label {
+            "Catalog source alias" => "Apelido da fonte do catálogo",
+            "Original firmware image path" => "Caminho da imagem de firmware original",
+            "Settings" => "Configurações",
+            "Engine executable path" => "Caminho do executável do mecanismo",
+            "Workflow" => "Fluxo de trabalho",
+            _ => label,
+        }
+    } else {
+        label
+    };
     let element = ElementHandle::find_by_accessible_label(window, label)
         .next()
         .unwrap_or_else(|| panic!("accessible label: expected an element named {label:?}"));
@@ -68,7 +81,14 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
     let settings_path = preferences.path().join("gui.json");
     let mut desktop = Desktop::new(
         "/missing/bme".into(),
-        Settings::default(),
+        Settings {
+            language: if std::env::var("BME_GUI_LANGUAGE").as_deref() == Ok("pt-BR") {
+                Language::PtBr
+            } else {
+                Language::En
+            },
+            ..Settings::default()
+        },
         Some(settings_path.clone()),
     )
     .unwrap();
@@ -82,6 +102,12 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
         }]}
     })).unwrap());
     let window = AppWindow::new().unwrap();
+    let language = if std::env::var("BME_GUI_LANGUAGE").as_deref() == Ok("pt-BR") {
+        Language::PtBr
+    } else {
+        Language::En
+    };
+    language.select().unwrap();
     let state = bind(&window, desktop);
     window.show().unwrap();
     window

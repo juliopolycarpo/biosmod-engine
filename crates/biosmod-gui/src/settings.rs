@@ -1,12 +1,15 @@
 //! Presentation settings are separate from engine configuration and source trust.
 
 use crate::controller::read_regular_file;
+use crate::i18n::Language;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Settings {
+    #[serde(default)]
+    pub language: Language,
     #[serde(default)]
     pub theme: u8,
     #[serde(default)]
@@ -35,7 +38,7 @@ impl Settings {
         Ok(settings)
     }
 
-    /// Atomically save theme and explicit engine choice, without storing image paths.
+    /// Atomically save presentation preferences and engine choice, without storing image paths.
     /// Example: `settings.save(Path::new("/tmp/bme/gui.json"))?`.
     pub fn save(&self, path: &Path) -> Result<(), String> {
         let directory = path
@@ -67,12 +70,14 @@ mod tests {
         let path = dir.path().join("sub/gui.json");
         assert_eq!(Settings::load(&path).unwrap().theme, 0);
         let settings = Settings {
+            language: Language::PtBr,
             theme: 2,
             engine: Some("/tmp/engine path".into()),
         };
         settings.save(&path).unwrap();
         let restored = Settings::load(&path).unwrap();
         assert_eq!(restored.theme, 2);
+        assert_eq!(restored.language, Language::PtBr);
         assert_eq!(restored.engine, settings.engine);
         std::fs::write(&path, br#"{"theme":9}"#).unwrap();
         assert!(Settings::load(&path).unwrap_err().contains("received 9"));
@@ -85,6 +90,48 @@ mod tests {
             Some("/home/test/.config/biosmod-engine/gui.json".into())
         );
         assert_eq!(settings_path(None, None), None);
+    }
+
+    #[test]
+    fn language_defaults_preserve_other_preferences() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.json");
+        for language in [
+            None,
+            Some(serde_json::json!("unknown")),
+            Some(serde_json::json!(false)),
+            Some(serde_json::json!(null)),
+        ] {
+            let mut value = serde_json::json!({"theme": 1, "engine": "/tmp/custom-bme"});
+            if let Some(language) = language {
+                value["language"] = language;
+            }
+            std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+            let settings = Settings::load(&path).unwrap();
+            assert_eq!(
+                settings.language,
+                Language::En,
+                "language: expected English fallback | received {value}"
+            );
+            assert_eq!(settings.theme, 1);
+            assert_eq!(settings.engine, Some("/tmp/custom-bme".into()));
+        }
+    }
+
+    #[test]
+    fn settings_save_failure_leaves_original_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocker = dir.path().join("file");
+        std::fs::write(&blocker, b"original").unwrap();
+        assert!(Settings::default().save(&blocker.join("gui.json")).is_err());
+        assert_eq!(std::fs::read(&blocker).unwrap(), b"original");
+        assert_eq!(
+            settings_path(Some("".into()), Some("/home/test".into())),
+            Some("/home/test/.config/biosmod-engine/gui.json".into())
+        );
+        std::fs::write(&blocker, b"{bad-json").unwrap();
+        assert!(Settings::load(&blocker).unwrap_err().contains("settings:"));
+        assert_eq!(std::fs::read(&blocker).unwrap(), b"{bad-json");
     }
 
     #[cfg(unix)]
