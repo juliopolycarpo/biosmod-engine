@@ -130,6 +130,17 @@ fn plan_patch_verify_round_trip() {
         .run(["verify", s(&image), s(&out), "--plan", s(&plan), "--json"])
         .json();
     assert_eq!(verified["data"]["complete"], true, "{verified}");
+    let checks = verified["data"]["checks"].as_array().unwrap();
+    let states = checks
+        .iter()
+        .find(|check| check["check"] == "patch-states")
+        .unwrap();
+    assert_eq!(
+        states["patches"],
+        serde_json::json!([
+            {"id": "PA", "state": "fixed"}, {"id": "TB", "state": "fixed"}
+        ])
+    );
 
     // The output and manifest are never replaced.
     let again = sandbox.run([
@@ -773,4 +784,77 @@ fn catalog_import_reports_non_utf8_output_path() {
         output.to_string_lossy().as_ref()
     );
     assert!(output.join("valid.json").exists());
+}
+
+#[test]
+fn verification_reports_selected_and_carried_patch_states() {
+    let sandbox = Sandbox::new();
+    let (image, catalog) = sandbox.synthetic();
+    let first_plan = sandbox.path("first-plan.json");
+    let first_output = sandbox.path("first-output.bin");
+    let second_plan = sandbox.path("second-plan.json");
+    let second_output = sandbox.path("second-output.bin");
+    for (input, selected, plan, output) in [
+        (&image, "PA", &first_plan, &first_output),
+        (&first_output, "PB", &second_plan, &second_output),
+    ] {
+        let made = sandbox.run([
+            "plan",
+            s(input),
+            "--catalog",
+            s(&catalog),
+            "--allow-unsigned-local",
+            "--select",
+            selected,
+            "-o",
+            s(plan),
+            "--json",
+        ]);
+        assert_eq!(
+            made.code, 0,
+            "plan {selected}: {} {}",
+            made.stdout, made.stderr
+        );
+        let built = sandbox.run([
+            "patch",
+            s(input),
+            "--plan",
+            s(plan),
+            "--allow-unsigned-local",
+            "-o",
+            s(output),
+            "--json",
+        ]);
+        assert_eq!(
+            built.code, 0,
+            "patch {selected}: {} {}",
+            built.stdout, built.stderr
+        );
+    }
+    let verified = sandbox.run([
+        "verify",
+        s(&first_output),
+        s(&second_output),
+        "--plan",
+        s(&second_plan),
+        "--json",
+    ]);
+    assert_eq!(
+        verified.code, 0,
+        "verify: {} {}",
+        verified.stdout, verified.stderr
+    );
+    let document = verified.json();
+    let states = document["data"]["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["check"] == "patch-states")
+        .unwrap();
+    assert_eq!(
+        states["patches"],
+        serde_json::json!([
+            {"id": "PB", "state": "fixed"}, {"id": "PA", "state": "fixed"}
+        ])
+    );
 }

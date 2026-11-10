@@ -247,11 +247,12 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
         }
     };
     let (chosen, mut notes) = resolve(catalog, &firmware, request)?;
+    let offsets = analysis::TableOffsetIndex::new(catalog, &firmware);
     // Related patch matching currently keys on GUID and leaf type. Refuse an
     // ambiguous catalog before matching or composing different ACPI tables.
     for id in &chosen {
         for component in catalog.patches[id].components(&firmware) {
-            if let Some(message) = analysis::table_offset_conflict(catalog, &firmware, component) {
+            if let Some(message) = offsets.conflict(component) {
                 return Err(Error::new(Code::FormatUnsupported, message));
             }
         }
@@ -260,16 +261,24 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
     // Conflicts apply to the whole image, including modules we will not rebuild.
     let installed: Vec<String> = catalog
         .patches_for(&firmware)
-        .filter(|patch| analysis::patch_state(image, catalog, &firmware, patch).0 == State::Fixed)
+        .filter(|patch| {
+            analysis::patch_state_indexed(image, catalog, &firmware, patch, &offsets).0
+                == State::Fixed
+        })
         .map(|patch| patch.id.clone())
         .collect();
     carried_fixes(catalog, &installed, &wanted)?;
     let covered = included(catalog, &chosen);
     for id in &chosen {
         for need in &catalog.patches[id].requires {
-            let present = analysis::patch_state(image, catalog, &firmware, &catalog.patches[need])
-                .0
-                == State::Fixed;
+            let present = analysis::patch_state_indexed(
+                image,
+                catalog,
+                &firmware,
+                &catalog.patches[need],
+                &offsets,
+            )
+            .0 == State::Fixed;
             if !covered.contains(need) && !present {
                 return Err(Error::new(
                     Code::SelectionInvalid,
@@ -301,7 +310,7 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
                 ));
             }
             let found = match_component(image, catalog, &firmware, component).ok_or_else(|| {
-                let (state, detail) = analysis::patch_state(image, catalog, &firmware, patch);
+                let (state, detail) = analysis::patch_state_indexed(image, catalog, &firmware, patch, &offsets);
                 let code = if state == State::Unsupported { Code::FormatUnsupported } else { Code::PatchSourceMismatch };
                 Error::new(code, format!("{id}/{}: module differs from the {firmware} original this patch was made for ({detail})", component.name))
             })?;
@@ -416,7 +425,7 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
         notes,
         allowlist,
     };
-    verify_built(image, catalog, built)
+    verify_built(image, catalog, built, &offsets)
 }
 
 /// Apply the kept patches to the recovered original, base patches before layered ones.
@@ -538,7 +547,12 @@ fn touches_relocation(hunk: &crate::catalog::Hunk, covered: &BTreeSet<usize>) ->
 }
 
 /// Re-parse the output and confirm states and untouched bytes.
-fn verify_built(input: &Image, catalog: &Catalog, mut built: Built) -> Result<Built> {
+fn verify_built(
+    input: &Image,
+    catalog: &Catalog,
+    mut built: Built,
+    offsets: &analysis::TableOffsetIndex,
+) -> Result<Built> {
     let check = Image::parse(std::mem::take(&mut built.image)).map_err(|e| {
         Error::new(
             Code::OutputVerificationFailed,
@@ -546,8 +560,13 @@ fn verify_built(input: &Image, catalog: &Catalog, mut built: Built) -> Result<Bu
         )
     })?;
     for id in built.selected.iter().chain(&built.carried) {
-        let (state, detail) =
-            analysis::patch_state(&check, catalog, &built.firmware, &catalog.patches[id]);
+        let (state, detail) = analysis::patch_state_indexed(
+            &check,
+            catalog,
+            &built.firmware,
+            &catalog.patches[id],
+            offsets,
+        );
         if state != State::Fixed {
             return Err(Error::new(
                 Code::OutputVerificationFailed,
