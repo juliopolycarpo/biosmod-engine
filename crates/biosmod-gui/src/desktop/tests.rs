@@ -1247,3 +1247,24 @@ fn binding_shows_the_package_version_on_the_about_page() {
         "about page: expected the crate version"
     );
 }
+
+#[test]
+fn changing_engine_discards_the_previous_handshake_contract() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (_window, state) = bound_window(Settings::default(), None);
+    let data = json!({"verification_required_checks":["old-check"],
+        "exit_codes":{"ok":0,"failed":1,"usage":2,"publication_incomplete":3},
+        "error_codes":[{"code":"USAGE","exit":2},{"code":"PUBLISH_INCOMPLETE","exit":3},
+            {"code":"VERIFICATION_INCOMPLETE","exit":1}]});
+    let mut desktop = state.lock().unwrap();
+    desktop.session.engine_contract = Some(Arc::new(
+        crate::engine::EngineContract::from_capabilities(&data).unwrap(),
+    ));
+    desktop.session.connected = true;
+    preview_engine(&mut desktop, Some("/different/fake-bme".into()));
+    assert!(
+        desktop.session.engine_contract.is_none(),
+        "engine change: expected previous contract cleared | received retained contract"
+    );
+    assert!(!desktop.session.connected);
+}

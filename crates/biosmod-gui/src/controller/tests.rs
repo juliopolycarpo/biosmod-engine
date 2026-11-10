@@ -64,9 +64,22 @@ fn reply_payload(data: Value) -> Payload {
     }
 }
 
+fn fake_engine_contract() -> Arc<EngineContract> {
+    Arc::new(
+        EngineContract::from_capabilities(&json!({
+            "verification_required_checks": ["input-digest", "patch-states"],
+            "exit_codes": {"ok":0, "failed":1, "usage":2, "publication_incomplete":3},
+            "error_codes":[{"code":"USAGE","exit":2}, {"code":"PUBLISH_INCOMPLETE","exit":3},
+                {"code":"VERIFICATION_INCOMPLETE","exit":1}]
+        }))
+        .unwrap(),
+    )
+}
+
 #[test]
 fn semantic_incomplete_verification_is_not_reported_as_verified() {
     let mut session = Session::new().unwrap();
+    session.engine_contract = Some(fake_engine_contract());
     let data = json!({"complete": false, "checks": [{"check": "input-digest", "ok": true}], "skipped": [{"check": "patch-states and reproduction", "reason": "catalog unavailable"}], "notice": "Offline verification does not prove boot behavior."});
     session.accept(Action::Verify, reply_payload(data)).unwrap();
     assert_eq!(session.outcome, Outcome::VerificationIncomplete);
@@ -124,6 +137,7 @@ fn engine_reported_incomplete_verification_is_summarized_not_dumped() {
 #[test]
 fn verification_does_not_trust_complete_without_required_checks() {
     let mut session = Session::new().unwrap();
+    session.engine_contract = Some(fake_engine_contract());
     let data = json!({"complete": true, "checks": [], "skipped": [], "notice": "offline"});
     session.accept(Action::Verify, reply_payload(data)).unwrap();
     assert_eq!(session.outcome, Outcome::VerificationIncomplete);
@@ -225,4 +239,41 @@ fn new_session_starts_with_the_start_guidance() {
         (Status::Start, "Choose a firmware image to get started."),
         "new session status"
     );
+}
+
+#[test]
+fn connected_session_uses_its_advertised_verification_checks() {
+    let mut session = Session::new().unwrap();
+    let capability = json!({
+        "verification_required_checks": ["new-check"],
+        "exit_codes": {"ok":0, "failed":1, "usage":2, "publication_incomplete":3},
+        "error_codes":[{"code":"USAGE","exit":2}, {"code":"PUBLISH_INCOMPLETE","exit":3},
+            {"code":"VERIFICATION_INCOMPLETE","exit":1}]
+    });
+    session
+        .accept(Action::Connect, verification_payload(capability))
+        .unwrap();
+    let report = json!({"complete":true, "checks":[{"check":"new-check", "ok":true}], "skipped":[], "notice":"offline"});
+    session
+        .accept(Action::Verify, verification_payload(report))
+        .unwrap();
+    assert_eq!(
+        session.outcome,
+        Outcome::Verified,
+        "advertised required check should pass"
+    );
+    let missing = json!({"complete":true, "checks":[{"check":"other-check", "ok":true}], "skipped":[], "notice":"offline"});
+    session
+        .accept(Action::Verify, verification_payload(missing))
+        .unwrap();
+    assert_eq!(
+        session.outcome,
+        Outcome::VerificationIncomplete,
+        "missing advertised check must remain incomplete"
+    );
+    session.fail(
+        Action::Connect,
+        EngineError::new(ErrorKind::Protocol, "invalid capabilities"),
+    );
+    assert!(session.engine_contract.is_none());
 }

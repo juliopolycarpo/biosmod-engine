@@ -1,5 +1,25 @@
 //! Firmware commands: inspect, scan, plan, patch, verify, extract, replace, derive.
 
+const CHECK_INPUT_DIGEST: &str = "input-digest";
+const CHECK_OUTPUT_DIGEST: &str = "output-digest";
+const CHECK_STRUCTURE: &str = "structure";
+const CHECK_UNCHANGED_OUTSIDE_ALLOWLIST: &str = "unchanged-outside-allowlist";
+const CHECK_CHANGED_REGIONS: &str = "changed-regions";
+const CHECK_PATCH_STATES: &str = "patch-states";
+const CHECK_REPRODUCED_FROM_CATALOG: &str = "reproduced-from-catalog";
+
+/// Checks required for a complete offline verification report.
+/// Example: capabilities advertises `REQUIRED_VERIFICATION_CHECKS` to desktop clients.
+pub(crate) const REQUIRED_VERIFICATION_CHECKS: &[&str] = &[
+    CHECK_INPUT_DIGEST,
+    CHECK_OUTPUT_DIGEST,
+    CHECK_STRUCTURE,
+    CHECK_UNCHANGED_OUTSIDE_ALLOWLIST,
+    CHECK_CHANGED_REGIONS,
+    CHECK_PATCH_STATES,
+    CHECK_REPRODUCED_FROM_CATALOG,
+];
+
 use super::{Ctx, Token, load_sources, parse_token, read_bounded, read_image};
 use crate::output::display_path;
 use crate::output::{Reply, table};
@@ -750,11 +770,11 @@ pub fn verify(ctx: &Ctx, args: &VerifyArgs) -> Result<Reply> {
         ));
     }
     let mut checks = vec![
-        json!({"check": "input-digest", "ok": true}),
-        json!({"check": "output-digest", "ok": true}),
-        json!({"check": "structure", "ok": true, "volumes": structure.volumes.len()}),
-        json!({"check": "unchanged-outside-allowlist", "ok": true, "allowlist": plan.allowlist}),
-        json!({"check": "changed-regions", "ok": true, "regions": changed.len(), "bytes": changed_bytes(&input, output)}),
+        json!({"check": CHECK_INPUT_DIGEST, "ok": true}),
+        json!({"check": CHECK_OUTPUT_DIGEST, "ok": true}),
+        json!({"check": CHECK_STRUCTURE, "ok": true, "volumes": structure.volumes.len()}),
+        json!({"check": CHECK_UNCHANGED_OUTSIDE_ALLOWLIST, "ok": true, "allowlist": plan.allowlist}),
+        json!({"check": CHECK_CHANGED_REGIONS, "ok": true, "regions": changed.len(), "bytes": changed_bytes(&input, output)}),
     ];
     let mut skipped = Vec::new();
     match pinned_source(ctx, plan, true) {
@@ -778,7 +798,7 @@ pub fn verify(ctx: &Ctx, args: &VerifyArgs) -> Result<Reply> {
                 }
                 states.push(json!({"id": id, "state": state}));
             }
-            checks.push(json!({"check": "patch-states", "ok": true, "patches": states}));
+            checks.push(json!({"check": CHECK_PATCH_STATES, "ok": true, "patches": states}));
             let image = Image::parse(input)?;
             let built = plan::build(&image, &loaded.catalog, &plan.request())?;
             if built.image != *output {
@@ -787,7 +807,7 @@ pub fn verify(ctx: &Ctx, args: &VerifyArgs) -> Result<Reply> {
                     "independent rebuild from the pinned catalog differs from the output",
                 ));
             }
-            checks.push(json!({"check": "reproduced-from-catalog", "ok": true}));
+            checks.push(json!({"check": CHECK_REPRODUCED_FROM_CATALOG, "ok": true}));
         }
         Err(error) => {
             skipped.push(json!({"check": "patch-states and reproduction", "reason": error.message}))

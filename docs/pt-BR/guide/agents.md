@@ -18,7 +18,7 @@ Códigos de saída: `0` sucesso, `1` falha controlada (veja `error.code`), `2` e
 
 `capabilities.data.desktop_workflow: 1` identifica o fluxo protegido da interface: recusas conservadoras de layout de firmware e verificação incompleta explícita. A interface exige esse marcador mesmo quando uma engine antiga anuncia o mesmo protocolo e versão do pacote. Os campos JSON `inspect.path`, `patch.output` e `patch.manifest_file` são textos para exibição; caminhos Unix com bytes que não são UTF-8 usam caracteres de substituição. Preserve os caminhos originais do sistema operacional ao executar operações posteriores, em vez de reconstruí-los a partir desses textos.
 
-`bme capabilities --json` lista comandos, se cada um grava arquivos ou usa a rede, formatos suportados, limites e todos os códigos de erro com seus significados.
+`bme capabilities --json` lista comandos, se cada um grava arquivos ou usa a rede, formatos suportados, limites e todos os códigos de erro com seus significados. O vetor `verification_required_checks` identifica as verificações que precisam passar exatamente uma vez para que o relatório esteja completo. Os campos `exit_codes` e `error_codes` definem os códigos de saída e sua relação com os erros. Clientes de interface associam esses valores à conexão validada e rejeitam relatórios incompletos ou contraditórios.
 
 ## Um ciclo seguro para agentes
 

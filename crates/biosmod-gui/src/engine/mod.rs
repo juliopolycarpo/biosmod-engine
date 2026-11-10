@@ -2,6 +2,7 @@
 
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io::{self, Read};
@@ -14,16 +15,6 @@ use std::time::{Duration, Instant};
 
 const MAX_JSON: usize = 64 * 1024 * 1024;
 const MAX_DIAGNOSTICS: usize = 256 * 1024;
-const REQUIRED_CHECKS: &[&str] = &[
-    "input-digest",
-    "output-digest",
-    "structure",
-    "unchanged-outside-allowlist",
-    "changed-regions",
-    "patch-states",
-    "reproduced-from-catalog",
-];
-
 /// Operations supported by this client. Paths remain OS strings until passed to `bme`.
 #[derive(Debug, Clone)]
 pub enum Request {
@@ -241,14 +232,25 @@ struct EngineFailure {
     details: Option<Value>,
 }
 
-/// Decode one full response and require agreement between the envelope and process status.
+/// Decode a bootstrap response; until capabilities arrive only zero/nonzero status is known.
 ///
 /// Example: `decode("version", 0, br#"{"product":"biosmod-engine","protocol":"bme/1","version":"1","command":"version","ok":true,"data":{}}"#, "")` returns a reply.
-pub fn decode(
+#[cfg(test)]
+fn decode(
     expected: &str,
     exit: i32,
     bytes: &[u8],
     diagnostics: &str,
+) -> Result<Reply, EngineError> {
+    decode_with_contract(expected, exit, bytes, diagnostics, None)
+}
+
+fn decode_with_contract(
+    expected: &str,
+    exit: i32,
+    bytes: &[u8],
+    diagnostics: &str,
+    contract: Option<&EngineContract>,
 ) -> Result<Reply, EngineError> {
     let envelope: Envelope = serde_json::from_slice(bytes).map_err(|e| {
         EngineError::new(
@@ -277,7 +279,8 @@ pub fn decode(
             envelope.command
         )));
     }
-    if envelope.ok && exit == 0 && matches!(envelope.error, Field::Missing) {
+    let success_exit = contract.map_or(0, |contract| contract.ok_exit);
+    if envelope.ok && exit == success_exit && matches!(envelope.error, Field::Missing) {
         return match envelope.data {
             Field::Present(data) => Ok(Reply {
                 version: envelope.version,
@@ -291,12 +294,12 @@ pub fn decode(
         && matches!(envelope.data, Field::Missing)
         && let Field::Present(error) = envelope.error
     {
-        let expected_exit = match error.code.as_str() {
-            "USAGE" => 2,
-            "PUBLISH_INCOMPLETE" => 3,
-            _ => 1,
+        let expected_exit = contract.and_then(|contract| contract.error_exits.get(&error.code));
+        let valid_exit = match contract {
+            Some(_) => expected_exit == Some(&exit),
+            None => exit != success_exit,
         };
-        if exit != expected_exit
+        if !valid_exit
             || error.code.is_empty()
             || !error
                 .code
@@ -305,8 +308,8 @@ pub fn decode(
             || error.message.is_empty()
         {
             return Err(bad(format!(
-                "engine error {:?}: expected uppercase code, nonempty message and exit {expected_exit} | received exit {exit}",
-                error.code
+                "engine error {:?}: expected uppercase advertised code, nonempty message and exit {:?} | received exit {exit}",
+                error.code, expected_exit
             )));
         }
         return Err(EngineError {
@@ -323,62 +326,146 @@ pub fn decode(
     )))
 }
 
-/// A semantic verification result. Incomplete or inconsistent checks are never success.
+/// The verification and exit-code contract advertised by a connected engine.
 #[derive(Debug, Clone)]
-pub struct Verification {
-    pub complete: bool,
-    pub checks: Vec<Value>,
-    pub skipped: Vec<Value>,
-    pub notice: String,
+pub struct EngineContract {
+    required_checks: Vec<String>,
+    ok_exit: i32,
+    error_exits: HashMap<String, i32>,
 }
-impl Verification {
-    /// Check all mandatory verification results, including skipped and duplicate checks.
-    ///
-    /// Example: `Verification::from_data(&serde_json::json!({"complete": false, "checks": [], "skipped": [], "notice": "offline"}))` returns an incomplete result.
-    pub fn from_data(data: &Value) -> Result<Self, EngineError> {
-        let invalid = || {
+
+impl EngineContract {
+    /// Validate the advertised exit codes and required verification checks.
+    /// Example: `EngineContract::from_capabilities(&reply.data)` binds a session to its engine.
+    pub fn from_capabilities(data: &Value) -> Result<Self, EngineError> {
+        let invalid = |field: &str, value: &Value| {
             EngineError::new(
                 ErrorKind::Protocol,
-                "verification: expected complete, checks, skipped and notice with their documented types",
+                format!("engine capability {field}: expected a valid contract | received {value}"),
             )
         };
-        let declared = data
-            .get("complete")
-            .and_then(Value::as_bool)
-            .ok_or_else(invalid)?;
-        let checks = data
-            .get("checks")
-            .and_then(Value::as_array)
-            .ok_or_else(invalid)?
-            .clone();
-        let skipped = data
-            .get("skipped")
-            .and_then(Value::as_array)
-            .ok_or_else(invalid)?
-            .clone();
-        let notice = data
-            .get("notice")
-            .and_then(Value::as_str)
-            .ok_or_else(invalid)?
-            .to_owned();
-        let valid_checks = checks.iter().all(|check| {
-            check.get("check").and_then(Value::as_str).is_some()
-                && check.get("ok").and_then(Value::as_bool) == Some(true)
-        });
-        let required = REQUIRED_CHECKS.iter().all(|name| {
-            checks
-                .iter()
-                .filter(|c| c.get("check").and_then(Value::as_str) == Some(name))
-                .count()
-                == 1
-        });
+        let checks = &data["verification_required_checks"];
+        let mut seen = HashSet::new();
+        let required_checks = checks
+            .as_array()
+            .filter(|checks| !checks.is_empty())
+            .ok_or_else(|| invalid("verification_required_checks", checks))?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|name| !name.is_empty() && seen.insert((*name).to_owned()))
+                    .map(str::to_owned)
+                    .ok_or_else(|| invalid("verification_required_checks", value))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let exits = &data["exit_codes"];
+        let exit_value = |name: &str| -> Result<i32, EngineError> {
+            exits
+                .get(name)
+                .and_then(Value::as_i64)
+                .and_then(|value| i32::try_from(value).ok())
+                .filter(|value| (0..=255).contains(value))
+                .ok_or_else(|| invalid("exit_codes", exits))
+        };
+        let ok_exit = exit_value("ok")?;
+        let failed = exit_value("failed")?;
+        let usage = exit_value("usage")?;
+        let incomplete = exit_value("publication_incomplete")?;
+        if ok_exit != 0
+            || [failed, usage, incomplete].contains(&ok_exit)
+            || HashSet::from([failed, usage, incomplete]).len() != 3
+        {
+            return Err(invalid("exit_codes", exits));
+        }
+        let errors = &data["error_codes"];
+        let mut error_exits = HashMap::new();
+        for entry in errors
+            .as_array()
+            .filter(|errors| !errors.is_empty())
+            .ok_or_else(|| invalid("error_codes", errors))?
+        {
+            let code = entry
+                .get("code")
+                .and_then(Value::as_str)
+                .filter(|code| {
+                    !code.is_empty() && code.bytes().all(|c| c.is_ascii_uppercase() || c == b'_')
+                })
+                .ok_or_else(|| invalid("error_codes", entry))?;
+            let exit = entry
+                .get("exit")
+                .and_then(Value::as_i64)
+                .and_then(|value| i32::try_from(value).ok())
+                .filter(|exit| [failed, usage, incomplete].contains(exit))
+                .ok_or_else(|| invalid("error_codes", entry))?;
+            if error_exits.insert(code.to_owned(), exit).is_some() {
+                return Err(invalid("error_codes", entry));
+            }
+        }
+        if error_exits.get("USAGE") != Some(&usage)
+            || error_exits.get("PUBLISH_INCOMPLETE") != Some(&incomplete)
+            || error_exits.get("VERIFICATION_INCOMPLETE") != Some(&failed)
+        {
+            return Err(invalid("error_codes", errors));
+        }
         Ok(Self {
-            complete: declared && skipped.is_empty() && valid_checks && required,
-            checks,
-            skipped,
-            notice,
+            required_checks,
+            ok_exit,
+            error_exits,
         })
     }
+}
+
+/// Check a verification report against the connected engine's required checks.
+/// Example: `verification_complete(&report, &contract)` rejects a missing check.
+pub(crate) fn verification_complete(
+    data: &Value,
+    contract: &EngineContract,
+) -> Result<bool, EngineError> {
+    let invalid = |field: &str| {
+        let value = data.get(field).unwrap_or(&Value::Null);
+        let summary = match value {
+            Value::String(value) if value.len() > 128 => format!("string ({} bytes)", value.len()),
+            Value::Array(value) => format!("array ({} entries)", value.len()),
+            Value::Object(value) => format!("object ({} fields)", value.len()),
+            _ => value.to_string(),
+        };
+        EngineError::new(
+            ErrorKind::Protocol,
+            format!("verification {field}: expected documented type | received {summary}"),
+        )
+    };
+    let declared = data
+        .get("complete")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| invalid("complete"))?;
+    let checks = data
+        .get("checks")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("checks"))?;
+    let skipped = data
+        .get("skipped")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("skipped"))?;
+    data.get("notice")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid("notice"))?;
+    let mut seen = HashSet::new();
+    let valid_checks = checks.iter().all(|check| {
+        check
+            .get("check")
+            .and_then(Value::as_str)
+            .is_some_and(|name| !name.is_empty() && seen.insert(name))
+            && check.get("ok").and_then(Value::as_bool) == Some(true)
+    });
+    let required = contract.required_checks.iter().all(|name| {
+        checks
+            .iter()
+            .filter(|check| check.get("check").and_then(Value::as_str) == Some(name))
+            .count()
+            == 1
+    });
+    Ok(declared && skipped.is_empty() && valid_checks && required)
 }
 
 /// An engine executable with a fixed, intentional working directory.
@@ -388,6 +475,7 @@ pub struct Engine {
     cwd: PathBuf,
     env: Vec<(OsString, OsString)>,
     timeout: Duration,
+    contract: Option<Arc<EngineContract>>,
 }
 
 impl Engine {
@@ -415,6 +503,7 @@ impl Engine {
             cwd,
             env: Vec::new(),
             timeout: Duration::from_secs(120),
+            contract: None,
         })
     }
     /// Override one child environment variable, for example isolated `BME_CONFIG_HOME` in tests.
@@ -431,6 +520,12 @@ impl Engine {
         self.timeout = timeout;
         self
     }
+    /// Bind subsequent requests to the contract obtained during connection.
+    /// Example: `engine.with_contract(contract)` validates advertised exit codes.
+    pub fn with_contract(mut self, contract: Arc<EngineContract>) -> Self {
+        self.contract = Some(contract);
+        self
+    }
     /// Verify protocol identity, command groups and document versions before enabling operations.
     ///
     /// Example: `engine.handshake(&std::sync::atomic::AtomicBool::new(false))`.
@@ -441,9 +536,19 @@ impl Engine {
         Ok(capabilities)
     }
     /// Run one command, draining both output streams while waiting for it to exit.
+    /// Non-handshake commands require the contract from a successful handshake.
     ///
     /// Example: `engine.run(&Request::Version, &std::sync::atomic::AtomicBool::new(false))`.
     pub fn run(&self, request: &Request, cancel: &AtomicBool) -> Result<Reply, EngineError> {
+        if self.contract.is_none() && !matches!(request, Request::Version | Request::Capabilities) {
+            return Err(EngineError::new(
+                ErrorKind::Configuration,
+                format!(
+                    "engine {}: expected a validated connection contract | received none",
+                    request.name()
+                ),
+            ));
+        }
         let args = request.args(&self.cwd)?;
         let mut command = Command::new(&self.executable);
         command
@@ -606,7 +711,13 @@ impl Engine {
             )
             .diagnostics(&diagnostics));
         }
-        decode(request.name(), code, &stdout.bytes, &diagnostics)
+        decode_with_contract(
+            request.name(),
+            code,
+            &stdout.bytes,
+            &diagnostics,
+            self.contract.as_deref(),
+        )
     }
 }
 
@@ -796,6 +907,7 @@ fn validate_handshake(version: &Reply, capabilities: &Reply) -> Result<(), Engin
             )));
         }
     }
+    EngineContract::from_capabilities(&capabilities.data)?;
     Ok(())
 }
 

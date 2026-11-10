@@ -107,6 +107,7 @@ pub fn capabilities() -> Reply {
             "unsupported": ["compression sections (type 01: EFI standard, Tiano)", "other GUID-defined encodings such as Brotli", "capsule and signed update formats", "moving execute-in-place files"]
         },
         "limits": {"image_bytes": crate::commands::MAX_IMAGE_BYTES, "catalog_file_bytes": biosmod_core::catalog::MAX_FILE_BYTES, "catalog_files": biosmod_core::catalog::MAX_FILES},
+        "verification_required_checks": super::firmware::REQUIRED_VERIFICATION_CHECKS,
         "exit_codes": {"ok": exit::OK, "failed": exit::FAILED, "usage": exit::USAGE, "publication_incomplete": exit::INCOMPLETE},
         "error_codes": codes,
         "guarantees": [
@@ -185,6 +186,16 @@ pub fn guide(topic: Option<&str>) -> Result<Reply> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn capabilities_advertise_verification_checks() {
+        let data = super::capabilities().data;
+        let checks = &data["verification_required_checks"];
+        assert!(
+            checks.as_array().is_some_and(|items| !items.is_empty()),
+            "capabilities verification_required_checks: expected a nonempty array | received {checks}"
+        );
+    }
+
     #[test]
     fn capabilities_advertise_guarded_desktop_workflow() {
         assert_eq!(super::capabilities().data["desktop_workflow"], 1);

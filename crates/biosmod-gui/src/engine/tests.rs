@@ -8,6 +8,23 @@ fn envelope(command: &str, ok: bool, body: Value) -> Vec<u8> {
     serde_json::to_vec(&value).unwrap()
 }
 
+fn fake_capability_contract() -> Value {
+    json!({
+        "verification_required_checks": ["input-digest", "patch-states"],
+        "exit_codes": {"ok": 0, "failed": 1, "usage": 2, "publication_incomplete": 3},
+        "error_codes": [
+            {"code":"USAGE", "exit":2},
+            {"code":"PUBLISH_INCOMPLETE", "exit":3},
+            {"code":"VERIFICATION_INCOMPLETE", "exit":1},
+            {"code":"IO", "exit":1}
+        ]
+    })
+}
+
+fn fake_contract() -> EngineContract {
+    EngineContract::from_capabilities(&fake_capability_contract()).unwrap()
+}
+
 #[test]
 fn arguments_keep_paths_and_qualified_selection_as_separate_arguments() {
     let req = Request::Plan {
@@ -95,7 +112,9 @@ fn decodes_only_consistent_envelopes() {
         (ErrorKind::Engine, Some("USAGE"), "warning")
     );
     assert_eq!(
-        decode("scan", 1, &bad, "").unwrap_err().kind,
+        decode_with_contract("scan", 1, &bad, "", Some(&fake_contract()))
+            .unwrap_err()
+            .kind,
         ErrorKind::Protocol
     );
     let incomplete = envelope(
@@ -133,27 +152,29 @@ fn decodes_only_consistent_envelopes() {
 
 #[test]
 fn verification_requires_complete_unique_passing_checks() {
-    let checks: Vec<Value> = REQUIRED_CHECKS
+    let contract = fake_contract();
+    let checks: Vec<Value> = contract
+        .required_checks
         .iter()
         .map(|name| json!({"check": name, "ok": true}))
         .collect();
     let mut data = json!({"complete": true, "checks": checks, "skipped": [], "notice": "offline"});
-    assert!(Verification::from_data(&data).unwrap().complete);
+    assert!(verification_complete(&data, &contract).unwrap());
     data["complete"] = json!(false);
-    assert!(!Verification::from_data(&data).unwrap().complete);
+    assert!(!verification_complete(&data, &contract).unwrap());
     data["complete"] = json!(true);
     data["skipped"] = json!([{"check": "x", "reason": "unavailable"}]);
-    assert!(!Verification::from_data(&data).unwrap().complete);
+    assert!(!verification_complete(&data, &contract).unwrap());
     data["skipped"] = json!([]);
     data["checks"][0]["ok"] = json!(false);
-    assert!(!Verification::from_data(&data).unwrap().complete);
+    assert!(!verification_complete(&data, &contract).unwrap());
     data["checks"][0]["ok"] = json!(true);
     let duplicate = data["checks"][0].clone();
     data["checks"].as_array_mut().unwrap().push(duplicate);
-    assert!(!Verification::from_data(&data).unwrap().complete);
+    assert!(!verification_complete(&data, &contract).unwrap());
     data["notice"] = json!(null);
     assert_eq!(
-        Verification::from_data(&data).unwrap_err().kind,
+        verification_complete(&data, &contract).unwrap_err().kind,
         ErrorKind::Protocol
     );
 }
@@ -188,6 +209,10 @@ fn handshake_requires_matching_identity_and_advertised_contract() {
         data: json!({"engine":"0.1.0", "protocol":"bme/1", "commands": commands, "documents": docs, "desktop_workflow": 1}),
         diagnostics: String::new(),
     };
+    cap.data
+        .as_object_mut()
+        .unwrap()
+        .extend(fake_capability_contract().as_object().unwrap().clone());
     assert!(validate_handshake(&version, &cap).is_ok());
     cap.data["engine"] = json!("0.2.0");
     let mismatch = validate_handshake(&version, &cap).unwrap_err();
@@ -404,6 +429,7 @@ fn subprocess_replies_distinguish_malformed_output_and_incomplete_publication() 
     };
     let error = incomplete
         .engine()
+        .with_contract(Arc::new(fake_contract()))
         .run(&request, &AtomicBool::new(false))
         .unwrap_err();
     assert_eq!(error.kind, ErrorKind::Engine);
@@ -447,7 +473,120 @@ fn publication_is_not_killed_by_cancel_or_read_timeout() {
     };
     let result = fake
         .engine()
+        .with_contract(Arc::new(fake_contract()))
         .with_timeout(Duration::from_millis(1))
         .run(&request, &AtomicBool::new(true));
     assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn advertised_exit_codes_control_envelope_validation() {
+    let mut data = fake_capability_contract();
+    data["exit_codes"] = json!({"ok":0, "failed":11, "usage":12, "publication_incomplete":13});
+    data["error_codes"] = json!([
+        {"code":"USAGE", "exit":12}, {"code":"PUBLISH_INCOMPLETE", "exit":13},
+        {"code":"VERIFICATION_INCOMPLETE", "exit":11}, {"code":"IO", "exit":11}
+    ]);
+    let contract = EngineContract::from_capabilities(&data).unwrap();
+    let failure = envelope("scan", false, json!({"code":"IO", "message":"not found"}));
+    let received = decode_with_contract("scan", 11, &failure, "", Some(&contract)).unwrap_err();
+    assert_eq!(received.kind, ErrorKind::Engine);
+    let mismatch = decode_with_contract("scan", 1, &failure, "", Some(&contract)).unwrap_err();
+    assert_eq!(mismatch.kind, ErrorKind::Protocol);
+    assert!(
+        mismatch.message.contains("11") && mismatch.message.contains("1"),
+        "{mismatch}"
+    );
+    let unknown = envelope(
+        "scan",
+        false,
+        json!({"code":"UNADVERTISED", "message":"not found"}),
+    );
+    assert_eq!(
+        decode_with_contract("scan", 11, &unknown, "", Some(&contract))
+            .unwrap_err()
+            .kind,
+        ErrorKind::Protocol
+    );
+    let success = envelope("scan", true, json!({}));
+    assert_eq!(
+        decode_with_contract("scan", 11, &success, "", Some(&contract))
+            .unwrap_err()
+            .kind,
+        ErrorKind::Protocol
+    );
+}
+
+#[test]
+fn handshake_rejects_invalid_verification_and_exit_contracts() {
+    let valid = fake_capability_contract();
+    let mut invalid = Vec::new();
+    for checks in [
+        json!(null),
+        json!([]),
+        json!(["x", "x"]),
+        json!([""]),
+        json!([1]),
+    ] {
+        let mut data = valid.clone();
+        data["verification_required_checks"] = checks;
+        invalid.push(data);
+    }
+    for exits in [
+        json!(null),
+        json!({"ok":0,"failed":1,"usage":1,"publication_incomplete":3}),
+        json!({"ok":1,"failed":2,"usage":3,"publication_incomplete":4}),
+    ] {
+        let mut data = valid.clone();
+        data["exit_codes"] = exits;
+        invalid.push(data);
+    }
+    let mut missing = valid.clone();
+    missing["error_codes"] = json!([]);
+    invalid.push(missing);
+    let mut duplicate = valid.clone();
+    duplicate["error_codes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"code":"USAGE","exit":2}));
+    invalid.push(duplicate);
+    for data in invalid {
+        let error = EngineContract::from_capabilities(&data).unwrap_err();
+        assert_eq!(
+            error.kind,
+            ErrorKind::Protocol,
+            "invalid capability: {data}"
+        );
+        assert!(error.message.contains("received"), "{error}");
+    }
+}
+
+#[test]
+fn verification_uses_the_advertised_checks_and_rejects_malformed_rows() {
+    let mut data = fake_capability_contract();
+    data["verification_required_checks"] = json!(["new-check"]);
+    let contract = EngineContract::from_capabilities(&data).unwrap();
+    let mut report = json!({"complete":true, "checks":[{"check":"new-check", "ok":true}], "skipped":[], "notice":"offline"});
+    assert!(verification_complete(&report, &contract).unwrap());
+    report["checks"] = json!([]);
+    assert!(!verification_complete(&report, &contract).unwrap());
+    report["checks"] = json!([{"check":"new-check", "ok":true}, {"check":"new-check", "ok":true}]);
+    assert!(!verification_complete(&report, &contract).unwrap());
+    report["checks"] = json!([{"check":"new-check", "ok":false}]);
+    assert!(!verification_complete(&report, &contract).unwrap());
+    report["checks"] = json!([{"check":"new-check", "ok":"true"}]);
+    assert!(!verification_complete(&report, &contract).unwrap());
+}
+
+#[test]
+fn duplicate_unadvertised_verification_checks_are_incomplete() {
+    let contract = fake_contract();
+    let report = json!({"complete":true, "checks":[
+        {"check":"input-digest", "ok":true}, {"check":"patch-states", "ok":true},
+        {"check":"future-check", "ok":true}, {"check":"future-check", "ok":true}
+    ], "skipped":[], "notice":"offline"});
+    assert!(
+        !verification_complete(&report, &contract).unwrap(),
+        "verification: expected duplicate future-check to be incomplete | received complete"
+    );
 }

@@ -578,6 +578,7 @@ fn preview_engine(state: &mut Desktop, path: Option<PathBuf>) {
     state.session.invalidate();
     state.session.connected = false;
     state.session.engine_version = None;
+    state.session.engine_contract = None;
     state.session.engine_attempted = false;
     state.engine_path = engine;
 }
