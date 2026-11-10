@@ -590,3 +590,27 @@ fn duplicate_unadvertised_verification_checks_are_incomplete() {
         "verification: expected duplicate future-check to be incomplete | received complete"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn verify_uses_engine_default_manifest_for_raw_output_path() {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let output = PathBuf::from(OsString::from_vec(b"output-\xff.bin".to_vec()));
+    let request = Request::Verify {
+        input: "/tmp/input.bin".into(),
+        output: output.clone(),
+        plan: "/tmp/review.json".into(),
+    };
+    let args = request.args(Path::new("/tmp")).unwrap();
+    assert!(
+        args.iter()
+            .any(|arg| arg.as_bytes() == b"/tmp/output-\xff.bin"),
+        "verify output: expected raw bytes | received {args:?}"
+    );
+    assert!(
+        !args
+            .iter()
+            .any(|arg| arg.as_bytes().starts_with(b"--manifest")),
+        "verify arguments: expected engine default manifest | received {args:?}"
+    );
+}

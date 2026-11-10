@@ -277,3 +277,26 @@ fn connected_session_uses_its_advertised_verification_checks() {
     );
     assert!(session.engine_contract.is_none());
 }
+
+#[test]
+fn verification_refuses_a_manifest_other_than_the_engines_default() {
+    let mut session = Session::new().unwrap();
+    session.connected = true;
+    session.engine_contract = Some(fake_engine_contract());
+    session.image = Some("/tmp/original.bin".into());
+    session.output = Some("/tmp/output.bin".into());
+    session.manifest = Some("/tmp/other.manifest.json".into());
+    session.review = Some(Arc::new(Review::new(
+        "/tmp/plan.json".into(),
+        b"{}".to_vec(),
+        json!({}),
+        false,
+    )));
+    assert!(
+        matches!(
+            session.prepare(Action::Verify),
+            Err(PreparationError::Manifest)
+        ),
+        "verify: expected refusal for a non-default manifest | received an accepted job"
+    );
+}

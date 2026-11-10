@@ -46,7 +46,6 @@ pub enum Request {
         input: PathBuf,
         output: PathBuf,
         plan: PathBuf,
-        manifest: PathBuf,
     },
     ToolsDoctor,
     ToolsPaths,
@@ -121,11 +120,9 @@ impl Request {
                 input,
                 output,
                 plan,
-                manifest,
             } => {
                 args.extend([path(input), path(output)]);
                 args.push(option("--plan=", &path(plan)));
-                args.push(option("--manifest=", &path(manifest)));
             }
             _ => {}
         }

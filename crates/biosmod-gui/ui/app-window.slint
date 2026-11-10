@@ -326,7 +326,7 @@ export component AppWindow inherits Window {
                             }
                             Button { text: @tr("Choose…"); enabled: !root.busy; clicked => { root.browse-output(); } }
                         }
-                        if root.output-path != "": Caption { text: @tr("Manifest: {}", root.manifest-path == "" ? root.output-path + ".manifest.json" : root.manifest-path); }
+                        if root.output-path != "": Caption { text: @tr("Manifest: {}", root.manifest-path); }
                         HorizontalLayout {
                             spacing: Theme.space-sm;
                             Caption { text: @tr("The original image will not be overwritten."); vertical-alignment: center; }

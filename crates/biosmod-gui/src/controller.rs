@@ -524,17 +524,22 @@ impl Session {
                     output: self.output.clone().unwrap(),
                 }
             }
-            Action::Verify => Request::Verify {
-                input: image()?,
-                output: self.output.clone().ok_or(PreparationError::Output)?,
-                plan: self
-                    .review
-                    .as_ref()
-                    .ok_or(PreparationError::Plan)?
-                    .path
-                    .clone(),
-                manifest: self.manifest.clone().ok_or(PreparationError::Manifest)?,
-            },
+            Action::Verify => {
+                let output = self.output.clone().ok_or(PreparationError::Output)?;
+                if self.manifest.as_ref() != Some(&manifest_path(&output)) {
+                    return Err(PreparationError::Manifest);
+                }
+                Request::Verify {
+                    input: image()?,
+                    output,
+                    plan: self
+                        .review
+                        .as_ref()
+                        .ok_or(PreparationError::Plan)?
+                        .path
+                        .clone(),
+                }
+            }
             Action::Sources => Request::CatalogList,
             Action::Tools => Request::ToolsDoctor,
         };
