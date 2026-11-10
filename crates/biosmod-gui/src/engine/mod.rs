@@ -419,7 +419,7 @@ pub(crate) fn verification_complete(
     data: &Value,
     contract: &EngineContract,
 ) -> Result<bool, EngineError> {
-    let invalid = |field: &str| {
+    let invalid = |field: &str, expected: &str| {
         let value = data.get(field).unwrap_or(&Value::Null);
         let summary = match value {
             Value::String(value) if value.len() > 128 => format!("string ({} bytes)", value.len()),
@@ -429,24 +429,24 @@ pub(crate) fn verification_complete(
         };
         EngineError::new(
             ErrorKind::Protocol,
-            format!("verification {field}: expected documented type | received {summary}"),
+            format!("verification {field}: expected {expected} | received {summary}"),
         )
     };
     let declared = data
         .get("complete")
         .and_then(Value::as_bool)
-        .ok_or_else(|| invalid("complete"))?;
+        .ok_or_else(|| invalid("complete", "a boolean"))?;
     let checks = data
         .get("checks")
         .and_then(Value::as_array)
-        .ok_or_else(|| invalid("checks"))?;
+        .ok_or_else(|| invalid("checks", "an array"))?;
     let skipped = data
         .get("skipped")
         .and_then(Value::as_array)
-        .ok_or_else(|| invalid("skipped"))?;
+        .ok_or_else(|| invalid("skipped", "an array"))?;
     data.get("notice")
         .and_then(Value::as_str)
-        .ok_or_else(|| invalid("notice"))?;
+        .ok_or_else(|| invalid("notice", "a string"))?;
     let mut seen = HashSet::new();
     let valid_checks = checks.iter().all(|check| {
         check

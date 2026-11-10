@@ -614,3 +614,25 @@ fn verify_uses_engine_default_manifest_for_raw_output_path() {
         "verify arguments: expected engine default manifest | received {args:?}"
     );
 }
+
+#[test]
+fn malformed_verification_fields_name_the_expected_type_and_received_value() {
+    let contract = fake_contract();
+    for (field, expected) in [
+        ("complete", "a boolean"),
+        ("checks", "an array"),
+        ("skipped", "an array"),
+        ("notice", "a string"),
+    ] {
+        let mut report =
+            json!({"complete": false, "checks": [], "skipped": [], "notice": "offline"});
+        report[field] = json!(42);
+        let error = verification_complete(&report, &contract).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Protocol);
+        assert_eq!(
+            error.message,
+            format!("verification {field}: expected {expected} | received 42"),
+            "verification {field}: expected a diagnostic naming its type and invalid value"
+        );
+    }
+}
