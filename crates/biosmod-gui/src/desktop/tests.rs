@@ -76,6 +76,60 @@ fn bound_window_with_store(
     (window, state)
 }
 
+struct MissingPortugueseCatalog;
+
+impl MissingPortugueseCatalog {
+    fn select(language: Language) -> Result<(), slint::SelectBundledTranslationError> {
+        assert_eq!(language, Language::PtBr);
+        Err(slint::SelectBundledTranslationError::LanguageNotFound {
+            available_languages: ["en".into()].as_slice().into(),
+        })
+    }
+}
+
+#[test]
+fn rejected_language_restores_selector_and_preserves_review_and_preferences() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("gui.json");
+    let settings = Settings::default();
+    settings.save(&path).unwrap();
+    let saved = std::fs::read(&path).unwrap();
+    let window = AppWindow::new().unwrap();
+    Language::En.select().unwrap();
+    let desktop = Desktop::new(
+        PathBuf::from("/missing/fake-bme"),
+        settings,
+        PreferencesStore::Writable(path.clone()),
+    )
+    .unwrap();
+    let state = bind_with_language_selector(&window, desktop, MissingPortugueseCatalog::select);
+    make_reviewable(&state, true);
+    let review = state.lock().unwrap().session.review.clone().unwrap();
+    // ComboBox updates its two-way index before calling the native callback.
+    window.set_language_index(1);
+    window.invoke_language_changed(1);
+    assert_eq!(
+        window.get_language_index(),
+        0,
+        "language selector: expected active English index 0 after rejection"
+    );
+    assert!(
+        window.get_status().starts_with("language pt-BR:"),
+        "language error: expected rejected pt-BR catalog | received {:?}",
+        window.get_status()
+    );
+    assert!(
+        window
+            .get_plan_details()
+            .starts_with("Generated in this session")
+    );
+    let state = state.lock().unwrap();
+    assert_eq!(state.settings.language, Language::En);
+    assert!(Arc::ptr_eq(&review, state.session.review.as_ref().unwrap()));
+    assert_eq!(std::fs::read(path).unwrap(), saved);
+}
+
 #[test]
 fn protected_preferences_name_the_unreadable_file_and_stay_untouched() {
     i_slint_backend_testing::init_no_event_loop();

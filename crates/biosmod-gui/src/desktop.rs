@@ -66,6 +66,16 @@ impl Desktop {
 /// Connect native controls to session transitions and background workers.
 /// Example: `let state = bind(&window, desktop);` then call `connect(&window, &state)`.
 pub fn bind(ui: &AppWindow, desktop: Desktop) -> Shared {
+    bind_with_language_selector(ui, desktop, Language::select)
+}
+
+// Keep language selection replaceable so tests can exercise catalog failures
+// through the same callback used by the native window.
+fn bind_with_language_selector(
+    ui: &AppWindow,
+    desktop: Desktop,
+    select_language: fn(Language) -> Result<(), slint::SelectBundledTranslationError>,
+) -> Shared {
     let state = Arc::new(Mutex::new(desktop));
     ui.set_app_version(env!("CARGO_PKG_VERSION").into());
     ui.set_theme_choice(state.lock().unwrap().settings.theme.into());
@@ -225,7 +235,7 @@ pub fn bind(ui: &AppWindow, desktop: Desktop) -> Shared {
         };
         let mut state = shared.lock().unwrap();
         // Keep the selector on the language actually presented when a catalog is missing.
-        if let Err(error) = language.select() {
+        if let Err(error) = select_language(language) {
             ui.set_language_index(state.settings.language.index());
             state
                 .session
