@@ -1381,3 +1381,21 @@ fn timers_for_independent_windows_remain_independent() {
     );
     stop_timer(second_id);
 }
+
+#[test]
+fn tools_view_shows_controlled_failure_and_paths() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    {
+        let mut state = state.lock().unwrap();
+        state.session.tool_report = Some((
+            json!({"checks": [{"check":"java", "ok":false, "detail":"not installed"}], "error":{"code":"TOOL_UNAVAILABLE", "message":"missing optional tools"}}),
+            Some(json!({"config":"fixture-config"})),
+        ));
+        sync(&window, &state);
+    }
+    let details = window.get_tool_details();
+    assert!(details.contains("TOOL_UNAVAILABLE"));
+    assert!(details.contains("not installed"));
+    assert!(details.contains("fixture-config"));
+}

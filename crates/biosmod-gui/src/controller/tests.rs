@@ -70,7 +70,7 @@ fn fake_engine_contract() -> Arc<EngineContract> {
             "verification_required_checks": ["input-digest", "patch-states"],
             "exit_codes": {"ok":0, "failed":1, "usage":2, "publication_incomplete":3},
             "error_codes":[{"code":"USAGE","exit":2}, {"code":"PUBLISH_INCOMPLETE","exit":3},
-                {"code":"VERIFICATION_INCOMPLETE","exit":1}]
+                {"code":"VERIFICATION_INCOMPLETE","exit":1}, {"code":"TOOL_UNAVAILABLE","exit":1}]
         }))
         .unwrap(),
     )
@@ -248,7 +248,7 @@ fn connected_session_uses_its_advertised_verification_checks() {
         "verification_required_checks": ["new-check"],
         "exit_codes": {"ok":0, "failed":1, "usage":2, "publication_incomplete":3},
         "error_codes":[{"code":"USAGE","exit":2}, {"code":"PUBLISH_INCOMPLETE","exit":3},
-            {"code":"VERIFICATION_INCOMPLETE","exit":1}]
+            {"code":"VERIFICATION_INCOMPLETE","exit":1}, {"code":"TOOL_UNAVAILABLE","exit":1}]
     });
     session
         .accept(Action::Connect, reply_payload(capability))
@@ -355,4 +355,136 @@ fn starting_operation_clears_previous_outcome_and_sets_busy() {
         "starting import: expected previous verified result cleared"
     );
     assert!(session.busy(), "starting import: expected active worker");
+}
+
+#[cfg(unix)]
+struct MissingToolsEngine {
+    directory: tempfile::TempDir,
+}
+
+#[cfg(unix)]
+impl MissingToolsEngine {
+    fn new() -> Self {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("tools"), r#"
+case "$1" in
+  doctor)
+    printf '%s' 'doctor warning' >&2
+    printf '%s' '{"product":"biosmod-engine","protocol":"bme/1","version":"0.1.0","command":"tools doctor","ok":false,"error":{"code":"TOOL_UNAVAILABLE","message":"missing optional tools","details":{"ghidra_home":{"path":"/missing/ghidra","origin":"fixture"},"checks":[{"check":"java","ok":false,"detail":"not installed"}]}}}'
+    exit 1 ;;
+  paths)
+    printf '%s' 'paths warning' >&2
+    printf '%s' '{"product":"biosmod-engine","protocol":"bme/1","version":"0.1.0","command":"tools paths","ok":true,"data":{"config":"fixture-config"}}' ;;
+  *) exit 99 ;;
+esac
+"#).unwrap();
+        Self { directory }
+    }
+
+    fn engine(&self) -> Engine {
+        Engine::new("/bin/sh", self.directory.path()).unwrap()
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn missing_optional_tools_show_doctor_checks_and_paths() {
+    let fake = MissingToolsEngine::new();
+    let mut session = Session::new().unwrap();
+    session.connected = true;
+    session.engine_contract = Some(fake_engine_contract());
+    let completion = session.prepare(Action::Tools).unwrap().run(&fake.engine());
+    assert!(session.finish(completion));
+    assert_eq!(
+        session.outcome,
+        Outcome::Idle,
+        "tools: expected report | received {}",
+        session.status
+    );
+    let (doctor, paths) = session
+        .tool_report
+        .as_ref()
+        .expect("tools: expected doctor report");
+    assert_eq!(doctor["error"]["code"], "TOOL_UNAVAILABLE");
+    assert_eq!(doctor["error"]["message"], "missing optional tools");
+    assert_eq!(doctor["checks"][0]["check"], "java");
+    assert_eq!(doctor["checks"][0]["ok"], false);
+    assert_eq!(paths.as_ref().unwrap()["config"], "fixture-config");
+    assert!(session.diagnostics.contains("doctor warning"));
+    assert!(session.diagnostics.contains("paths warning"));
+}
+
+#[cfg(unix)]
+#[test]
+fn malformed_or_unrelated_doctor_failures_do_not_produce_a_tools_report() {
+    for (original, replacement, expected) in [
+        (
+            r#""checks":[{"check":"java","ok":false,"detail":"not installed"}]"#,
+            r#""checks":null"#,
+            ErrorKind::Protocol,
+        ),
+        (
+            "TOOL_UNAVAILABLE",
+            "VERIFICATION_INCOMPLETE",
+            ErrorKind::Engine,
+        ),
+        (
+            r#""product":"biosmod-engine""#,
+            r#""product":"unexpected-engine""#,
+            ErrorKind::Protocol,
+        ),
+    ] {
+        let fake = MissingToolsEngine::new();
+        let path = fake.directory.path().join("tools");
+        let script = std::fs::read_to_string(&path).unwrap();
+        assert!(script.contains(original), "fixture: expected {original}");
+        std::fs::write(path, script.replacen(original, replacement, 1)).unwrap();
+        let mut session = Session::new().unwrap();
+        session.connected = true;
+        session.engine_contract = Some(fake_engine_contract());
+        let job = session.prepare(Action::Tools).unwrap();
+        let error = match job.execute(&fake.engine()) {
+            Ok(_) => panic!("tools doctor: expected {expected:?} | received success"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error.kind, expected,
+            "tools doctor: expected {expected:?} | received {error:?}"
+        );
+        assert!(session.tool_report.is_none());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn tools_rejects_inconsistent_versions_and_honors_cancellation() {
+    let fake = MissingToolsEngine::new();
+    let path = fake.directory.path().join("tools");
+    let script = std::fs::read_to_string(&path).unwrap();
+    let original = r#""version":"0.1.0","command":"tools paths""#;
+    let replacement = r#""version":"0.2.0","command":"tools paths""#;
+    assert!(script.contains(original));
+    std::fs::write(path, script.replacen(original, replacement, 1)).unwrap();
+    let mut session = Session::new().unwrap();
+    session.connected = true;
+    session.engine_contract = Some(fake_engine_contract());
+    let job = session.prepare(Action::Tools).unwrap();
+    let error = match job.execute(&fake.engine()) {
+        Ok(_) => panic!("tools versions: expected refusal | received success"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind, ErrorKind::Protocol);
+    assert!(error.message.contains("0.1.0") && error.message.contains("0.2.0"));
+    assert!(error.diagnostics.contains("doctor warning"));
+    assert!(error.diagnostics.contains("paths warning"));
+    let mut session = Session::new().unwrap();
+    session.connected = true;
+    session.engine_contract = Some(fake_engine_contract());
+    let job = session.prepare(Action::Tools).unwrap();
+    job.cancel.store(true, Ordering::Relaxed);
+    let error = match job.execute(&fake.engine()) {
+        Ok(_) => panic!("tools cancellation: expected refusal | received success"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind, ErrorKind::Cancelled);
 }

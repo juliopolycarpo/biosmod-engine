@@ -150,6 +150,8 @@ pub enum ErrorKind {
 pub struct EngineError {
     pub kind: ErrorKind,
     pub message: String,
+    /// Engine version from a validated controlled-error envelope, when present.
+    pub version: Option<Box<String>>,
     pub code: Option<String>,
     pub details: Option<Value>,
     pub diagnostics: String,
@@ -160,6 +162,7 @@ impl EngineError {
         Self {
             kind,
             message: message.into(),
+            version: None,
             code: None,
             details: None,
             diagnostics: String::new(),
@@ -312,6 +315,7 @@ fn decode_with_contract(
         return Err(EngineError {
             kind: ErrorKind::Engine,
             message: error.message,
+            version: Some(Box::new(envelope.version)),
             code: Some(error.code),
             details: error.details,
             diagnostics: diagnostics.to_owned(),

@@ -945,8 +945,52 @@ impl Job {
             bound_engine = engine.clone().with_contract(contract);
             &bound_engine
         };
-        let reply = if self.token.2 == Action::Connect {
+        let mut reply = if self.token.2 == Action::Connect {
             engine.handshake(&self.cancel)?
+        } else if self.token.2 == Action::Tools {
+            match engine.run(&self.request, &self.cancel) {
+                Ok(reply) => reply,
+                Err(error)
+                    if error.kind == ErrorKind::Engine
+                        && error.code.as_deref() == Some("TOOL_UNAVAILABLE") =>
+                {
+                    let details = error.details.as_ref();
+                    let home = details.and_then(|value| value.get("ghidra_home"));
+                    let checks = details.and_then(|value| value.get("checks"));
+                    let valid_home = home
+                        .is_some_and(|home| home["path"].is_string() && home["origin"].is_string());
+                    let valid_checks = checks.and_then(Value::as_array).is_some_and(|checks| {
+                        !checks.is_empty()
+                            && checks.iter().all(|check| {
+                                check["check"].is_string()
+                                    && check["ok"].is_boolean()
+                                    && check["detail"].is_string()
+                            })
+                            && checks.iter().any(|check| check["ok"] == false)
+                    });
+                    if !valid_home || !valid_checks || error.version.is_none() {
+                        return Err(EngineError {
+                            kind: ErrorKind::Protocol,
+                            message: format!(
+                                "tools doctor: expected a structured failed-check report | received {}",
+                                details.unwrap_or(&Value::Null)
+                            ),
+                            ..error
+                        });
+                    }
+                    let mut report = details.cloned().unwrap();
+                    report["error"] = serde_json::json!({
+                        "code": "TOOL_UNAVAILABLE",
+                        "message": error.message,
+                    });
+                    Reply {
+                        version: *error.version.unwrap(),
+                        data: report,
+                        diagnostics: error.diagnostics,
+                    }
+                }
+                Err(error) => return Err(error),
+            }
         } else {
             engine.run(&self.request, &self.cancel)?
         };
@@ -960,7 +1004,33 @@ impl Job {
                 };
                 Some(engine.run(&show, &self.cancel)?.data)
             }
-            Action::Tools => Some(engine.run(&Request::ToolsPaths, &self.cancel)?.data),
+            Action::Tools => {
+                let paths =
+                    engine
+                        .run(&Request::ToolsPaths, &self.cancel)
+                        .map_err(|mut error| {
+                            if !reply.diagnostics.is_empty() {
+                                error.diagnostics =
+                                    format!("{}\n{}", reply.diagnostics, error.diagnostics);
+                            }
+                            error
+                        })?;
+                if paths.version != reply.version {
+                    let mut error = local_error(format!(
+                        "tools: expected matching doctor and paths versions | received {} and {}",
+                        reply.version, paths.version
+                    ));
+                    error.diagnostics = format!("{}\n{}", reply.diagnostics, paths.diagnostics);
+                    return Err(error);
+                }
+                if !paths.diagnostics.is_empty() {
+                    if !reply.diagnostics.is_empty() {
+                        reply.diagnostics.push('\n');
+                    }
+                    reply.diagnostics.push_str(&paths.diagnostics);
+                }
+                Some(paths.data)
+            }
             _ => None,
         };
         let review = if let Request::Plan { output, .. } = &self.request {
