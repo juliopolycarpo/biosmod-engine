@@ -94,15 +94,15 @@ msgctxt "AppWindow"
 msgid "Save as"
 msgstr "Salvar como"
 
-#: ui/app-window.slint:180
+#: ui/app-window.slint:212
 msgctxt "AppWindow"
-msgid "New plan export path"
-msgstr "Caminho para exportar o novo plano"
+msgid "New selection file path"
+msgstr "Caminho do novo arquivo de seleção"
 
-#: ui/app-window.slint:181
+#: ui/app-window.slint:213
 msgctxt "AppWindow"
-msgid "Save plan"
-msgstr "Salvar plano"
+msgid "Save selection"
+msgstr "Salvar seleção"
 
 #: ui/app-window.slint:195
 msgctxt "AppWindow"
@@ -206,25 +206,25 @@ msgctxt "AppWindow"
 msgid "Recommended"
 msgstr "Recomendados"
 
-#: ui/app-window.slint:266
+#: ui/app-window.slint:321
 msgctxt "AppWindow"
-msgid "Review selected"
-msgstr "Revisar selecionados"
+msgid "Preview changes"
+msgstr "Visualizar alterações"
+
+#: ui/app-window.slint:322 ui/app-window.slint:332 ui/app-window.slint:350
+msgctxt "AppWindow"
+msgid "Export selection…"
+msgstr "Exportar seleção…"
 
 #: ui/app-window.slint:306
 msgctxt "AppWindow"
 msgid "Build patched copy"
 msgstr "Gerar cópia modificada"
 
-#: ui/app-window.slint:273 ui/app-window.slint:317
+#: ui/app-window.slint:330 ui/app-window.slint:348
 msgctxt "AppWindow"
-msgid "Review plan"
-msgstr "Revisar plano"
-
-#: ui/app-window.slint:275
-msgctxt "AppWindow"
-msgid "Export plan…"
-msgstr "Exportar plano…"
+msgid "Selection details"
+msgstr "Detalhes da seleção"
 
 #: ui/app-window.slint:276
 msgctxt "AppWindow"
@@ -235,11 +235,6 @@ msgstr "Mostrar saída"
 msgctxt "AppWindow"
 msgid "Back to findings"
 msgstr "Voltar aos resultados"
-
-#: ui/app-window.slint:279
-msgctxt "AppWindow"
-msgid "Confirm the source, changes, and expected output before building."
-msgstr "Confirme a fonte, as alterações e a saída esperada antes de gerar."
 
 #: ui/app-window.slint:280
 msgctxt "AppWindow"
@@ -581,8 +576,8 @@ msgstr "Salvar uma nova cópia modificada"
 
 #: ui/translations.slint:30
 msgctxt "UiText"
-msgid "Export reviewed plan to a new file"
-msgstr "Exportar plano revisado para um novo arquivo"
+msgid "Export selection to a new file"
+msgstr "Exportar seleção para um novo arquivo"
 
 #: ui/translations.slint:31
 msgctxt "UiText"
@@ -771,6 +766,11 @@ msgctxt "UiText"
 msgid "Scan complete. Select corrections or choose Recommended."
 msgstr "Exame concluído. Selecione correções ou escolha Recomendados."
 
+#: ui/translations.slint:72
+msgctxt "UiText"
+msgid "Preview complete."
+msgstr "Visualização concluída."
+
 #: ui/translations.slint:71
 msgctxt "UiText"
 msgid "Review the resolved plan, then choose a new output and build a copy."
@@ -837,8 +837,8 @@ msgstr "Interrompendo a operação antes de fechar…"
 
 #: ui/translations.slint:83
 msgctxt "UiText"
-msgid "Review a plan before exporting it."
-msgstr "Revise um plano antes de exportá-lo."
+msgid "Select corrections or open a selection file to export."
+msgstr "Selecione correções ou abra um arquivo de seleção para exportar."
 
 #: ui/translations.slint:84
 msgctxt "UiText"
@@ -854,6 +854,16 @@ msgstr "Inspecionando imagem"
 msgctxt "UiText"
 msgid "Scanning image"
 msgstr "Examinando imagem"
+
+#: ui/translations.slint:89
+msgctxt "UiText"
+msgid "Previewing changes"
+msgstr "Visualizando alterações"
+
+#: ui/translations.slint:90
+msgctxt "UiText"
+msgid "Exporting selection"
+msgstr "Exportando seleção"
 
 #: ui/translations.slint:87
 msgctxt "UiText"
@@ -948,8 +958,8 @@ msgstr "Seletor de arquivos indisponível: {}. Informe um caminho manualmente."
 
 #: ui/translations.slint:105
 msgctxt "UiText"
-msgid "Exporting plan…"
-msgstr "Exportando plano…"
+msgid "Exporting selection…"
+msgstr "Exportando seleção…"
 
 #: ui/translations.slint:106
 msgctxt "UiText"
@@ -958,8 +968,8 @@ msgstr "Exportando diagnósticos…"
 
 #: ui/translations.slint:107
 msgctxt "UiText"
-msgid "Plan exported to {}"
-msgstr "Plano exportado para {}"
+msgid "Selection exported to {}"
+msgstr "Seleção exportada para {}"
 
 #: ui/translations.slint:108
 msgctxt "UiText"
@@ -968,8 +978,8 @@ msgstr "Diagnósticos exportados para {}"
 
 #: ui/translations.slint:109
 msgctxt "UiText"
-msgid "Plan export {}: file already exists; choose a new path."
-msgstr "Exportação do plano {}: o arquivo já existe; escolha outro caminho."
+msgid "Selection export {}: file already exists. Choose a new path."
+msgstr "Exportação da seleção {}: o arquivo já existe. Escolha um novo caminho."
 
 #: ui/translations.slint:110
 msgctxt "UiText"
@@ -978,8 +988,8 @@ msgstr "Exportação dos diagnósticos {}: o arquivo já existe; escolha outro c
 
 #: ui/translations.slint:111
 msgctxt "UiText"
-msgid "Plan export {}: {}. A partial file may remain."
-msgstr "Exportação do plano {}: {}. Um arquivo parcial pode permanecer."
+msgid "Selection export {}: {}. A partial file may remain."
+msgstr "Exportação da seleção {}: {}. Um arquivo parcial pode ter sido criado."
 
 #: ui/translations.slint:112
 msgctxt "UiText"
@@ -1106,3 +1116,33 @@ msgstr "Selecionar tudo"
 #~ msgctxt "AppWindow"
 #~ msgid "The original image will not be overwritten."
 #~ msgstr "A imagem original não será sobrescrita."
+
+#~ #: ui/app-window.slint:180
+#~ msgctxt "AppWindow"
+#~ msgid "New plan export path"
+#~ msgstr "Caminho para exportar o novo plano"
+
+#~ #: ui/app-window.slint:181
+#~ msgctxt "AppWindow"
+#~ msgid "Save plan"
+#~ msgstr "Salvar plano"
+
+#~ #: ui/app-window.slint:266
+#~ msgctxt "AppWindow"
+#~ msgid "Review selected"
+#~ msgstr "Revisar selecionados"
+
+#~ #: ui/app-window.slint:273 ui/app-window.slint:317
+#~ msgctxt "AppWindow"
+#~ msgid "Review plan"
+#~ msgstr "Revisar plano"
+
+#~ #: ui/app-window.slint:275
+#~ msgctxt "AppWindow"
+#~ msgid "Export plan…"
+#~ msgstr "Exportar plano…"
+
+#~ #: ui/app-window.slint:279
+#~ msgctxt "AppWindow"
+#~ msgid "Confirm the source, changes, and expected output before building."
+#~ msgstr "Confirme a fonte, as alterações e a saída esperada antes de gerar."

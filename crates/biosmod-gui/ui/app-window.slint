@@ -45,6 +45,7 @@ export component AppWindow inherits Window {
     in property <bool> can-inspect;
     in property <bool> can-scan;
     in property <bool> can-plan;
+    in property <bool> can-export-selection;
     in property <bool> can-recommend;
     in property <bool> can-apply;
     in property <bool> can-build;
@@ -89,6 +90,7 @@ export component AppWindow inherits Window {
     callback toggle-patch(int);
     callback recommended();
     callback generate-plan();
+    callback preview();
     callback apply-plan();
     callback build();
     callback verify();
@@ -207,8 +209,8 @@ export component AppWindow inherits Window {
                     }
                     FieldRow {
                         label: @tr("Save as");
-                        LineEdit { placeholder-text: @tr("New plan export path"); accessible-label: @tr("New plan export path"); text <=> root.manual-export-path; enabled: !root.busy && root.plan-details != ""; }
-                        Button { text: @tr("Save plan"); enabled: !root.busy && root.plan-details != "" && root.manual-export-path != ""; clicked => { root.export-plan-path(root.manual-export-path); root.paths-open = false; } }
+                        LineEdit { placeholder-text: @tr("New selection file path"); accessible-label: @tr("New selection file path"); text <=> root.manual-export-path; enabled: !root.busy && root.can-export-selection; }
+                        Button { text: @tr("Save selection"); enabled: !root.busy && root.can-export-selection && root.manual-export-path != ""; clicked => { root.export-plan-path(root.manual-export-path); root.paths-open = false; } }
                     }
                 }
             }
@@ -316,7 +318,8 @@ export component AppWindow inherits Window {
                     spacing: Theme.space-sm;
                     Button { text: @tr("Recommended"); enabled: root.can-recommend && !root.busy; clicked => { root.recommended(); } }
                     Rectangle { horizontal-stretch: 1; }
-                    Button { text: @tr("Review selected"); enabled: root.can-plan && !root.busy; clicked => { root.generate-plan(); } }
+                    Button { text: @tr("Preview changes"); enabled: root.can-plan && !root.busy; clicked => { root.preview(); } }
+                    Button { text: @tr("Export selection…"); enabled: root.can-export-selection && !root.busy; clicked => { root.export-plan(); } }
                     Button { text: @tr("Build patched copy"); primary: true; enabled: root.can-build && !root.busy; clicked => { root.build(); } }
                 }
             }
@@ -324,13 +327,14 @@ export component AppWindow inherits Window {
                 spacing: Theme.space-md;
                 HorizontalLayout {
                     spacing: Theme.space-sm;
-                    SectionTitle { text: @tr("Review plan"); vertical-alignment: center; }
+                    SectionTitle { text: @tr("Selection details"); vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
-                    Button { text: @tr("Export plan…"); enabled: !root.busy && root.plan-details != ""; clicked => { root.export-plan(); } }
+                    Button { text: @tr("Export selection…"); enabled: !root.busy && root.can-export-selection; clicked => { root.export-plan(); } }
                     if root.stage >= 3: Button { text: @tr("Show output"); clicked => { root.show-review = false; } }
                     Button { text: @tr("Back to findings"); enabled: !root.busy; clicked => { root.show-review = false; root.back-to-selection(); } }
+                    if root.stage == 2: Button { text: @tr("Build patched copy"); primary: true; enabled: root.can-build && !root.busy; clicked => { root.build(); } }
                 }
-                Caption { text: @tr("Confirm the source, changes, and expected output before building."); }
+
                 TextEdit { text: root.plan-details; read-only: true; min-height: 50px; accessible-label: @tr("Plan details"); }
                 TextEdit { text: root.plan-snapshot; read-only: true; min-height: 50px; accessible-label: @tr("Complete plan and source snapshot"); }
 
@@ -341,8 +345,9 @@ export component AppWindow inherits Window {
                     spacing: Theme.space-sm;
                     SectionTitle { text: root.result-title; color: root.status-tone != Tone.quiet ? Tones.color(root.status-tone) : Theme.text; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
-                    if root.plan-details != "": Button { text: @tr("Review plan"); clicked => { root.show-review = true; } }
+                    if root.plan-details != "": Button { text: @tr("Selection details"); clicked => { root.show-review = true; } }
                     Button { text: @tr("Back to findings"); enabled: !root.busy; clicked => { root.back-to-selection(); } }
+                    if root.can-export-selection: Button { text: @tr("Export selection…"); enabled: !root.busy; clicked => { root.export-plan(); } }
                 }
                 if root.output-path != "": Caption { text: @tr("Output: {}", root.output-path); }
                 if root.manifest-path != "": Caption { text: @tr("Manifest: {}", root.manifest-path); }

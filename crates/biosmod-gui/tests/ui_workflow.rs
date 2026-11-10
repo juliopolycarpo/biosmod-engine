@@ -181,6 +181,7 @@ fn real_desktop_synthetic_workflow() {
     let tick_state = state.clone();
     let weak = window.as_weak();
     let tick_output = output.clone();
+    let selection_file = root.join("built selection.json");
     let screenshot = std::env::var_os("BME_GUI_SCREENSHOT").map(PathBuf::from);
     let timer = Timer::default();
     timer.start(TimerMode::Repeated, Duration::from_millis(25), move || {
@@ -291,6 +292,17 @@ fn real_desktop_synthetic_workflow() {
                 tick_phase.set(4);
                 window.invoke_build();
             }
+            4 if state.session.outcome == Outcome::Verified => {
+                drop(state);
+                if !window.get_can_export_selection() {
+                    *tick_result.borrow_mut() =
+                        Some(Err("result: expected Export selection enabled".into()));
+                    let _ = slint::quit_event_loop();
+                    return;
+                }
+                tick_phase.set(5);
+                window.invoke_export_plan_path(selection_file.to_string_lossy().as_ref().into());
+            }
             _ => {
                 if state.session.outcome != Outcome::Verified {
                     *tick_result.borrow_mut() = Some(Err(format!(
@@ -312,6 +324,16 @@ fn real_desktop_synthetic_workflow() {
                 } else if !tick_output.is_file() || !manifest_path(&tick_output).is_file() {
                     *tick_result.borrow_mut() =
                         Some(Err("publication: expected output and manifest files".into()));
+                } else if std::fs::read(&selection_file).ok().as_deref()
+                    != state
+                        .session
+                        .built_plan
+                        .as_ref()
+                        .map(|plan| plan.bytes.as_slice())
+                {
+                    *tick_result.borrow_mut() = Some(Err(
+                        "result export: expected the retained build document".into(),
+                    ));
                 } else if let Some(path) = &screenshot {
                     *tick_result.borrow_mut() = Some(
                         save_screenshot(&window, path)

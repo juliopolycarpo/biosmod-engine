@@ -106,7 +106,7 @@ fn real_engine_controller_workflow_and_plan_safety() {
     session.output = Some(output.clone());
     assert!(session.can_apply());
     let job = session.prepare(Action::Apply).unwrap();
-    std::fs::write(&reviewed.path, b"{}").unwrap();
+    std::fs::write(reviewed.path.as_ref().unwrap(), b"{}").unwrap();
     assert!(session.finish(job.run(&fixture.engine)));
     assert_eq!(session.outcome, Outcome::Failed);
     assert!(
@@ -200,7 +200,7 @@ fn real_engine_controller_workflow_and_plan_safety() {
     assert!(imported.prepare(Action::Apply).is_err());
     std::fs::write(&imported_source, b"external edit").unwrap();
     assert_eq!(
-        std::fs::read(&imported.review.as_ref().unwrap().path).unwrap(),
+        std::fs::read(imported.review.as_ref().unwrap().path.as_ref().unwrap()).unwrap(),
         approved.bytes
     );
     let verify = imported
@@ -344,7 +344,10 @@ fn language_switch_preserves_engine_request_and_firmware_result() {
         &reviewed,
         state.session.review.as_ref().unwrap()
     ));
-    assert_eq!(std::fs::read(&reviewed.path).unwrap(), reviewed_bytes);
+    assert_eq!(
+        std::fs::read(reviewed.path.as_ref().unwrap()).unwrap(),
+        reviewed_bytes
+    );
     state.session.set_output(Some(output.clone()));
     step(&mut state.session, &engine, Action::Apply);
     let portuguese_manifest: Value =
@@ -551,4 +554,59 @@ fn controller_requires_a_fresh_scan_after_a_build_guard_refuses_drift() {
     assert!(!session.can_build());
     assert!(!output.exists());
     assert!(!manifest_path(&output).exists());
+}
+
+#[test]
+fn controller_preview_is_read_only_and_export_uses_the_current_selection() {
+    let fixture = SyntheticEngine::new();
+    let mut session = fixture.session();
+    session.select_recommended();
+    let directory = fixture.directory.path();
+    let output = directory.join("previewed.bin");
+    session.set_output(Some(output.clone()));
+    step(&mut session, &fixture.engine, Action::Preview);
+    let preview = session.review.as_ref().unwrap().clone();
+    assert!(preview.path.is_none());
+    assert_eq!(
+        preview.document["selected"],
+        serde_json::json!(["PA", "PB"])
+    );
+    assert!(!output.exists());
+    assert!(!manifest_path(&output).exists());
+
+    let new_output = directory.join("changed-output.bin");
+    session.set_output(Some(new_output.clone()));
+    assert!(std::sync::Arc::ptr_eq(
+        session.review.as_ref().unwrap(),
+        &preview
+    ));
+    assert!(session.can_build());
+    let pa = session
+        .scan
+        .as_ref()
+        .unwrap()
+        .report
+        .patches
+        .iter()
+        .position(|patch| patch.id == "PA")
+        .unwrap();
+    session.toggle(pa);
+    assert!(session.review.is_none());
+
+    let selection_file = directory.join("selection.json");
+    let export = session.prepare_export(selection_file.clone()).unwrap();
+    assert!(session.publishing());
+    assert!(session.finish(export.run(&fixture.engine)));
+    assert_eq!(session.outcome, Outcome::Idle, "{}", session.status);
+    let document: Value = serde_json::from_slice(&std::fs::read(selection_file).unwrap()).unwrap();
+    assert_eq!(document["requested"], serde_json::json!(["lab::PB@1.0.0"]));
+    assert!(!new_output.exists());
+
+    step(&mut session, &fixture.engine, Action::Build);
+    let retained = session.built_plan.as_ref().unwrap();
+    assert_eq!(retained.document, document);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&retained.bytes).unwrap(),
+        document
+    );
 }

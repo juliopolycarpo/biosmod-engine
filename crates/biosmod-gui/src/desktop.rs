@@ -116,6 +116,7 @@ fn bind_with_language_selector(
         }
     });
     action!(on_generate_plan, Action::Plan);
+    action!(on_preview, Action::Preview);
     action!(on_apply_plan, Action::Apply);
     action!(on_build, Action::Build);
     action!(on_verify, Action::Verify);
@@ -285,7 +286,7 @@ fn bind_with_language_selector(
     let weak = ui.as_weak();
     ui.window().on_close_requested(move || {
         let mut state = shared.lock().unwrap();
-        if state.exporting {
+        if state.exporting || state.session.activity() == Some(Action::Export) {
             state.closing = true;
             state.session.set_status(Status::ClosingExport);
             if let Some(ui) = weak.upgrade() {
@@ -337,6 +338,10 @@ fn configured_engine(state: &Desktop) -> Result<Engine, crate::engine::EngineErr
 }
 
 fn start(ui: &AppWindow, shared: &Shared, action: Action) {
+    start_engine_job(ui, shared, action, None);
+}
+
+fn start_engine_job(ui: &AppWindow, shared: &Shared, action: Action, export_path: Option<PathBuf>) {
     let mut state = shared.lock().unwrap();
     if state.dialog_open || state.exporting {
         return;
@@ -350,7 +355,11 @@ fn start(ui: &AppWindow, shared: &Shared, action: Action) {
         sync(ui, &state);
         return;
     }
-    let job = match state.session.prepare(action) {
+    let prepared = match export_path {
+        Some(path) => state.session.prepare_export(path),
+        None => state.session.prepare(action),
+    };
+    let job = match prepared {
         Ok(job) => job,
         Err(error) => {
             state.session.set_detailed_status(
@@ -512,7 +521,7 @@ fn pick(ui: &AppWindow, shared: &Shared, kind: PathKind) {
             PathKind::ExportPlan => {
                 dialog
                     .set_title(&title)
-                    .set_file_name("bme-plan.json")
+                    .set_file_name("bme-selection.json")
                     .save_file()
                     .await
             }
@@ -668,7 +677,7 @@ enum ExportKind {
 impl ExportKind {
     fn label(self) -> &'static str {
         match self {
-            Self::Plan => "Plan",
+            Self::Plan => "Selection",
             Self::Diagnostics => "Diagnostics",
         }
     }
@@ -693,7 +702,21 @@ fn start_export(ui: &AppWindow, shared: &Shared, path: PathBuf, kind: ExportKind
         return;
     }
     let content = match kind {
-        ExportKind::Plan => state.session.review.clone().map(ExportContent::Plan),
+        ExportKind::Plan => {
+            let retained = state.session.built_plan.as_ref().or_else(|| {
+                state
+                    .session
+                    .review
+                    .as_ref()
+                    .filter(|review| review.path.is_some())
+            });
+            if retained.is_none() && state.session.connected && state.session.scan.is_some() {
+                drop(state);
+                start_engine_job(ui, shared, Action::Export, Some(path));
+                return;
+            }
+            retained.cloned().map(ExportContent::Plan)
+        }
         ExportKind::Diagnostics => Some(ExportContent::Diagnostics(
             state.session.diagnostics.clone(),
         )),
@@ -855,6 +878,14 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             .any(|p| p.selected && p.selectable())
     }));
     ui.set_can_recommend(session.can_recommend());
+    ui.set_can_export_selection(
+        ui.get_can_plan()
+            || session.built_plan.is_some()
+            || session
+                .review
+                .as_ref()
+                .is_some_and(|review| review.path.is_some()),
+    );
     ui.set_manifest_path(
         session
             .output
@@ -1003,6 +1034,8 @@ pub fn localized_activity(ui: &AppWindow, action: Action) -> SharedString {
         Action::Inspect => t.get_operation_inspect(),
         Action::Scan => t.get_operation_scan(),
         Action::Plan => t.get_operation_plan(),
+        Action::Preview => t.get_operation_preview(),
+        Action::Export => t.get_operation_export_selection(),
         Action::Apply | Action::Build => t.get_operation_apply(),
         Action::Verify => t.get_operation_verify(),
         Action::Sources => t.get_operation_sources(),
@@ -1034,6 +1067,7 @@ fn localized_status_with_extra(
         Status::Inspected => t.get_status_inspected(),
         Status::Scanned => t.get_status_scanned(),
         Status::Planned => t.get_status_planned(),
+        Status::Previewed => t.get_status_previewed(),
         Status::Published => t.get_status_published(),
         Status::Verified => t.get_status_verified(),
         Status::Incomplete => t.get_status_incomplete(),

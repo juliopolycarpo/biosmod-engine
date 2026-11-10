@@ -27,7 +27,7 @@ export global UiText {
     out property <string> unknown-firmware: @tr("unknown or ambiguous");
 
     out property <string> save-copy: @tr("Save a new patched copy");
-    out property <string> export-plan: @tr("Export reviewed plan to a new file");
+    out property <string> export-plan: @tr("Export selection to a new file");
     out property <string> export-diagnostics: @tr("Export diagnostics to a new file");
     out property <string> open-plan: @tr("Open a plan for review");
     out property <string> plan-filter: @tr("Plan");
@@ -69,6 +69,7 @@ export global UiText {
     out property <string> status-ready: @tr("Engine ready. Choose an image to inspect.");
     out property <string> status-inspected: @tr("Image inspected. Scan a source for matching corrections.");
     out property <string> status-scanned: @tr("Scan complete. Select corrections or choose Recommended.");
+    out property <string> status-previewed: @tr("Preview complete.");
     out property <string> status-planned: @tr("Review the resolved plan, then choose a new output and build a copy.");
     out property <string> status-published: @tr("Patched copy published. Independent verification is next.");
     out property <string> status-verified: @tr("Offline verification complete");
@@ -81,10 +82,12 @@ export global UiText {
     out property <string> status-closing-export: @tr("Finishing file export before closing…");
     out property <string> status-closing-build: @tr("Building the copy. Close the window after publication finishes.");
     out property <string> status-closing-stop: @tr("Stopping operation before closing…");
-    out property <string> status-export-needs-plan: @tr("Review a plan before exporting it.");
+    out property <string> status-export-needs-plan: @tr("Select corrections or open a selection file to export.");
     out property <string> operation-connect: @tr("Checking engine");
     out property <string> operation-inspect: @tr("Inspecting image");
     out property <string> operation-scan: @tr("Scanning image");
+    out property <string> operation-preview: @tr("Previewing changes");
+    out property <string> operation-export-selection: @tr("Exporting selection");
     out property <string> operation-plan: @tr("Generating plan");
     out property <string> operation-apply: @tr("Building patched copy");
     out property <string> operation-verify: @tr("Verifying output");
@@ -103,13 +106,13 @@ export global UiText {
     out property <string> title-interrupted: @tr("Operation interrupted: review the outcome");
     out property <string> title-output: @tr("Output & verification");
     public pure function picker-error(error: string) -> string { return @tr("File picker unavailable: {}. Enter a path manually.", error); }
-    out property <string> exporting-plan: @tr("Exporting plan…");
+    out property <string> exporting-plan: @tr("Exporting selection…");
     out property <string> exporting-diagnostics: @tr("Exporting diagnostics…");
-    public pure function plan-exported(path: string) -> string { return @tr("Plan exported to {}", path); }
+    public pure function plan-exported(path: string) -> string { return @tr("Selection exported to {}", path); }
     public pure function diagnostics-exported(path: string) -> string { return @tr("Diagnostics exported to {}", path); }
-    public pure function plan-exists(path: string) -> string { return @tr("Plan export {}: file already exists; choose a new path.", path); }
+    public pure function plan-exists(path: string) -> string { return @tr("Selection export {}: file already exists. Choose a new path.", path); }
     public pure function diagnostics-exists(path: string) -> string { return @tr("Diagnostics export {}: file already exists; choose a new path.", path); }
-    public pure function plan-export-error(path: string, error: string) -> string { return @tr("Plan export {}: {}. A partial file may remain.", path, error); }
+    public pure function plan-export-error(path: string, error: string) -> string { return @tr("Selection export {}: {}. A partial file may remain.", path, error); }
     public pure function diagnostics-export-error(path: string, error: string) -> string { return @tr("Diagnostics export {}: {}. A partial file may remain.", path, error); }
     out property <string> precondition-busy: @tr("An operation is already running.");
     out property <string> precondition-engine: @tr("Connect a compatible bme engine first.");
