@@ -257,7 +257,7 @@ pub struct Session {
     /// Retained verification data for presentation in the currently selected language.
     pub verification_report: Option<Value>,
     pub source_details: String,
-    pub tool_report: Option<(Value, Option<Value>)>,
+    pub tool_report: Option<Arc<(Value, Option<Value>)>>,
     pub diagnostics: String,
 }
 
@@ -665,7 +665,7 @@ impl Session {
                 self.set_status(Status::Sources);
             }
             Action::Tools => {
-                self.tool_report = Some((data, payload.extra));
+                self.tool_report = Some(Arc::new((data, payload.extra)));
                 self.set_status(Status::Tools);
             }
             Action::Import => {

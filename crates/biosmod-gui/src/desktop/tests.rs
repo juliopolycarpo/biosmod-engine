@@ -106,6 +106,14 @@ fn rejected_language_restores_selector_and_preserves_review_and_preferences() {
     let state = bind_with_language_selector(&window, desktop, MissingPortugueseCatalog::select);
     make_reviewable(&state, true);
     let review = state.lock().unwrap().session.review.clone().unwrap();
+    TOOL_RENDER_COUNT.with(|count| count.set(0));
+    {
+        let mut desktop = state.lock().unwrap();
+        desktop.session.tool_report = Some(Arc::new((json!({"check":"retained"}), None)));
+        sync(&window, &desktop);
+    }
+    let tool_details = window.get_tool_details();
+    assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
     // ComboBox updates its two-way index before calling the native callback.
     window.set_language_index(1);
     window.invoke_language_changed(1);
@@ -124,6 +132,8 @@ fn rejected_language_restores_selector_and_preserves_review_and_preferences() {
             .get_plan_details()
             .starts_with("Generated in this session")
     );
+    assert_eq!(window.get_tool_details(), tool_details);
+    assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
     let state = state.lock().unwrap();
     assert_eq!(state.settings.language, Language::En);
     assert!(Arc::ptr_eq(&review, state.session.review.as_ref().unwrap()));
@@ -1388,14 +1398,85 @@ fn tools_view_shows_controlled_failure_and_paths() {
     let (window, state) = bound_window(Settings::default(), None);
     {
         let mut state = state.lock().unwrap();
-        state.session.tool_report = Some((
+        state.session.tool_report = Some(Arc::new((
             json!({"checks": [{"check":"java", "ok":false, "detail":"not installed"}], "error":{"code":"TOOL_UNAVAILABLE", "message":"missing optional tools"}}),
             Some(json!({"config":"fixture-config"})),
-        ));
+        )));
         sync(&window, &state);
     }
     let details = window.get_tool_details();
     assert!(details.contains("TOOL_UNAVAILABLE"));
     assert!(details.contains("not installed"));
     assert!(details.contains("fixture-config"));
+}
+
+#[test]
+fn presentation_sections_refresh_only_changed_reports_and_language() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    TOOL_RENDER_COUNT.with(|count| count.set(0));
+    {
+        let mut desktop = state.lock().unwrap();
+        desktop.session.source_details = "catalog A".into();
+        desktop.session.diagnostics = "diagnostic A".into();
+        desktop.session.tool_report = Some(Arc::new((
+            json!({"checks":[{"detail":"tool A"}]}),
+            Some(json!({"config":"path A"})),
+        )));
+        sync(&window, &desktop);
+    }
+    assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
+    {
+        let desktop = state.lock().unwrap();
+        sync(&window, &desktop);
+    }
+    assert_eq!(
+        TOOL_RENDER_COUNT.with(|count| count.get()),
+        1,
+        "unchanged tool report: expected one render"
+    );
+    {
+        let mut desktop = state.lock().unwrap();
+        desktop.session.source_details = "catalog B".into();
+        desktop.session.diagnostics = "diagnostic B".into();
+        sync(&window, &desktop);
+    }
+    assert_eq!(window.get_source_details(), "catalog B");
+    assert_eq!(window.get_diagnostics(), "diagnostic B");
+    assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
+    {
+        let mut desktop = state.lock().unwrap();
+        Arc::make_mut(desktop.session.tool_report.as_mut().unwrap()).0["checks"][0]["detail"] =
+            json!("tool B");
+        sync(&window, &desktop);
+    }
+    assert!(window.get_tool_details().contains("tool B"));
+    assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 2);
+    let english = window.get_tool_details();
+    {
+        let mut desktop = state.lock().unwrap();
+        Language::PtBr.select().unwrap();
+        desktop.settings.language = Language::PtBr;
+        sync(&window, &desktop);
+    }
+    assert_ne!(
+        window.get_tool_details(),
+        english,
+        "tools heading must change language"
+    );
+    assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 3);
+    {
+        let mut desktop = state.lock().unwrap();
+        desktop.session.tool_report = None;
+        sync(&window, &desktop);
+    }
+    assert!(window.get_tool_details().is_empty());
+    {
+        let mut desktop = state.lock().unwrap();
+        desktop.session.tool_report = Some(Arc::new((json!({"new":"report"}), None)));
+        sync(&window, &desktop);
+    }
+    assert!(window.get_tool_details().contains("report"));
+    assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 4);
+    Language::En.select().unwrap();
 }
