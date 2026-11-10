@@ -121,46 +121,6 @@ pub fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_default()
 }
 
-/// Present each reported verification check with its actual result and limitations.
-/// Example: a skipped reproduction check remains visibly incomplete.
-pub fn verification_summary(report: &Value) -> String {
-    let mut lines = vec!["Independent offline checks".to_owned(), String::new()];
-    if let Some(checks) = report["checks"].as_array() {
-        for check in checks {
-            let name = check["check"].as_str().unwrap_or("unknown check");
-            let label = match name {
-                "input-digest" => "Original image digest",
-                "output-digest" => "Output digest",
-                "structure" => "Firmware structure",
-                "unchanged-outside-allowlist" => "Bytes outside the allowed changes",
-                "changed-regions" => "Changed regions",
-                "patch-states" => "Selected patch states",
-                "reproduced-from-catalog" => "Independent reproduction from the catalog",
-                _ => name,
-            };
-            lines.push(format!(
-                "{}  {label}",
-                if check["ok"] == true {
-                    "PASS"
-                } else {
-                    "INCOMPLETE"
-                }
-            ));
-        }
-    }
-    if let Some(skipped) = report["skipped"].as_array() {
-        for check in skipped {
-            lines.push(format!(
-                "SKIPPED  {}\n{}",
-                string(check, "check"),
-                string(check, "reason")
-            ));
-        }
-    }
-    lines.push(format!("\n{}", string(report, "notice")));
-    lines.join("\n")
-}
-
 fn string<'a>(value: &'a Value, field: &str) -> &'a str {
     value[field].as_str().unwrap_or("unknown")
 }
@@ -181,15 +141,6 @@ fn joined(value: &Value) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
-    #[test]
-    fn verification_summary_preserves_passes_skips_and_notice() {
-        let report = json!({"checks":[{"check":"input-digest","ok":true},{"check":"new-check","ok":false}],"skipped":[{"check":"reproduction","reason":"catalog unavailable"}],"notice":"Offline checks only"});
-        let text = verification_summary(&report);
-        assert!(text.contains("PASS  Original image digest"));
-        assert!(text.contains("INCOMPLETE  new-check"));
-        assert!(text.contains("SKIPPED  reproduction\ncatalog unavailable"));
-        assert!(text.contains("Offline checks only"));
-    }
     fn correction() -> Patch {
         serde_json::from_value(json!({"id":"PA", "version":"1.0.0", "title":"Correction", "class":"correction", "tier":"recommended", "state":"present", "plannable":true, "manual":false,"detail":"exact match"})).unwrap()
     }

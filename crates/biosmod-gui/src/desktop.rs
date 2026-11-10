@@ -879,7 +879,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
         session
             .verification_report
             .as_ref()
-            .map(|report| localized_verification(ui, report))
+            .map(|report| verification_summary(ui, report))
             .unwrap_or_else(|| session.result_details.as_str().into()),
     );
     ui.set_result_title(match session.outcome {
@@ -1105,7 +1105,9 @@ fn localized_plan(ui: &AppWindow, review: &Review) -> SharedString {
     output.into()
 }
 
-fn localized_verification(ui: &AppWindow, report: &serde_json::Value) -> SharedString {
+/// Present each reported verification check, its result and limits, in the selected language.
+/// Example: a skipped reproduction check reads `SKIPPED  reproduction` in English.
+pub fn verification_summary(ui: &AppWindow, report: &serde_json::Value) -> SharedString {
     let t = ui.global::<UiText>();
     let mut lines = vec![t.get_offline_checks().to_string(), String::new()];
     if let Some(checks) = report["checks"].as_array() {

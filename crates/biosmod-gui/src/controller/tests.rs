@@ -81,7 +81,11 @@ fn semantic_incomplete_verification_is_not_reported_as_verified() {
         .unwrap();
     assert_eq!(session.outcome, Outcome::VerificationIncomplete);
     assert!(session.status.contains("incomplete"));
-    assert!(session.result_details.contains("catalog unavailable"));
+    assert_eq!(
+        session.verification_report.as_ref().unwrap()["skipped"][0]["reason"],
+        "catalog unavailable",
+        "incomplete verification: expected the retained report"
+    );
 }
 
 #[test]
@@ -119,10 +123,10 @@ fn engine_reported_incomplete_verification_is_summarized_not_dumped() {
     session.fail(Action::Verify, error);
     assert_eq!(session.outcome, Outcome::VerificationIncomplete);
     assert!(
-        session
-            .result_details
-            .contains("SKIPPED  patch-states and reproduction"),
-        "incomplete verification details: expected the check summary | received {}",
+        session.result_details.is_empty()
+            && session.verification_report.as_ref().unwrap()["skipped"][0]["check"]
+                == "patch-states and reproduction",
+        "incomplete verification: expected the retained report instead of a dump | received {}",
         session.result_details
     );
 }

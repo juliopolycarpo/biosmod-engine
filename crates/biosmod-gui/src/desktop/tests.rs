@@ -101,11 +101,30 @@ fn protected_preferences_name_the_unreadable_file_and_stay_untouched() {
 }
 
 #[test]
+fn verification_summary_preserves_passes_skips_and_notice() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _state) = bound_window(Settings::default(), None);
+    let report = json!({"checks":[{"check":"input-digest","ok":true},{"check":"new-check","ok":false}],"skipped":[{"check":"reproduction","reason":"catalog unavailable"}],"notice":"Offline checks only"});
+    let text = verification_summary(&window, &report);
+    for expected in [
+        "PASS  Original image digest",
+        "INCOMPLETE  new-check",
+        "SKIPPED  reproduction\ncatalog unavailable",
+        "Offline checks only",
+    ] {
+        assert!(
+            text.contains(expected),
+            "verification summary: expected {expected:?} | received {text:?}"
+        );
+    }
+}
+
+#[test]
 fn portuguese_verification_translates_missing_skip_and_notice_fields() {
     i_slint_backend_testing::init_no_event_loop();
     let (window, _state) = bound_window(Settings::default(), None);
     Language::PtBr.select().unwrap();
-    let text = localized_verification(&window, &json!({"skipped": [{}]}));
+    let text = verification_summary(&window, &json!({"skipped": [{}]}));
     Language::En.select().unwrap();
     assert!(
         !text.contains("unknown") && text.matches("desconhecido").count() == 3,

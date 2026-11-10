@@ -1,7 +1,7 @@
 //! Session transitions and reviewed-plan ownership, independent of the windowing backend.
 
 use crate::engine::{Engine, EngineError, ErrorKind, Reply, Request, Verification};
-use crate::model::{Scan, SourceReport, plan_summary, pretty, verification_summary};
+use crate::model::{Scan, SourceReport, plan_summary, pretty};
 use serde_json::Value;
 use std::fs;
 use std::io::{Read, Write};
@@ -648,7 +648,8 @@ impl Session {
                     Status::Incomplete
                 });
                 self.log(&pretty(&data));
-                self.result_details = verification_summary(&data);
+                // The window renders the report itself in the selected language.
+                self.result_details.clear();
                 self.verification_report = Some(data);
             }
             Action::Sources => {
@@ -756,9 +757,7 @@ impl Session {
             error.diagnostics
         ));
         self.result_details = match &error.details {
-            Some(details) if self.outcome == Outcome::VerificationIncomplete => {
-                verification_summary(details)
-            }
+            Some(_) if self.outcome == Outcome::VerificationIncomplete => String::new(),
             Some(details) => pretty(details),
             None => error.to_string(),
         };
