@@ -1,5 +1,7 @@
 # Contributing
 
+English | [Brazilian Portuguese](CONTRIBUTING.pt-BR.md)
+
 ## Code
 
 Install [cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/)
@@ -32,6 +34,14 @@ Core and CLI retain Rust 1.88 and Linux, Windows and macOS coverage. The Linux G
 - Commits follow Conventional Commits, one concern each, with a body.
 
 After changing a document type, regenerate the committed schemas: `BME_UPDATE_SCHEMAS=1 cargo nextest run --locked --test cli`.
+
+## Translations
+
+English is the canonical source. When changing an English document, review its Brazilian Portuguese counterpart and manually update the source SHA-256 in `docs/i18n-manifest.json` only after review. The hash records the reviewed source revision; it does not prove translation quality. New Markdown files under `docs/` require a counterpart and manifest entry. Preserve commands, flags, JSON examples and CLI output in English. Run `python3 tools/check-doc-translations.py` and `python3 -m unittest discover -s tools/tests` to check coverage, freshness and local links.
+
+For interface messages, install the matching extractor with `cargo install slint-tr-extractor --version 1.18.1 --locked`, then run `python3 tools/update-gui-translations.py` to update catalogs or add `--check` to verify them. Review changed translations and preserve identifiers and technical details.
+
+Use consistent terms: firmware and patch remain unchanged; translate catalog as catálogo, manifest as manifesto, and offline verification as verificação offline. The CLI and its protocol remain English.
 
 ## CI caches
 

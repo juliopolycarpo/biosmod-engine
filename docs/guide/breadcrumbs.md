@@ -1,5 +1,7 @@
 # MRC checkpoint breadcrumbs (MR9A diagnostic)
 
+English | [Brazilian Portuguese](../pt-BR/guide/breadcrumbs.md)
+
 When memory training stops on `b0` or `b7`, the POST display shows only the major code and the next boot overwrites it. The breadcrumb diagnostic keeps the full MRC checkpoint (major, minor, 16-bit location) in upper-bank CMOS `E0`-`E9`. If a pass dies before it ends, it freezes that checkpoint so Linux can read it after the next good boot.
 
 It is a `diagnostic` record (`MRC-BREADCRUMBS`), layered on B01-B06 and B02-B03 for the MR9A build `mnx99mr9apro-230322`:

@@ -1,5 +1,7 @@
 # Catalogs
 
+English | [Brazilian Portuguese](../pt-BR/guide/catalogs.md)
+
 A catalog is a directory with a fixed layout:
 
 ```

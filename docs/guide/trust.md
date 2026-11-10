@@ -1,5 +1,7 @@
 # Sources and trust
 
+English | [Brazilian Portuguese](../pt-BR/guide/trust.md)
+
 `bme` reads patch data from catalog sources:
 
 | Source | Trust | How it is read |

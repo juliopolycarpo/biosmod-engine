@@ -1,5 +1,7 @@
 # Recovery
 
+English | [Brazilian Portuguese](../pt-BR/guide/recovery.md)
+
 If the board does not POST after a flash:
 
 1. Power off and unplug. Clip the programmer onto the SPI chip.

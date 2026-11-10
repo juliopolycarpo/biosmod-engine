@@ -1,5 +1,7 @@
 # Porting a fix to another build
 
+English | [Brazilian Portuguese](../pt-BR/guide/porting.md)
+
 Many X99-family boards ship related AMI Aptio images. A defect fixed on one build may sit at another offset on yours. bme never patches a module whose hash differs from a recorded source, so you need a variant for your build first.
 
 1. Read your chip (`bme guide flashing`) and scan it: `bme scan dump.bin`. On an unknown build, `likely-present` means every hunk signature of a record matched exactly once.

@@ -1,5 +1,7 @@
 # Architecture
 
+English | [Brazilian Portuguese](pt-BR/architecture.md)
+
 Three crates in one workspace:
 
 | Crate                            | Owns                                                                                                   | Never does                                |

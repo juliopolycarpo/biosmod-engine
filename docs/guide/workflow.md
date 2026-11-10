@@ -1,5 +1,7 @@
 # Workflow
 
+English | [Brazilian Portuguese](../pt-BR/guide/workflow.md)
+
 `bme` works on a copy of your firmware. It never opens a flash chip, and every output is a new file.
 
 ```sh
