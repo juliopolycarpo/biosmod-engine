@@ -327,7 +327,7 @@ fn minimum_width_keeps_navigation_and_path_controls_visible() {
             [
                 "Settings",
                 "About",
-                "Open plan",
+                "Open selection file",
                 "Open output",
                 "Enter paths",
             ],
@@ -337,7 +337,7 @@ fn minimum_width_keeps_navigation_and_path_controls_visible() {
             [
                 "Configurações",
                 "Sobre",
-                "Abrir plano",
+                "Abrir arquivo de seleção",
                 "Abrir saída",
                 "Informar caminhos",
             ],

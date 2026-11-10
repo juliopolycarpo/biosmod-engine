@@ -130,7 +130,7 @@ fn rejected_language_restores_selector_and_preserves_review_and_preferences() {
     assert!(
         window
             .get_plan_details()
-            .starts_with("Generated in this session")
+            .starts_with("Preview of selected changes")
     );
     assert_eq!(window.get_tool_details(), tool_details);
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
@@ -172,7 +172,7 @@ fn plan_summary_keeps_component_identity_and_policy() {
     let review = Review::preview(plan);
     let text = plan_summary(&window, &review);
     for expected in [
-        "Generated in this session\n\nFirmware: synthetic",
+        "Preview of selected changes\n\nFirmware: synthetic",
         "ACPI · guid · table offset 128 · file offset 4096\n  A\n",
         "Hardware assertions: board-rev",
         "Allow hold: true · Allow diagnostic: false\nNone\n",
@@ -242,7 +242,11 @@ fn language_switch_refreshes_review_rows_and_verification_without_changing_sessi
         window.get_patches().row_data(0).unwrap().state,
         "Defeito presente"
     );
-    assert!(window.get_plan_details().starts_with("Gerado nesta sessão"));
+    assert!(
+        window
+            .get_plan_details()
+            .starts_with("Visualização das alterações selecionadas")
+    );
     assert_eq!(
         window.get_status(),
         "Exame concluído. Selecione correções ou escolha Recomendados."
@@ -822,7 +826,7 @@ fn review_presentation_tracks_replacement_and_invalidation() {
     assert!(
         window
             .get_plan_details()
-            .starts_with("Generated in this session")
+            .starts_with("Preview of selected changes")
     );
     let first = window.get_plan_details();
     window.invoke_output_edited("/tmp/other.bin".into());
@@ -836,7 +840,7 @@ fn review_presentation_tracks_replacement_and_invalidation() {
     assert!(
         window
             .get_plan_details()
-            .starts_with("Read-only imported plan")
+            .starts_with("Imported selection file")
     );
     window.invoke_back_to_selection();
     assert!(window.get_plan_details().is_empty());
