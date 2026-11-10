@@ -1,5 +1,7 @@
 //! Drive a real synthetic workflow through the Slint event loop and desktop callbacks.
 
+mod common;
+
 use biosmod_gui::controller::{Outcome, manifest_path};
 use biosmod_gui::desktop::{Desktop, bind, connect};
 use biosmod_gui::i18n::Language;
@@ -11,46 +13,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
-
-fn test_engine() -> PathBuf {
-    let binary = std::env::var_os("BME_TEST_ENGINE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/bme"));
-    binary.canonicalize().unwrap_or_else(|error| {
-        panic!(
-            "bme test engine {}: expected a built CLI executable; run cargo build -p biosmod-cli or set BME_TEST_ENGINE | received {error}",
-            binary.display()
-        )
-    })
-}
-
-fn setup_fixture(engine: &Path, root: &Path) -> PathBuf {
-    let fixture = root.join("synthetic fixture ü");
-    for args in [
-        vec![
-            "dev".into(),
-            "synthetic".into(),
-            "-o".into(),
-            fixture.as_os_str().into(),
-        ],
-        vec![
-            "catalog".into(),
-            "add".into(),
-            "lab".into(),
-            fixture.join("catalog").into_os_string(),
-            "--allow-unsigned-local".into(),
-        ],
-    ] {
-        let result = Command::new(engine).args(&args).output().unwrap();
-        assert!(
-            result.status.success(),
-            "synthetic setup {args:?}: expected success | received {}: {}",
-            result.status,
-            String::from_utf8_lossy(&result.stderr)
-        );
-    }
-    fixture.join("synthetic.bin")
-}
 
 fn save_screenshot(window: &AppWindow, path: &Path) -> Result<(), String> {
     let pixels = window.window().take_snapshot().map_err(|e| e.to_string())?;
@@ -122,7 +84,7 @@ fn real_desktop_synthetic_workflow() {
             .prefix("bme-gui-ui-")
             .tempdir()
             .unwrap();
-        let binary = test_engine();
+        let binary = common::test_engine();
         let stdout_path = root.path().join("child.stdout");
         let stderr_path = root.path().join("child.stderr");
         let mut child = Command::new(std::env::current_exe().unwrap())
@@ -158,8 +120,8 @@ fn real_desktop_synthetic_workflow() {
     }
 
     let root = PathBuf::from(std::env::var_os("BME_GUI_UI_TEST_ROOT").unwrap());
-    let engine = test_engine();
-    let image = setup_fixture(&engine, &root);
+    let engine = common::test_engine();
+    let image = common::setup_fixture(&engine, &root);
     let output = root.join("desktop result.bin");
     if std::env::var_os("BME_GUI_NATIVE_SMOKE").is_none() {
         i_slint_backend_testing::init_integration_test_with_system_time();
