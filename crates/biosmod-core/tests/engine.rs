@@ -605,3 +605,41 @@ fn allowlist_spans_outside_the_image_are_rejected() {
     }
     assert!(outside_allowlist_unchanged(&data, &data, &[Span { start: 0, end: 16 }]).is_ok());
 }
+
+#[test]
+fn table_offset_conflict_uses_first_different_offset_for_each_component() {
+    use biosmod_core::catalog::Variant;
+    let mut case = Case::new();
+    for (id, offset) in [("TA", 8), ("TC", 16), ("TD", 8)] {
+        let mut patch = case.catalog.patches["TB"].clone();
+        patch.id = id.into();
+        let Variant::Applicable(variant) = patch.variants.get_mut(synthetic::FIRMWARE).unwrap()
+        else {
+            panic!("expected applicable variant")
+        };
+        variant.components[0].table_offset = offset;
+        case.catalog.patches.insert(id.into(), patch);
+    }
+    let image = case.image();
+    let scan = analysis::scan(&image, &case.catalog, Some(synthetic::FIRMWARE));
+    for (id, own, other) in [("TA", 8, 0), ("TB", 0, 8), ("TC", 16, 8), ("TD", 8, 0)] {
+        let row = scan.patches.iter().find(|p| p.id == id).unwrap();
+        assert_eq!(row.state, State::Unsupported, "{id}: {row:?}");
+        assert!(
+            row.detail
+                .contains(&format!("offsets {own:#x} and {other:#x}")),
+            "{id}: {}",
+            row.detail
+        );
+        let direct = analysis::patch_state(
+            &image,
+            &case.catalog,
+            synthetic::FIRMWARE,
+            &case.catalog.patches[id],
+        );
+        assert_eq!(
+            direct.1, row.detail,
+            "{id}: direct patch state differs from scan"
+        );
+    }
+}

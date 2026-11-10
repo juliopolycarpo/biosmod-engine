@@ -107,29 +107,52 @@ pub fn related<'a>(
         .collect()
 }
 
-/// Describe another ACPI table offset that shares the component's FFS identity.
+/// First two distinct offsets for each ACPI FFS identity in catalog order.
 ///
-/// For example, offsets 0 and 8 on one GUID cannot yet be composed separately.
-pub(crate) fn table_offset_conflict(
-    catalog: &Catalog,
-    firmware: &str,
-    component: &Component,
-) -> Option<String> {
-    if component.leaf != LeafKind::AcpiTable {
-        return None;
+/// For example, offsets 0 and 8 make either component unsafe to compose.
+pub(crate) struct TableOffsetIndex(BTreeMap<Guid, (usize, Option<usize>)>);
+
+impl TableOffsetIndex {
+    /// Index offsets for one firmware; irrelevant variants and non-ACPI leaves are ignored.
+    ///
+    /// Example: `TableOffsetIndex::new(&catalog, "build")` indexes that build only.
+    pub(crate) fn new(catalog: &Catalog, firmware: &str) -> Self {
+        let mut offsets = BTreeMap::new();
+        for component in catalog
+            .patches_for(firmware)
+            .flat_map(|patch| patch.components(firmware))
+        {
+            if component.leaf != LeafKind::AcpiTable {
+                continue;
+            }
+            let entry = offsets
+                .entry(component.ffs_guid)
+                .or_insert((component.table_offset, None));
+            if entry.0 != component.table_offset && entry.1.is_none() {
+                entry.1 = Some(component.table_offset);
+            }
+        }
+        Self(offsets)
     }
-    let other = catalog
-        .patches_for(firmware)
-        .flat_map(|patch| patch.components(firmware))
-        .find(|other| {
-            other.ffs_guid == component.ffs_guid
-                && other.leaf == component.leaf
-                && other.table_offset != component.table_offset
-        })?;
-    Some(format!(
-        "{}: FFS {} has ACPI table offsets {:#x} and {:#x}; expected one table offset per FFS file",
-        component.name, component.ffs_guid, component.table_offset, other.table_offset
-    ))
+
+    /// Describe the first catalog offset that differs from this component.
+    ///
+    /// Example: a component at offset 0 reports an indexed offset 8 as a conflict.
+    pub(crate) fn conflict(&self, component: &Component) -> Option<String> {
+        if component.leaf != LeafKind::AcpiTable {
+            return None;
+        }
+        let &(first, second) = self.0.get(&component.ffs_guid)?;
+        let other = if first == component.table_offset {
+            second?
+        } else {
+            first
+        };
+        Some(format!(
+            "{}: FFS {} has ACPI table offsets {:#x} and {:#x}; expected one table offset per FFS file",
+            component.name, component.ffs_guid, component.table_offset, other
+        ))
+    }
 }
 
 /// A component found in an image and its relation to the recorded original.
@@ -351,6 +374,25 @@ pub fn patch_state(
     firmware: &str,
     patch: &Patch,
 ) -> (State, String) {
+    patch_state_indexed(
+        image,
+        catalog,
+        firmware,
+        patch,
+        &TableOffsetIndex::new(catalog, firmware),
+    )
+}
+
+/// Evaluate a patch using an index shared by the surrounding scan or build.
+///
+/// Example: a scan constructs one index and uses it for every patch.
+pub(crate) fn patch_state_indexed(
+    image: &Image,
+    catalog: &Catalog,
+    firmware: &str,
+    patch: &Patch,
+    offsets: &TableOffsetIndex,
+) -> (State, String) {
     let variant = match patch.variants.get(firmware) {
         Some(Variant::Applicable(v)) => v,
         Some(Variant::NotApplicable(n)) => return (State::NotApplicable, n.reason.clone()),
@@ -362,7 +404,7 @@ pub fn patch_state(
         }
     };
     for component in &variant.components {
-        if let Some(message) = table_offset_conflict(catalog, firmware, component) {
+        if let Some(message) = offsets.conflict(component) {
             return (State::Unsupported, message);
         }
     }
@@ -469,6 +511,25 @@ pub fn signature_scan(image: &Image, patch: &Patch, firmware: &str) -> (State, S
 
 /// Why a present patch cannot be planned on this image, ignoring user policy flags.
 pub fn blocker(image: &Image, catalog: &Catalog, firmware: &str, patch: &Patch) -> Option<String> {
+    blocker_indexed(
+        image,
+        catalog,
+        firmware,
+        patch,
+        &TableOffsetIndex::new(catalog, firmware),
+    )
+}
+
+/// Find a planning blocker using the caller's firmware-specific offset index.
+///
+/// Example: a scan reuses its index while evaluating every present patch.
+fn blocker_indexed(
+    image: &Image,
+    catalog: &Catalog,
+    firmware: &str,
+    patch: &Patch,
+    offsets: &TableOffsetIndex,
+) -> Option<String> {
     if patch.packing == crate::catalog::Packing::Manual {
         return Some("manual packing: the module grows and must be relocated by hand".into());
     }
@@ -477,7 +538,9 @@ pub fn blocker(image: &Image, catalog: &Catalog, firmware: &str, patch: &Patch) 
         .patches
         .values()
         .filter(|other| other.conflicts.contains(&patch.id) || patch.conflicts.contains(&other.id))
-        .filter(|other| patch_state(image, catalog, firmware, other).0 == State::Fixed)
+        .filter(|other| {
+            patch_state_indexed(image, catalog, firmware, other, offsets).0 == State::Fixed
+        })
         .map(|other| other.id.as_str())
         .collect();
     if !clash.is_empty() {
@@ -493,10 +556,9 @@ pub fn blocker(image: &Image, catalog: &Catalog, firmware: &str, patch: &Patch) 
         .requires
         .iter()
         .filter(|r| {
-            catalog
-                .patches
-                .get(*r)
-                .is_none_or(|p| patch_state(image, catalog, firmware, p).0 != State::Fixed)
+            catalog.patches.get(*r).is_none_or(|p| {
+                patch_state_indexed(image, catalog, firmware, p, offsets).0 != State::Fixed
+            })
         })
         .collect();
     if !missing.is_empty() {
@@ -547,11 +609,20 @@ pub fn scan(image: &Image, catalog: &Catalog, firmware: Option<&str>) -> ScanRep
         .as_deref()
         .map(|f| catalog.boards_for(f))
         .unwrap_or_default();
+    let offsets = firmware
+        .as_deref()
+        .map(|fw| TableOffsetIndex::new(catalog, fw));
     let mut patches = Vec::new();
     for patch in catalog.patches.values() {
         let (state, detail) = match firmware.as_deref() {
             Some(fw) => {
-                let (state, detail) = patch_state(image, catalog, fw, patch);
+                let (state, detail) = patch_state_indexed(
+                    image,
+                    catalog,
+                    fw,
+                    patch,
+                    offsets.as_ref().expect("firmware index"),
+                );
                 if state == State::NotDetected {
                     signature_scan(image, patch, fw)
                 } else {
@@ -561,7 +632,13 @@ pub fn scan(image: &Image, catalog: &Catalog, firmware: Option<&str>) -> ScanRep
             None => unknown_build_state(image, patch),
         };
         let blocked = match (state, firmware.as_deref()) {
-            (State::Present, Some(fw)) => blocker(image, catalog, fw, patch),
+            (State::Present, Some(fw)) => blocker_indexed(
+                image,
+                catalog,
+                fw,
+                patch,
+                offsets.as_ref().expect("firmware index"),
+            ),
             _ => None,
         };
         let requires_facts = firmware
@@ -616,4 +693,46 @@ fn unknown_build_state(image: &Image, patch: &Patch) -> (State, String) {
         first.get_or_insert(hit);
     }
     first.unwrap_or((State::NotApplicable, String::new()))
+}
+
+#[cfg(test)]
+mod table_offset_tests {
+    use super::*;
+    use crate::catalog::{MemorySource, Scope, Variant};
+    use crate::synthetic::{self, Fixture};
+
+    #[test]
+    fn offset_index_ignores_other_firmware_and_non_acpi_components() {
+        let fixture = Fixture::new(7);
+        let mut catalog =
+            Catalog::load(&MemorySource::new(fixture.catalog_files()), Scope::All).unwrap();
+        let mut other = catalog.patches["TB"].clone();
+        other.id = "ZZ".into();
+        let Variant::Applicable(mut variant) = other.variants.remove(synthetic::FIRMWARE).unwrap()
+        else {
+            panic!("expected applicable variant")
+        };
+        variant.components[0].table_offset = 8;
+        other
+            .variants
+            .insert("other-firmware".into(), Variant::Applicable(variant));
+        catalog.patches.insert(other.id.clone(), other);
+        let index = TableOffsetIndex::new(&catalog, synthetic::FIRMWARE);
+        let component = &catalog.patches["TB"].components(synthetic::FIRMWARE)[0];
+        assert_eq!(index.conflict(component), None);
+        let mut absent = component.clone();
+        absent.table_offset = 8;
+        assert!(
+            index
+                .conflict(&absent)
+                .unwrap()
+                .contains("offsets 0x8 and 0x0")
+        );
+        absent.leaf = LeafKind::Pe32;
+        assert_eq!(index.conflict(&absent), None);
+        assert_eq!(
+            TableOffsetIndex::new(&catalog, "unknown").conflict(component),
+            None
+        );
+    }
 }
