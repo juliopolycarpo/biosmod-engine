@@ -13,7 +13,7 @@ cargo build --locked --release -p biosmod-cli -p biosmod-gui
 target/release/bme-gui
 ```
 
-A interface procura `bme` ao lado do próprio executável. Para usar outra instalação, escolha-a em **Configurações** ou inicie `bme-gui --engine /absolute/path/to/bme`. A alternativa deve passar pela negociação de protocolo e anunciar `desktop_workflow: 1`; um executável antigo com a mesma versão do pacote não é suficiente. Nenhum mecanismo é carregado de um diretório de imagem ou catálogo.
+A interface procura `bme` ao lado do próprio executável. Para usar outra instalação, escolha-a em **Configurações** ou inicie `bme-gui --engine /absolute/path/to/bme`. A alternativa deve passar pela negociação de protocolo e anunciar `desktop_workflow: 1` e `direct_patch_workflow: 1`; um executável antigo com a mesma versão do pacote não é suficiente. Nenhum mecanismo é carregado de um diretório de imagem ou catálogo.
 
 A compilação usa Slint 1.18.1 com backend winit e renderizadores de GPU e software. A interface se liga a fontconfig, FreeType, libgcc e glibc. O ambiente gráfico também precisa de fontes, XKB e bibliotecas cliente Wayland ou X11; a renderização por GPU também exige uma pilha OpenGL/EGL funcional. Algumas bibliotecas gráficas e de janelas são carregadas dinamicamente. Os diálogos nativos de arquivo usam o portal XDG do ambiente gráfico e um backend de portal. A entrada manual de caminho permanece disponível se o portal estiver indisponível. Para forçar renderização por software:
 
@@ -37,25 +37,18 @@ O pacote em `dist/` contém os executáveis correspondentes, uma entrada de apli
 
 O código do projeto é MIT. A distribuição gráfica usa a Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0; **Sobre** exibe o widget AboutSlint exigido. O pacote contém essa licença e os avisos das dependências de execução em `share/licenses/biosmod-engine/`.
 
-## Inspecionar, planejar e verificar
+## Analisar, selecionar e gerar
 
-1. Escolha uma imagem ou informe seu caminho e inspecione-a. Escolha uma fonte de catálogo e analise. Um perfil de placa identifica informações do catálogo, não a revisão ou os componentes de uma placa física.
-2. Selecione correções que podem ser planejadas independentemente clicando em um resultado ou pressionando Espaço ou Enter sobre ele, ou use **Recomendados** para solicitar a recomendação do mecanismo. Linhas que exigem afirmações de hardware, uma política hold ou de diagnóstico, ou seleção conjunta de pré-requisitos não podem ser selecionadas nesse fluxo. A ausência de detecção não prova a ausência de um defeito.
-3. Gere e revise o plano, incluindo fixação da fonte, hashes da entrada e da saída esperada, patches selecionados, deslocamentos de componentes, flags de política e observações. Alterar uma entrada invalida a revisão.
-4. Escolha um novo caminho de saída e gere a cópia modificada. O caminho correspondente `<output>.manifest.json` é mostrado antes da publicação. Arquivos existentes não são sobrescritos. Uma falha de publicação pode deixar artefatos; inspecione os caminhos informados em vez de removê-los automaticamente.
-5. A interface verifica a saída independentemente usando a entrada, o plano revisado e o manifesto. Ela informa conclusão somente quando todas as verificações obrigatórias são bem-sucedidas. Uma verificação incompleta não é um resultado verificado; resolva os pré-requisitos ausentes informados e tente novamente.
+1. Escolha uma imagem, inspecione-a, escolha uma fonte de catálogo e execute o scan. Um perfil de placa identifica informações do catálogo, não a revisão ou os componentes de uma placa física.
+2. Selecione correções elegíveis clicando em um resultado ou pressionando Espaço ou Enter. **Recomendados** seleciona as linhas recomendadas pelo mecanismo quando toda a recomendação é elegível. Linhas que exigem afirmações de hardware, permissões hold ou de diagnóstico, ou seleção conjunta de pré-requisitos não podem ser selecionadas aqui. A ausência de detecção não prova a ausência de um defeito.
+3. Escolha um caminho de saída e pressione **Gerar cópia com patches**. Por padrão, `.patched` é inserido antes da última extensão da entrada. Caminhos existentes da imagem e do manifesto não são sobrescritos. Se a imagem ou o catálogo mudou desde o scan, execute-o novamente e revise a seleção.
+4. A interface verifica independentemente a saída publicada e o manifesto. Ela informa conclusão somente quando todas as verificações obrigatórias passam. Uma falha de publicação pode deixar artefatos; inspecione os caminhos informados. Uma verificação incompleta não é um resultado verificado.
 
-Planos importados podem ser revisados e usados para verificação, mas não podem ser aplicados. Somente um plano gerado e revisado na sessão atual pode gerar uma imagem. A interface confere os bytes retidos do plano antes da aplicação; `bme` revalida independentemente a entrada, a fixação do catálogo, a seleção e a saída reconstruída.
+**Visualizar alterações** gera e valida opcionalmente em memória para mostrar alterações de componentes e a saída esperada; não publica arquivos nem autoriza uma geração posterior. **Exportar seleção** salva a seleção visível em um novo arquivo de receita. As duas ações usam a entrada e a fonte do scan exibido.
 
-Use **Exportar plano** para guardar o documento revisado exato depois de fechar a janela. A exportação exige um novo arquivo e preserva a aprovação atual. Para reabrir um resultado, escolha sua imagem original, o plano salvo e a saída; **Abrir plano**, **Abrir saída** e **Informar caminhos** permanecem disponíveis durante o fluxo. O manifesto da saída deve estar ao lado dela em `<output>.manifest.json`. Planos e saídas importados podem ser abertos em qualquer ordem; alterar sua imagem original limpa a verificação anterior e exige outra conferência.
+**Abrir arquivo de seleção** carrega uma receita exata para reprodução após validação com a imagem, o catálogo e o mecanismo atuais. A interface mantém uma cópia privada e não permite que a receita conceda permissões não suportadas ou troque o catálogo selecionado. Uma receita exige o catálogo fixado e a compilação correspondente do mecanismo. Para reabrir uma saída, escolha a imagem original e a saída; o manifesto deve estar ao lado dela em `<output>.manifest.json`. Um arquivo de seleção opcional também pode ser usado para comparação.
 
-O estado de catálogos e ferramentas é somente leitura na interface. Use a CLI para registrar ou atualizar catálogos e gerenciar ferramentas externas de análise. A confiança da fonte é configurada pela CLI, não pelo catálogo aberto.
-
-Telas em inglês do fluxo sintético, nos temas claro e escuro:
-
-![Resultados da análise no tema claro, em inglês](../../images/gui-light.png)
-
-![Revisão do plano no tema escuro, em inglês](../../images/gui-dark.png)
+O estado de catálogos e ferramentas é somente leitura na interface. Use a CLI para registrar ou atualizar catálogos e gerenciar ferramentas externas de análise.
 
 ## Configurações e diagnóstico
 
@@ -69,7 +62,7 @@ O mecanismo alinha arquivos FFS em relação ao volume, permitindo analisar e re
 
 Quando a verificação independente não pode terminar, a CLI informa `VERIFICATION_INCOMPLETE` com o relatório parcial nos detalhes do erro. A interface mantém resultados incompletos separados dos verificados.
 
-## Validação registrada em 2026-11-09
+## Validação da interface anterior registrada em 2026-11-09
 
 O fluxo sintético real passou pelo controlador e pelo loop de eventos Slint, incluindo exportação de plano e verificação independente automática. Os bytes de saída e a semântica do manifesto correspondem a uma execução equivalente da CLI. Execuções nativas em Ubuntu 26.04/GNOME passaram com renderização por software Wayland nos temas claro e escuro, renderização acelerada Wayland e renderização por software X11 via XWayland. Isso é separado da qualificação de um desktop Xorg nativo.
 

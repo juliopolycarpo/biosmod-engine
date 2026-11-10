@@ -2,7 +2,7 @@
 
 [English](README.md) | Português (Brasil)
 
-`bme` inspeciona imagens de firmware, encontra defeitos catalogados, planeja patches protegidos e gera cópias modificadas e verificadas. A CLI é um único executável sem dependências de execução. Pessoas e agentes usam os mesmos comandos; adicione `--json` para obter um documento legível por máquina por execução. `bme-gui` oferece uma interface gráfica Linux para a mesma engine.
+`bme` inspeciona imagens de firmware, encontra defeitos catalogados, gera cópias modificadas e verificadas. A CLI é um único executável sem dependências de execução. Pessoas e agentes usam os mesmos comandos; adicione `--json` para obter um documento legível por máquina por execução. `bme-gui` oferece uma interface gráfica Linux para a mesma engine.
 
 O `bme` nunca lê ou grava um chip flash. As entradas nunca são modificadas e as saídas são sempre novos arquivos.
 
@@ -20,9 +20,8 @@ Registros para outras placas podem ficar em seus próprios catálogos (`bme guid
 ```sh
 cargo build --release          # target/release/bme
 bme scan dump.bin
-bme plan dump.bin --select recommended -o plan.json
-bme patch dump.bin --plan plan.json -o fixed.bin
-bme verify dump.bin fixed.bin
+bme patch dump.bin --recommended
+bme verify dump.bin dump.patched.bin
 ```
 
 ```text
@@ -47,7 +46,7 @@ cargo build --release -p biosmod-cli -p biosmod-gui
 target/release/bme-gui
 ```
 
-A interface analisa uma imagem, revisa um plano, gera uma nova cópia e a verifica independentemente. Ela acompanha o tema claro ou escuro do sistema, com escolha manual em Configurações. A interface oferece inglês e português brasileiro; o inglês é o padrão. Veja o [guia da interface](docs/pt-BR/guide/gui.md) para dependências, instalação, limites e solução de problemas.
+A interface analisa uma imagem, gera uma cópia a partir dos patches selecionados e a verifica independentemente. Ela acompanha o tema claro ou escuro do sistema, com escolha manual em Configurações. A interface oferece inglês e português brasileiro; o inglês é o padrão. Veja o [guia da interface](docs/pt-BR/guide/gui.md) para dependências, instalação, limites e solução de problemas.
 
 ## O que faz
 
@@ -76,7 +75,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 |---|---|
 | `inspect` | regiões de descriptor, volumes e arquivos |
 | `scan` | versão detectada e cada estado de patch |
-| `plan`, `patch`, `verify` | geração revisada e reproduzível |
+| `patch`, `export`, `verify` | geração, receitas opcionais e verificação |
 | `extract`, `replace` | extrair um módulo e inserir o módulo editado |
 | `derive` | elaborar uma variante para outra versão por assinaturas únicas |
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | fontes e manutenção de catálogos |
@@ -93,7 +92,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 - [Formatos](docs/pt-BR/formats.md): estruturas de firmware suportadas e limites
 - [Protocolo](docs/pt-BR/guide/agents.md), [confiança](docs/pt-BR/guide/trust.md), [catálogos](docs/pt-BR/guide/catalogs.md), [recuperação](docs/pt-BR/guide/recovery.md)
 - [Qualificação da interface no Linux](docs/pt-BR/linux-desktop-qualification.md): ambientes testados e limites
-- [Interface gráfica](docs/pt-BR/guide/gui.md): configuração Linux e fluxo de geração revisada
+- [Interface gráfica](docs/pt-BR/guide/gui.md): configuração Linux e fluxo de geração
 - [Como contribuir](CONTRIBUTING.pt-BR.md), incluindo envio de placas e patches
 - [Medições de referência](docs/pt-BR/baseline.md)
 

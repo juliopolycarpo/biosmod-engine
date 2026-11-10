@@ -16,16 +16,17 @@ Códigos de saída: `0` sucesso, `1` falha controlada (veja `error.code`), `2` e
 
 `verify` retorna saída `1` e `VERIFICATION_INCOMPLETE` quando as verificações obrigatórias do catálogo não podem ser executadas. Seu `error.details` contém o relatório de verificação (`complete: false`, `checks`, `skipped` e `notice`). Engines antigas podem retornar esse relatório em `data` com saída `0`; clientes devem sempre inspecionar a conclusão e as verificações obrigatórias antes de informar sucesso.
 
-`capabilities.data.desktop_workflow: 1` identifica o fluxo protegido da interface: recusas conservadoras de layout de firmware e verificação incompleta explícita. A interface exige esse marcador mesmo quando uma engine antiga anuncia o mesmo protocolo e versão do pacote. Os campos JSON `inspect.path`, `patch.output` e `patch.manifest_file` são textos para exibição; caminhos Unix com bytes que não são UTF-8 usam caracteres de substituição. Preserve os caminhos originais do sistema operacional ao executar operações posteriores, em vez de reconstruí-los a partir desses textos.
+`capabilities.data.desktop_workflow: 1` identifica o fluxo protegido da interface: recusas conservadoras de layout de firmware e verificação incompleta explícita. A interface também exige `direct_patch_workflow: 1`; protocolo e versão do pacote iguais não são suficientes. Os campos JSON `inspect.path`, `patch.output` e `patch.manifest_file` são textos para exibição; caminhos Unix com bytes que não são UTF-8 usam caracteres de substituição. Preserve os caminhos originais do sistema operacional ao executar operações posteriores, em vez de reconstruí-los a partir desses textos.
 
 `bme capabilities --json` lista comandos, se cada um grava arquivos ou usa a rede, formatos suportados, limites e todos os códigos de erro com seus significados. O vetor `verification_required_checks` identifica as verificações que precisam passar exatamente uma vez para que o relatório esteja completo. Os campos `exit_codes` e `error_codes` definem os códigos de saída e sua relação com os erros. Clientes de interface associam esses valores à conexão validada e rejeitam relatórios incompletos ou contraditórios.
 
-## Um ciclo seguro para agentes
+## Fluxo para agentes
 
-1. Execute `bme scan dump.bin --json` e leia `data.sources[].report.patches[]`: `state`, `plannable`, `blocked`, `requires_facts`.
-2. Peça ao usuário que confirme cada fato de hardware; nunca o afirme em nome dele.
-3. Execute `bme plan dump.bin --select <ids> -o plan.json --json`; mostre `data.plan.components`, `notes` e `changed` ao usuário.
-4. Execute `bme patch dump.bin --plan plan.json -o out.bin --json` somente após o usuário aprovar o plano.
-5. Execute `bme verify dump.bin out.bin --json`. Informe `complete`, `checks` e `skipped` como estão. Verificação offline não significa que a imagem inicializa.
+1. Execute `bme scan dump.bin --json` e examine `data.sources[].report.patches[]`, incluindo `state`, `plannable`, `blocked` e `requires_facts`.
+2. Peça ao usuário que confirme fatos de hardware; nunca os afirme em nome dele. Siga a política de autorização do solicitante para gerar uma cópia.
+3. Selecione IDs concretos de unidades de aplicação ou use `--recommended`. Opcionalmente, execute `bme patch dump.bin <ids> --dry-run --json` para examinar `data.plan.components`, `notes` e `changed`, ou `bme export dump.bin <ids> -o selection.json --json` para salvar uma receita.
+4. Execute `bme patch dump.bin <ids> -o out.bin --json` e `bme verify dump.bin out.bin --json`. Informe `complete`, `checks` e `skipped` como retornados. Verificação offline não significa que a imagem inicializa.
+
+Clientes que vinculam a geração a uma análise exibida podem passar `--expect-input-sha256` e `--expect-source-sha256` da entrada e de `snapshot_sha256` da fonte selecionada no scan. Uma divergência falha com `PLAN_INPUT_CHANGED`; analise novamente antes de selecionar. O hash identifica uma cópia validada da fonte, não uma assinatura. Dry-run e export aceitam as mesmas proteções. A reprodução com `--from` usa as fixações da receita e recusa sobrescrever essas proteções.
 
 Um agente nunca deve gravar um chip. A gravação é decisão do usuário e exige um caminho de recuperação com gravador.

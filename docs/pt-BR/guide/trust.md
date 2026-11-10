@@ -27,8 +27,8 @@ Atualizações são recusadas se o ID do catálogo mudar, se a versão for anter
 
 ## Combinar fontes
 
-`--catalog` pode ser repetido. Um plano usa uma fonte; selecionar patches de duas fontes é recusado. Um ID sem qualificação definido por duas fontes carregadas resulta em `TARGET_AMBIGUOUS`; qualifique-o como `ALIAS::ID`. O alias `official` é reservado.
+`--catalog` pode ser repetido. Uma seleção usa uma fonte; selecionar patches de duas fontes é recusado. Um ID sem qualificação definido por duas fontes carregadas resulta em `TARGET_AMBIGUOUS`; qualifique-o como `ALIAS::ID`. O alias `official` é reservado.
 
-## Planos
+## Receitas
 
-Um plano fixa o alias da fonte, a confiança, o hash do manifesto e cada arquivo consumido. `patch --plan` recarrega essa fonte offline e recusa qualquer diferença. Um arquivo de plano é dado, não autoridade: editá-lo pode mudar o que é solicitado, mas nunca quais verificações são executadas.
+Uma receita exportada fixa o alias da fonte, a confiança, o hash do manifesto e cada arquivo consumido. `patch --from` recarrega essa fonte offline e recusa qualquer diferença. A receita não contém o catálogo nem concede permissão para usar uma fonte local não assinada. Editá-la não permite ignorar a validação.

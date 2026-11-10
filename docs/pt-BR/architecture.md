@@ -8,11 +8,11 @@ Três crates em um workspace:
 |---|---|---|
 | `biosmod-core` (biblioteca) | análise de firmware, modelos e validação de catálogo, correspondência de patches, planejamento, reconstrução e verificação | I/O de sistema de arquivos, rede ou terminal |
 | `biosmod-cli` (executável `bme`) | argumentos, arquivos, fontes de catálogo, configuração, downloads, subprocessos e saída | interpretar firmware por conta própria |
-| `biosmod-gui` (executável `bme-gui`) | apresentação, estado da sessão revisada e supervisão do subprocesso `bme` | interpretar ou modificar firmware independentemente |
+| `biosmod-gui` (executável `bme-gui`) | apresentação, estado da sessão e supervisão do subprocesso `bme` | interpretar ou modificar firmware independentemente |
 
 Funções do core recebem bytes e um `FileSource` e retornam `Result`s tipados com um `Code` estável. A CLI os encapsula no envelope `bme/1`.
 
-A interface chama um `bme` compatível como subprocesso. Ela mantém os bytes do plano revisado em um diretório privado de sessão, aplica somente um plano gerado nessa sessão e confere o resultado da verificação independente. Ela armazena preferências de apresentação separadamente da configuração de fontes e confiança da CLI. Compilações do core e da CLI não dependem do Slint.
+A interface chama um `bme` compatível como subprocesso. Ela vincula a geração direta à entrada e à cópia do catálogo exibidas, mantém os bytes de receitas importadas em uma sessão privada e confere o resultado da verificação independente. Ela armazena preferências de apresentação separadamente da configuração de fontes e confiança da CLI. Compilações do core e da CLI não dependem do Slint.
 
 ## Módulos do core
 
@@ -44,7 +44,7 @@ A interface chama um `bme` compatível como subprocesso. Ela mantém os bytes do
 ## Limites de confiança
 
 - Arquivos de catálogo são entrada não confiável: limites de tamanho, análise estrita, hashes do índice, regras de caminhos e validação semântica.
-- Planos não são confiáveis: `patch --plan` recalcula e compara tudo.
+- Receitas não são confiáveis: `patch --from` recalcula e compara tudo.
 - Catálogos remotos só são confiáveis por uma chave minisign configurada localmente e como cópias validadas.
 - Arquivos de ferramentas baixados só são confiáveis por hashes fixados.
 

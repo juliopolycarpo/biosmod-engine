@@ -8,11 +8,11 @@ Three crates in one workspace:
 | -------------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
 | `biosmod-core` (library)         | firmware parsing, catalog models and validation, patch matching, planning, rebuilding and verification | filesystem, network or terminal I/O       |
 | `biosmod-cli` (binary `bme`)     | arguments, files, catalog sources, configuration, downloads, subprocesses, output                      | interpret firmware on its own             |
-| `biosmod-gui` (binary `bme-gui`) | presentation, reviewed session state and `bme` subprocess supervision                                  | interpret or patch firmware independently |
+| `biosmod-gui` (binary `bme-gui`) | presentation, session state and `bme` subprocess supervision                                  | interpret or patch firmware independently |
 
 Core functions take bytes and a `FileSource` and return typed `Result`s with a stable `Code`. The CLI wraps them in the `bme/1` envelope.
 
-The GUI invokes a compatible `bme` as a subprocess. It keeps reviewed plan bytes in a private session directory, applies only a plan generated in that session, and checks the independent verification result. It stores presentation settings separately from CLI source and trust configuration. CLI and core builds do not depend on Slint.
+The GUI invokes a compatible `bme` as a subprocess. It binds direct builds to the displayed input and catalog snapshot, retains imported recipe bytes in a private session, and checks the independent verification result. It stores presentation settings separately from CLI source and trust configuration. CLI and core builds do not depend on Slint.
 
 ## Core modules
 
@@ -44,7 +44,7 @@ The GUI invokes a compatible `bme` as a subprocess. It keeps reviewed plan bytes
 ## Trust boundaries
 
 - Catalog files are untrusted input: size limits, strict parsing, index hashes, path rules, then semantic validation.
-- Plans are untrusted: `patch --plan` recomputes everything and compares.
+- Recipes are untrusted: `patch --from` recomputes everything and compares.
 - Remote catalogs are trusted only through a locally configured minisign key, and only as validated snapshots.
 - Downloaded tool archives are trusted only through pinned digests.
 

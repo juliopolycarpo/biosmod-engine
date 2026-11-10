@@ -7,7 +7,7 @@ When memory training stops on `b0` or `b7`, the POST display shows only the majo
 It is a `diagnostic` record (`MRC-BREADCRUMBS`), layered on B01-B06 and B02-B03 for the MR9A build `mnx99mr9apro-230322`:
 
 ```sh
-bme plan dump.bin --select B01-B06 B02-B03 MRC-BREADCRUMBS --allow-diagnostic -o plan.json
+bme patch dump.bin B01-B06 B02-B03 MRC-BREADCRUMBS --allow-diagnostic
 ```
 
 The record checks the module's XIP image base, that no relocation covers a patched byte, and that CmosPei, CmosDxe and PlatformEarlyInit match reviewed hashes. Its assembly source is in the catalog's `provenance/` directory.

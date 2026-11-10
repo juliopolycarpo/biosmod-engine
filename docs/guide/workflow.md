@@ -2,57 +2,53 @@
 
 English | [Brazilian Portuguese](../pt-BR/guide/workflow.md)
 
-`bme` works on a copy of your firmware. It never opens a flash chip, and every output is a new file.
+`bme` never opens a flash chip or modifies the input image.
 
 ```sh
-bme scan dump.bin                                   # which build is this, which defects are present
-bme plan dump.bin --select recommended -o plan.json # resolve and dry-build in memory
-bme patch dump.bin --plan plan.json -o fixed.bin    # rebuild, verify, publish fixed.bin + manifest
-bme verify dump.bin fixed.bin                       # independent check with the same engine build
+bme scan dump.bin
+bme patch dump.bin --recommended
+bme verify dump.bin dump.patched.bin
 ```
 
-## Scan
+## Scan and select
 
-`scan` detects the firmware build by matching recorded module hashes. Each patch gets a state:
+`scan` identifies the build from recorded module hashes and reports each patch state: `present`, `fixed`, `partial`, `likely-present`, `likely-fixed`, `not-detected`, `not-applicable` or `unsupported`. Only `present` records on a known build can be selected for a build. `fixed` means the fix is already present; `partial` means only some hunks are applied. `likely-*` means signatures matched on an unknown build and is a lead for porting. `not-detected` does not prove a defect is absent; `not-applicable` means the catalog excludes the build, and `unsupported` means the format cannot be decoded.
 
-| State | Meaning |
-|---|---|
-| `present` | the defect is there and the module matches the recorded source exactly |
-| `fixed` | the recorded fix is already applied |
-| `partial` | some hunks are applied, others are not; nothing will be built on it |
-| `likely-present` / `likely-fixed` | unknown build: every hunk signature matched exactly once |
-| `not-detected` | the code differs or the module is missing; this does not prove the defect is absent |
-| `not-applicable` | the record says this build does not have the defect |
-| `unsupported` | the module is in a format bme cannot decode |
+Choose application-unit IDs, such as `B01-B06` and `B02-B03`, rather than their individual finding IDs. IDs can be qualified as `official::B02-B03@1.0.0`. Alternatively, `--recommended` selects present, applicable corrections in the recommended tier that need no hardware assertions. The complete selection is validated together; prerequisites must be selected or already installed, and conflicts can prevent a build.
 
-Only `present` records on a known build are plannable. `likely-*` results are leads for porting (`bme guide porting`).
+Some records require `--assert <fact>` for hardware confirmed on the physical board, `--allow-hold` for unknown hardware effects, or `--allow-diagnostic` for diagnostic patches. `bme catalog show` lists required facts.
 
-## Select
+## Build and preview
 
-`--select` takes ids (`B05`), qualified ids (`lab::B05@1.2.0`) or `recommended` (every plannable tier-1 correction). Some records need more:
+```sh
+bme patch dump.bin B01-B06 B02-B03
+bme patch dump.bin --recommended --dry-run
+bme patch dump.bin B01-B06 B02-B03 -o fixed.bin
+```
 
-- `--assert <fact>`: the record depends on hardware the firmware cannot prove, for example which Super I/O is fitted. Check the board, then assert the fact by its id (`bme catalog show` lists them).
-- `--allow-hold`: records whose hardware effect is unknown.
-- `--allow-diagnostic`: diagnostic patches such as the MRC breadcrumbs. They are not corrections.
+A bare `patch dump.bin` requires a selection. Positional IDs, `--recommended`, a saved recipe and the legacy `--select` option cannot be mixed. Without `-o`, the output is beside the input with `.patched` inserted before its final extension, or appended if there is no extension. The manifest is `<output>.manifest.json`; existing destinations are never overwritten.
 
-Supersession and conflicts are resolved for you; `plan` lists every note.
+`--dry-run` resolves, builds and verifies in memory without publishing files. With `-o`, JSON reports `proposed_output` instead of published output fields. A preview does not reserve a path or replace validation during a later build.
 
-## Plan and patch
+Before publication, the output is re-parsed, selected and preserved patches must read back as fixed, and bytes outside the allowlist must match the input. The CLI stages the image and manifest beside the destination and publishes without replacing existing files.
 
-`plan` writes a JSON plan with the input digest, the pinned catalog snapshot (manifest digest and every consumed file), the selection, facts, flags, every component change, the byte allowlist and the expected output digest.
+## Save and replay a selection
 
-Plans and output manifests also record an engine build-input fingerprint. It covers the core and CLI sources, build scripts, manifests, lockfile, bundled catalog and other embedded resources, plus the compiler version, target and selected build settings. File names are relative to the workspace; checkout location and timestamps are not inputs. Changing these inputs, including target or build profile, can require a new plan even when the package version is unchanged.
+```sh
+bme export dump.bin -o selection.json
+bme export dump.bin B01-B06 B02-B03 -o explicit-selection.json
+bme patch dump.bin --from selection.json
+bme verify dump.bin dump.patched.bin --from selection.json
+```
 
-`bme version --json` reports the fingerprint as `data.build_fingerprint`. The build rejects non-UTF-8 workspace paths and non-UTF-8 captured build-setting values rather than collapsing different paths to the same text.
+Export defaults to the current recommended selection and requires a new output file. It builds and validates in memory, then writes only the recipe. The `bme.plan/1` document captures concrete IDs, input digest, catalog pin, policy, component changes and expected output digest; it does not contain a self-contained catalog. Replay reloads the pinned catalog, reconstructs the operation and compares the document and output. It rejects selection, catalog, firmware and policy overrides; local unsigned catalogs may still require explicit `--allow-unsigned-local`.
 
-`patch --plan` and `verify` refuse a missing or different fingerprint with `PLAN_INVALID`. Plans and manifests created before fingerprints were introduced must be regenerated with the current build. Retain the matching engine build if you need to verify an older output. This fingerprint identifies recorded inputs; it is not an executable signature or attestation. It does not hash compiler binaries, dependency source trees, native tools or every environment variable, so it cannot prove that builds with the same fingerprint are byte-identical.
-
-`patch --plan` treats the plan as untrusted: it re-reads the input, reloads the pinned catalog offline, rebuilds from scratch and requires the same plan and output digest. Any drift is `PLAN_INPUT_CHANGED` or `OUTPUT_VERIFICATION_FAILED`, and nothing is written.
-
-`patch --select` plans and builds in one step.
-
-Before publishing, every output is re-parsed, every selected and carried patch must read back as fixed, and every byte outside the allowlist must equal the input. The image and `<output>.manifest.json` are staged next to the target and moved into place without replacing existing files.
+Recipes and manifests include an engine build-input fingerprint. `patch --from` and `verify` reject a missing or different fingerprint with `PLAN_INVALID`; retain the matching engine to replay or verify older artifacts. `bme version --json` reports it as `data.build_fingerprint`. The fingerprint identifies recorded build inputs, not an executable signature or proof of identical binaries.
 
 ## Verify
 
-`verify` checks the input and output digests against the manifest, re-parses the output, compares bytes outside the allowlist, confirms patch states and reproduces the build from the pinned catalog when that catalog is still available. It reports skipped checks separately and never claims the image will boot.
+`verify` checks input and output digests against the manifest, re-parses the output, checks allowed changes and patch states, and reconstructs the build from the pinned catalog when available. Required checks that cannot run produce `VERIFICATION_INCOMPLETE`. Offline verification does not establish that the image will boot.
+
+## Compatibility
+
+`bme plan dump.bin --select recommended -o plan.json`, `patch --select`, `patch --plan` and `verify --plan` remain supported. `--plan` is an alias for `--from`; old recipe and manifest fingerprints still require a matching engine build.
