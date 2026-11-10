@@ -760,6 +760,8 @@ pub fn verify(ctx: &Ctx, args: &VerifyArgs) -> Result<Reply> {
     match pinned_source(ctx, plan, true) {
         Ok(loaded) => {
             let mut states = Vec::new();
+            let context =
+                analysis::PatchStateContext::new(&structure, &loaded.catalog, &plan.firmware);
             for id in plan.selected.iter().chain(&plan.carried) {
                 let patch = loaded.catalog.patches.get(id).ok_or_else(|| {
                     Error::new(
@@ -767,8 +769,7 @@ pub fn verify(ctx: &Ctx, args: &VerifyArgs) -> Result<Reply> {
                         format!("patch {id}: missing from source"),
                     )
                 })?;
-                let (state, detail) =
-                    analysis::patch_state(&structure, &loaded.catalog, &plan.firmware, patch);
+                let (state, detail) = context.patch_state(patch);
                 if state != State::Fixed {
                     return Err(Error::new(
                         Code::OutputVerificationFailed,

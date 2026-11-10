@@ -367,6 +367,52 @@ pub struct ScanReport {
     pub recommended: Vec<String>,
 }
 
+/// Reuse firmware-specific analysis while checking several patch states.
+///
+/// ```no_run
+/// # use biosmod_core::{analysis::PatchStateContext, catalog::Catalog, firmware::Image};
+/// # fn demo(image: &Image, catalog: &Catalog) {
+/// let context = PatchStateContext::new(image, catalog, "build-id");
+/// for patch in catalog.patches.values() {
+///     let (state, detail) = context.patch_state(patch);
+///     println!("{state:?}: {detail}");
+/// }
+/// # }
+/// ```
+pub struct PatchStateContext<'a> {
+    image: &'a Image,
+    catalog: &'a Catalog,
+    firmware: &'a str,
+    offsets: TableOffsetIndex,
+}
+
+impl<'a> PatchStateContext<'a> {
+    /// Prepare state checks for an image, catalog, and firmware build.
+    ///
+    /// Example: `PatchStateContext::new(&image, &catalog, "build-id")`.
+    pub fn new(image: &'a Image, catalog: &'a Catalog, firmware: &'a str) -> Self {
+        Self {
+            image,
+            catalog,
+            firmware,
+            offsets: TableOffsetIndex::new(catalog, firmware),
+        }
+    }
+
+    /// Return the state and explanation for a patch using the bound inputs.
+    ///
+    /// Example: `context.patch_state(&catalog.patches["PA"])`.
+    pub fn patch_state(&self, patch: &Patch) -> (State, String) {
+        patch_state_indexed(
+            self.image,
+            self.catalog,
+            self.firmware,
+            patch,
+            &self.offsets,
+        )
+    }
+}
+
 /// The state of one patch on an image for a known firmware build.
 pub fn patch_state(
     image: &Image,

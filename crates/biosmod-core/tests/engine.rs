@@ -637,6 +637,12 @@ fn table_offset_conflict_uses_first_different_offset_for_each_component() {
             synthetic::FIRMWARE,
             &case.catalog.patches[id],
         );
+        let context = analysis::PatchStateContext::new(&image, &case.catalog, synthetic::FIRMWARE);
+        assert_eq!(
+            context.patch_state(&case.catalog.patches[id]),
+            direct,
+            "{id}: context differs from direct state"
+        );
         assert_eq!(
             direct.1, row.detail,
             "{id}: direct patch state differs from scan"
