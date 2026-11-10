@@ -287,6 +287,32 @@ fn real_desktop_synthetic_workflow() {
                     return;
                 }
                 drop(state);
+                let height = window
+                    .window()
+                    .size()
+                    .to_logical(window.window().scale_factor())
+                    .height;
+                let build_label = if language == Language::PtBr {
+                    "Gerar cópia com patches"
+                } else {
+                    "Build patched copy"
+                };
+                for label in [build_label, window.get_status().as_str()] {
+                    let visible = i_slint_backend_testing::ElementHandle::find_by_accessible_label(
+                        &window, label,
+                    )
+                    .next()
+                    .is_some_and(|element| {
+                        element.absolute_position().y + element.size().height <= height + 1.
+                    });
+                    if !visible {
+                        *tick_result.borrow_mut() = Some(Err(format!(
+                            "workspace: expected {label:?} inside the {height}px window"
+                        )));
+                        let _ = slint::quit_event_loop();
+                        return;
+                    }
+                }
                 if let Err(error) = save_stage(&window, screenshot.as_deref(), "scan") {
                     *tick_result.borrow_mut() = Some(Err(error));
                     let _ = slint::quit_event_loop();
@@ -297,9 +323,27 @@ fn real_desktop_synthetic_workflow() {
             }
             4 if state.session.outcome == Outcome::Verified => {
                 drop(state);
-                if !window.get_can_export_selection() {
-                    *tick_result.borrow_mut() =
-                        Some(Err("result: expected Export selection enabled".into()));
+                let width = window
+                    .window()
+                    .size()
+                    .to_logical(window.window().scale_factor())
+                    .width;
+                let export = if language == Language::PtBr {
+                    "Exportar seleção…"
+                } else {
+                    "Export selection…"
+                };
+                let visible = i_slint_backend_testing::ElementHandle::find_by_accessible_label(
+                    &window, export,
+                )
+                .next()
+                .is_some_and(|element| {
+                    element.absolute_position().x + element.size().width <= width + 1.
+                });
+                if !window.get_can_export_selection() || !visible {
+                    *tick_result.borrow_mut() = Some(Err(format!(
+                        "result: expected Export selection enabled inside the {width}px window"
+                    )));
                     let _ = slint::quit_event_loop();
                     return;
                 }

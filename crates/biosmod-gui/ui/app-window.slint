@@ -260,6 +260,10 @@ export component AppWindow inherits Window {
                         alignment: center;
                         Chip { text: @tr("{n} finding" | "{n} findings" % root.patches.length); }
                     }
+                    if root.selection-count > 0: VerticalLayout {
+                        alignment: center;
+                        Chip { text: @tr("{} selected", root.selection-count); }
+                    }
                     Rectangle { horizontal-stretch: 1; }
                 }
                 // While the manual paths panel is open on a short window, the summary yields its rows
@@ -286,25 +290,18 @@ export component AppWindow inherits Window {
                 }
                 if root.patches.length > 0: ListView {
                     vertical-stretch: 1;
-                    min-height: root.paths-open && root.viewport-height < 700px ? 0px : 80px;
+                    min-height: root.viewport-height >= 700px ? 80px : root.paths-open ? 0px : 48px;
                     for patch[i] in root.patches: PatchCard { patch: patch; enabled: !root.busy; toggled => { root.toggle-patch(i); } }
                 }
-                Caption { text: root.scan-facts.length > 0 ? @tr("Board profiles are catalog information, not physical board identification. Hardware-dependent findings and corrections that require joint selection cannot be applied here yet.") : @tr("Hardware-dependent findings and corrections that require joint selection cannot be applied here yet."); }
-                HorizontalLayout {
-                    spacing: Theme.space-sm;
-                    Button { text: @tr("Recommended"); enabled: root.can-recommend && !root.busy; clicked => { root.recommended(); } }
-                    if root.selection-count > 0 && root.viewport-width >= 900px: Caption { text: @tr("{} selected", root.selection-count); vertical-alignment: center; }
-                    Rectangle { horizontal-stretch: 1; }
-                    Button { text: @tr("Preview changes"); enabled: root.can-plan && !root.busy; clicked => { root.preview(); } }
-                    Button { text: @tr("Export selection…"); enabled: root.can-export-selection && !root.busy; clicked => { root.export-plan(); } }
-                    Button { text: @tr("Build patched copy"); primary: true; enabled: root.can-build && !root.busy; clicked => { root.build(); } }
-                }
+                if root.viewport-height >= 700px: Caption { text: root.scan-facts.length > 0 ? @tr("Board profiles are catalog information, not physical board identification. Hardware-dependent findings and corrections that require joint selection cannot be applied here yet.") : @tr("Hardware-dependent findings and corrections that require joint selection cannot be applied here yet."); }
+
             }
             if root.reviewing: VerticalLayout {
                 spacing: Theme.space-md;
+                if root.viewport-width < 900px: SectionTitle { text: @tr("Selection details"); vertical-alignment: center; }
                 HorizontalLayout {
                     spacing: Theme.space-sm;
-                    SectionTitle { text: @tr("Selection details"); vertical-alignment: center; }
+                    if root.viewport-width >= 900px: SectionTitle { text: @tr("Selection details"); vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
                     Button { text: @tr("Export selection…"); enabled: !root.busy && root.can-export-selection; clicked => { root.export-plan(); } }
                     if root.stage >= 3: Button { text: @tr("Show output"); clicked => { root.show-review = false; } }
@@ -317,33 +314,42 @@ export component AppWindow inherits Window {
 
             }
             if root.stage == 1 || root.stage == 2: Rectangle {
-                    background: Theme.surface;
-                    border-color: Theme.border;
-                    border-width: 1px;
-                    border-radius: Theme.radius;
-                    height: output-layout.preferred-height;
-                    output-layout := VerticalLayout {
-                        padding: Theme.space-md;
-                        spacing: Theme.space-sm;
-                        FieldRow {
-                            label: @tr("Output");
-                            LineEdit {
-                                placeholder-text: @tr("New output image path");
-                                accessible-label: @tr("New output image path");
-                                text <=> root.output-path;
-                                enabled: !root.busy;
-                                edited(value) => { root.output-edited(value); }
-                            }
-                            Button { text: @tr("Choose…"); enabled: !root.busy; clicked => { root.browse-output(); } }
+                background: Theme.surface;
+                border-color: Theme.border;
+                border-width: 1px;
+                border-radius: Theme.radius;
+                height: output-layout.preferred-height;
+                output-layout := VerticalLayout {
+                    padding: root.viewport-height < 700px ? Theme.space-sm : Theme.space-md;
+                    spacing: Theme.space-sm;
+                    FieldRow {
+                        label: @tr("Output");
+                        LineEdit {
+                            placeholder-text: @tr("New output image path");
+                            accessible-label: @tr("New output image path");
+                            text <=> root.output-path;
+                            enabled: !root.busy;
+                            edited(value) => { root.output-edited(value); }
                         }
-                        if root.output-path != "": Caption { text: @tr("Manifest: {}", root.manifest-path); }
+                        Button { text: @tr("Choose…"); enabled: !root.busy; clicked => { root.browse-output(); } }
                     }
+                    if root.output-path != "" && root.viewport-height >= 700px: Caption { text: @tr("Manifest: {}", root.manifest-path); }
                 }
+            }
+            if root.stage == 1: HorizontalLayout {
+                spacing: Theme.space-sm;
+                Button { text: @tr("Recommended"); enabled: root.can-recommend && !root.busy; clicked => { root.recommended(); } }
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: @tr("Preview changes"); enabled: root.can-plan && !root.busy; clicked => { root.preview(); } }
+                Button { text: @tr("Export selection…"); enabled: root.can-export-selection && !root.busy; clicked => { root.export-plan(); } }
+                Button { text: @tr("Build patched copy"); primary: true; enabled: root.can-build && !root.busy; clicked => { root.build(); } }
+            }
             if root.stage >= 3 && !root.show-review: VerticalLayout {
                 spacing: Theme.space-md;
+                if root.viewport-width < 900px: SectionTitle { text: root.result-title; color: root.status-tone != Tone.quiet ? Tones.color(root.status-tone) : Theme.text; vertical-alignment: center; }
                 HorizontalLayout {
                     spacing: Theme.space-sm;
-                    SectionTitle { text: root.result-title; color: root.status-tone != Tone.quiet ? Tones.color(root.status-tone) : Theme.text; vertical-alignment: center; }
+                    if root.viewport-width >= 900px: SectionTitle { text: root.result-title; color: root.status-tone != Tone.quiet ? Tones.color(root.status-tone) : Theme.text; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
                     if root.plan-details != "": Button { text: @tr("Selection details"); clicked => { root.show-review = true; } }
                     Button { text: @tr("Back to findings"); enabled: !root.busy; clicked => { root.back-to-selection(); } }

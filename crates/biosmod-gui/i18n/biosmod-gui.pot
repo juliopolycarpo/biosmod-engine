@@ -26,7 +26,7 @@ msgctxt "AppWindow"
 msgid "Output & verification"
 msgstr ""
 
-#: ui/app-window.slint:135 ui/app-window.slint:506
+#: ui/app-window.slint:135 ui/app-window.slint:512
 msgctxt "AppWindow"
 msgid "BIOS Mod Engine"
 msgstr ""
@@ -36,17 +36,17 @@ msgctxt "AppWindow"
 msgid "Workflow"
 msgstr ""
 
-#: ui/app-window.slint:138 ui/app-window.slint:369
+#: ui/app-window.slint:138 ui/app-window.slint:375
 msgctxt "AppWindow"
 msgid "Sources & tools"
 msgstr ""
 
-#: ui/app-window.slint:139 ui/app-window.slint:468
+#: ui/app-window.slint:139 ui/app-window.slint:474
 msgctxt "AppWindow"
 msgid "Diagnostics"
 msgstr ""
 
-#: ui/app-window.slint:145 ui/app-window.slint:157 ui/app-window.slint:401
+#: ui/app-window.slint:145 ui/app-window.slint:157 ui/app-window.slint:407
 msgctxt "AppWindow"
 msgid "Settings"
 msgstr ""
@@ -86,7 +86,7 @@ msgctxt "AppWindow"
 msgid "Selection file path"
 msgstr ""
 
-#: ui/app-window.slint:205 ui/app-window.slint:329
+#: ui/app-window.slint:205 ui/app-window.slint:326
 msgctxt "AppWindow"
 msgid "Output"
 msgstr ""
@@ -121,7 +121,7 @@ msgctxt "AppWindow"
 msgid "Original firmware image path"
 msgstr ""
 
-#: ui/app-window.slint:234 ui/app-window.slint:431
+#: ui/app-window.slint:234 ui/app-window.slint:437
 msgctxt "AppWindow"
 msgid "Browse…"
 msgstr ""
@@ -163,22 +163,27 @@ msgid_plural "{n} findings"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app-window.slint:283
+#: ui/app-window.slint:265
+msgctxt "AppWindow"
+msgid "{} selected"
+msgstr ""
+
+#: ui/app-window.slint:287
 msgctxt "AppWindow"
 msgid "No findings to show"
 msgstr ""
 
-#: ui/app-window.slint:284
+#: ui/app-window.slint:288
 msgctxt "AppWindow"
 msgid "Press Scan image to look for corrections in the catalog."
 msgstr ""
 
-#: ui/app-window.slint:284
+#: ui/app-window.slint:288
 msgctxt "AppWindow"
 msgid "Choose an image and enter a catalog source alias to enable scanning."
 msgstr ""
 
-#: ui/app-window.slint:292
+#: ui/app-window.slint:296
 msgctxt "AppWindow"
 msgid ""
 "Board profiles are catalog information, not physical board identification. "
@@ -186,235 +191,230 @@ msgid ""
 "cannot be applied here yet."
 msgstr ""
 
-#: ui/app-window.slint:292
+#: ui/app-window.slint:296
 msgctxt "AppWindow"
 msgid ""
 "Hardware-dependent findings and corrections that require joint selection "
 "cannot be applied here yet."
 msgstr ""
 
-#: ui/app-window.slint:295
-msgctxt "AppWindow"
-msgid "Recommended"
-msgstr ""
-
-#: ui/app-window.slint:296
-msgctxt "AppWindow"
-msgid "{} selected"
-msgstr ""
-
-#: ui/app-window.slint:298
-msgctxt "AppWindow"
-msgid "Preview changes"
-msgstr ""
-
-#: ui/app-window.slint:299 ui/app-window.slint:309 ui/app-window.slint:350
-msgctxt "AppWindow"
-msgid "Export selection…"
-msgstr ""
-
-#: ui/app-window.slint:300 ui/app-window.slint:312
-msgctxt "AppWindow"
-msgid "Build patched copy"
-msgstr ""
-
-#: ui/app-window.slint:307 ui/app-window.slint:348
+#: ui/app-window.slint:301 ui/app-window.slint:304 ui/app-window.slint:354
 msgctxt "AppWindow"
 msgid "Selection details"
 msgstr ""
 
-#: ui/app-window.slint:310
+#: ui/app-window.slint:306 ui/app-window.slint:344 ui/app-window.slint:356
+msgctxt "AppWindow"
+msgid "Export selection…"
+msgstr ""
+
+#: ui/app-window.slint:307
 msgctxt "AppWindow"
 msgid "Show output"
 msgstr ""
 
-#: ui/app-window.slint:311 ui/app-window.slint:349
+#: ui/app-window.slint:308 ui/app-window.slint:355
 msgctxt "AppWindow"
 msgid "Back to findings"
 msgstr ""
 
-#: ui/app-window.slint:315
+#: ui/app-window.slint:309 ui/app-window.slint:345
+msgctxt "AppWindow"
+msgid "Build patched copy"
+msgstr ""
+
+#: ui/app-window.slint:312
 msgctxt "AppWindow"
 msgid "Plan details"
 msgstr ""
 
-#: ui/app-window.slint:316
+#: ui/app-window.slint:313
 msgctxt "AppWindow"
 msgid "Complete plan and source snapshot"
 msgstr ""
 
-#: ui/app-window.slint:331 ui/app-window.slint:332
+#: ui/app-window.slint:328 ui/app-window.slint:329
 msgctxt "AppWindow"
 msgid "New output image path"
 msgstr ""
 
-#: ui/app-window.slint:337
+#: ui/app-window.slint:334
 msgctxt "AppWindow"
 msgid "Choose…"
 msgstr ""
 
-#: ui/app-window.slint:339 ui/app-window.slint:353
+#: ui/app-window.slint:336 ui/app-window.slint:359
 msgctxt "AppWindow"
 msgid "Manifest: {}"
 msgstr ""
 
-#: ui/app-window.slint:352
+#: ui/app-window.slint:341
+msgctxt "AppWindow"
+msgid "Recommended"
+msgstr ""
+
+#: ui/app-window.slint:343
+msgctxt "AppWindow"
+msgid "Preview changes"
+msgstr ""
+
+#: ui/app-window.slint:358
 msgctxt "AppWindow"
 msgid "Output: {}"
 msgstr ""
 
-#: ui/app-window.slint:354
+#: ui/app-window.slint:360
 msgctxt "AppWindow"
 msgid "Verification results"
 msgstr ""
 
-#: ui/app-window.slint:357
+#: ui/app-window.slint:363
 msgctxt "AppWindow"
 msgid "Offline verification does not establish hardware boot behavior."
 msgstr ""
 
-#: ui/app-window.slint:359
+#: ui/app-window.slint:365
 msgctxt "AppWindow"
 msgid "Verify output"
 msgstr ""
 
-#: ui/app-window.slint:370
+#: ui/app-window.slint:376
 msgctxt "AppWindow"
 msgid ""
 "Read-only status of the configured catalog sources and engine tools. Use the "
 "CLI to change them."
 msgstr ""
 
-#: ui/app-window.slint:377 ui/app-window.slint:381
+#: ui/app-window.slint:383 ui/app-window.slint:387
 msgctxt "AppWindow"
 msgid "Catalog sources"
 msgstr ""
 
-#: ui/app-window.slint:379
+#: ui/app-window.slint:385
 msgctxt "AppWindow"
 msgid "Refresh sources"
 msgstr ""
 
-#: ui/app-window.slint:381
+#: ui/app-window.slint:387
 msgctxt "AppWindow"
 msgid "Refresh to view configured sources."
 msgstr ""
 
-#: ui/app-window.slint:387
+#: ui/app-window.slint:393
 msgctxt "AppWindow"
 msgid "Tools"
 msgstr ""
 
-#: ui/app-window.slint:389
+#: ui/app-window.slint:395
 msgctxt "AppWindow"
 msgid "Check tools"
 msgstr ""
 
-#: ui/app-window.slint:391
+#: ui/app-window.slint:397
 msgctxt "AppWindow"
 msgid "Check tools to view their status."
 msgstr ""
 
-#: ui/app-window.slint:391
+#: ui/app-window.slint:397
 msgctxt "AppWindow"
 msgid "Tool diagnostics"
 msgstr ""
 
-#: ui/app-window.slint:402
+#: ui/app-window.slint:408
 msgctxt "AppWindow"
 msgid "Changes are saved as you make them."
 msgstr ""
 
-#: ui/app-window.slint:413
+#: ui/app-window.slint:419
 msgctxt "AppWindow"
 msgid "Engine"
 msgstr ""
 
-#: ui/app-window.slint:415
+#: ui/app-window.slint:421
 msgctxt "AppWindow"
 msgid "Path to bme executable"
 msgstr ""
 
-#: ui/app-window.slint:416
+#: ui/app-window.slint:422
 msgctxt "AppWindow"
 msgid "Engine executable path"
 msgstr ""
 
-#: ui/app-window.slint:432
+#: ui/app-window.slint:438
 msgctxt "AppWindow"
 msgid "Check engine"
 msgstr ""
 
-#: ui/app-window.slint:435 ui/app-window.slint:437
+#: ui/app-window.slint:441 ui/app-window.slint:443
 msgctxt "AppWindow"
 msgid "Language"
 msgstr ""
 
-#: ui/app-window.slint:447
+#: ui/app-window.slint:453
 msgctxt "AppWindow"
 msgid "Theme"
 msgstr ""
 
-#: ui/app-window.slint:449
+#: ui/app-window.slint:455
 msgctxt "AppWindow"
 msgid "Appearance"
 msgstr ""
 
-#: ui/app-window.slint:450
+#: ui/app-window.slint:456
 msgctxt "AppWindow"
 msgid "Follow system"
 msgstr ""
 
-#: ui/app-window.slint:450
+#: ui/app-window.slint:456
 msgctxt "AppWindow"
 msgid "Light"
 msgstr ""
 
-#: ui/app-window.slint:450
+#: ui/app-window.slint:456
 msgctxt "AppWindow"
 msgid "Dark"
 msgstr ""
 
-#: ui/app-window.slint:469
+#: ui/app-window.slint:475
 msgctxt "AppWindow"
 msgid "Recent operation details. Select text to copy it."
 msgstr ""
 
-#: ui/app-window.slint:470
+#: ui/app-window.slint:476
 msgctxt "AppWindow"
 msgid "Recent diagnostics"
 msgstr ""
 
-#: ui/app-window.slint:473
+#: ui/app-window.slint:479
 msgctxt "AppWindow"
 msgid "Copy all"
 msgstr ""
 
-#: ui/app-window.slint:474
+#: ui/app-window.slint:480
 msgctxt "AppWindow"
 msgid "Export…"
 msgstr ""
 
-#: ui/app-window.slint:507
+#: ui/app-window.slint:513
 msgctxt "AppWindow"
 msgid "Version {}"
 msgstr ""
 
-#: ui/app-window.slint:510
+#: ui/app-window.slint:516
 msgctxt "AppWindow"
 msgid ""
 "Inspect firmware and build a reviewed copy using the BIOS Mod Engine command-"
 "line tool."
 msgstr ""
 
-#: ui/app-window.slint:511
+#: ui/app-window.slint:517
 msgctxt "AppWindow"
 msgid ""
 "Firmware matches and offline verification do not establish physical hardware "
 "compatibility or boot behavior."
 msgstr ""
 
-#: ui/app-window.slint:553
+#: ui/app-window.slint:559
 msgctxt "AppWindow"
 msgid "Cancel"
 msgstr ""

@@ -156,6 +156,11 @@ msgid_plural "{n} findings"
 msgstr[0] "{n} resultado"
 msgstr[1] "{n} resultados"
 
+#: ui/app-window.slint:296
+msgctxt "AppWindow"
+msgid "{} selected"
+msgstr "Seleção: {}"
+
 #: ui/app-window.slint:252
 msgctxt "AppWindow"
 msgid "No findings to show"
@@ -186,35 +191,15 @@ msgid ""
 "cannot be applied here yet."
 msgstr "Resultados dependentes do hardware e correções que exigem seleção conjunta ainda não podem ser aplicados aqui."
 
-#: ui/app-window.slint:264
+#: ui/app-window.slint:330 ui/app-window.slint:348
 msgctxt "AppWindow"
-msgid "Recommended"
-msgstr "Recomendados"
-
-#: ui/app-window.slint:296
-msgctxt "AppWindow"
-msgid "{} selected"
-msgstr "Seleção: {}"
-
-#: ui/app-window.slint:321
-msgctxt "AppWindow"
-msgid "Preview changes"
-msgstr "Visualizar alterações"
+msgid "Selection details"
+msgstr "Detalhes da seleção"
 
 #: ui/app-window.slint:322 ui/app-window.slint:332 ui/app-window.slint:350
 msgctxt "AppWindow"
 msgid "Export selection…"
 msgstr "Exportar seleção…"
-
-#: ui/app-window.slint:306
-msgctxt "AppWindow"
-msgid "Build patched copy"
-msgstr "Gerar cópia com patches"
-
-#: ui/app-window.slint:330 ui/app-window.slint:348
-msgctxt "AppWindow"
-msgid "Selection details"
-msgstr "Detalhes da seleção"
 
 #: ui/app-window.slint:276
 msgctxt "AppWindow"
@@ -225,6 +210,11 @@ msgstr "Mostrar saída"
 msgctxt "AppWindow"
 msgid "Back to findings"
 msgstr "Voltar aos resultados"
+
+#: ui/app-window.slint:306
+msgctxt "AppWindow"
+msgid "Build patched copy"
+msgstr "Gerar cópia com patches"
 
 #: ui/app-window.slint:280
 msgctxt "AppWindow"
@@ -250,6 +240,16 @@ msgstr "Escolher…"
 msgctxt "AppWindow"
 msgid "Manifest: {}"
 msgstr "Manifesto: {}"
+
+#: ui/app-window.slint:264
+msgctxt "AppWindow"
+msgid "Recommended"
+msgstr "Recomendados"
+
+#: ui/app-window.slint:321
+msgctxt "AppWindow"
+msgid "Preview changes"
+msgstr "Visualizar alterações"
 
 #: ui/app-window.slint:320
 msgctxt "AppWindow"
