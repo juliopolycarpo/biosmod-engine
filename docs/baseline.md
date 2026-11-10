@@ -1,5 +1,7 @@
 # Baseline measurements
 
+English | [Brazilian Portuguese](pt-BR/baseline.md)
+
 Recorded 2026-11-08 to compare later changes against. These are single-machine numbers, not performance claims.
 
 | Item | Value |

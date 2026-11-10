@@ -17,6 +17,7 @@ fn output_edit_latency_with_retained_plan() {
         let mut desktop = Desktop::new("/missing/bme".into(), Settings::default(), None).unwrap();
         desktop.session.import_review(&path).unwrap();
         let window = AppWindow::new().unwrap();
+        biosmod_gui::i18n::Language::En.select().unwrap();
         let state = bind(&window, desktop);
         window.invoke_output_edited("/tmp/warmup.bin".into());
         let started = Instant::now();

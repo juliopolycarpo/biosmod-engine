@@ -58,6 +58,119 @@ pub enum Outcome {
     Verified,
 }
 
+/// A GUI action cannot start until its required inputs are available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreparationError {
+    Busy,
+    Engine,
+    Image,
+    ImportPath,
+    Scan,
+    Selection,
+    Build,
+    Output,
+    Plan,
+    Manifest,
+    WaitImport,
+}
+
+impl std::fmt::Display for PreparationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Busy => "An operation is already running.",
+            Self::Engine => "Connect a compatible bme engine first.",
+            Self::Image => "Choose an original image first.",
+            Self::ImportPath => "Plan import requires an explicit path.",
+            Self::Scan => "Scan this image and source before planning.",
+            Self::Selection => "Select an eligible correction first.",
+            Self::Build => "Build requires a current generated plan and a new output path.",
+            Self::Output => "Choose a built output first.",
+            Self::Plan => "Open or generate the matching plan first.",
+            Self::Manifest => "Choose an output with its paired manifest first.",
+            Self::WaitImport => "Wait for the active operation before importing a plan.",
+        })
+    }
+}
+impl std::error::Error for PreparationError {}
+
+/// Semantic status used by the GUI to render messages without parsing diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    Start,
+    Inputs,
+    ImportedInput,
+    Selection,
+    Ready,
+    Inspected,
+    Scanned,
+    Planned,
+    Published,
+    Verified,
+    Incomplete,
+    Sources,
+    Tools,
+    Imported,
+    Stopping,
+    Back,
+    ClosingExport,
+    ClosingBuild,
+    ClosingStop,
+    ExportNeedsPlan,
+    Activity(Action),
+    Precondition(PreparationError),
+    Failed,
+    PublicationUnknown,
+    Raw,
+    PreferencesError,
+    PreferencesNoLocation,
+    PickerError,
+    ExportingPlan,
+    ExportingDiagnostics,
+    PlanExported,
+    DiagnosticsExported,
+    PlanExists,
+    DiagnosticsExist,
+    PlanExportError,
+    DiagnosticsExportError,
+}
+
+impl Status {
+    fn english(self) -> &'static str {
+        match self {
+            Self::Start => "Choose a firmware image to get started.",
+            Self::Inputs => "Inputs changed. Inspect and scan to continue.",
+            Self::ImportedInput => {
+                "Imported plan remains read-only. Verify against the chosen original image and output."
+            }
+            Self::Selection => "Selection changed. Generate a new plan to review.",
+            Self::Ready => "Engine ready. Choose an image to inspect.",
+            Self::Inspected => "Image inspected. Scan a source for matching corrections.",
+            Self::Scanned => {
+                "Scan complete. Select corrections or review the engine's recommendation."
+            }
+            Self::Planned => "Review the resolved plan, then choose a new output and build a copy.",
+            Self::Published => "Patched copy published. Independent verification is next.",
+            Self::Verified => "Offline verification complete",
+            Self::Incomplete => {
+                "Verification incomplete. Review skipped checks and retry after addressing them."
+            }
+            Self::Sources => "Registered sources loaded. Firmware operations remain offline.",
+            Self::Tools => "Tool diagnostics complete.",
+            Self::Imported => {
+                "Imported plan: review and verification only. Choose its original image and output."
+            }
+            Self::Stopping => "Stopping operation…",
+            Self::Back => "Select corrections and generate a new plan to continue.",
+            Self::ClosingExport => "Finishing file export before closing…",
+            Self::ClosingBuild => "Building the copy. Close the window after publication finishes.",
+            Self::ClosingStop => "Stopping operation before closing…",
+            Self::ExportNeedsPlan => "Review a plan before exporting it.",
+            Self::Activity(action) => action.label(),
+            _ => "",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Review {
     pub path: PathBuf,
@@ -102,16 +215,22 @@ pub struct Session {
     pub output: Option<PathBuf>,
     pub manifest: Option<PathBuf>,
     pub connected: bool,
-    pub engine_status: String,
+    pub engine_version: Option<String>,
+    pub engine_attempted: bool,
     pub inspection: Option<Value>,
     pub scan: Option<SourceReport>,
     scan_input: Option<Value>,
     pub review: Option<Arc<Review>>,
     pub outcome: Outcome,
     pub status: String,
+    pub status_kind: Status,
+    pub status_detail: String,
+    pub status_extra: String,
     pub result_details: String,
+    /// Retained verification data for presentation in the currently selected language.
+    pub verification_report: Option<Value>,
     pub source_details: String,
-    pub tool_details: String,
+    pub tool_report: Option<(Value, Option<Value>)>,
     pub diagnostics: String,
 }
 
@@ -130,18 +249,55 @@ impl Session {
             output: None,
             manifest: None,
             connected: false,
-            engine_status: "Engine not connected".into(),
+            engine_version: None,
+            engine_attempted: false,
             inspection: None,
             scan: None,
             scan_input: None,
             review: None,
             outcome: Outcome::Idle,
-            status: "Choose a firmware image to get started.".into(),
+            status: Status::Start.english().into(),
+            status_kind: Status::Start,
+            status_detail: String::new(),
+            status_extra: String::new(),
             result_details: String::new(),
+            verification_report: None,
             source_details: String::new(),
-            tool_details: String::new(),
+            tool_report: None,
             diagnostics: String::new(),
         })
+    }
+
+    /// Set a semantic message while retaining an English representation for callers.
+    /// Example: `session.set_status(Status::Selection)` after selection changes.
+    pub fn set_status(&mut self, status: Status) {
+        self.status_kind = status;
+        self.status = status.english().into();
+        self.status_detail.clear();
+        self.status_extra.clear();
+    }
+
+    /// Display a non-translatable technical message. Example: `session.set_raw_status(error)`.
+    pub fn set_raw_status(&mut self, detail: impl Into<String>) {
+        self.status_kind = Status::Raw;
+        self.status = detail.into();
+        self.status_detail.clear();
+        self.status_extra.clear();
+    }
+
+    /// Keep structured presentation values and an English fallback.
+    /// Example: `session.set_detailed_status(Status::PickerError, "error", "", "error")`.
+    pub fn set_detailed_status(
+        &mut self,
+        status: Status,
+        detail: impl Into<String>,
+        extra: impl Into<String>,
+        fallback: impl Into<String>,
+    ) {
+        self.status_kind = status;
+        self.status_detail = detail.into();
+        self.status_extra = extra.into();
+        self.status = fallback.into();
     }
 
     /// Invalidate all derived data after an image, source, or engine change.
@@ -156,8 +312,9 @@ impl Session {
         self.output = None;
         self.manifest = None;
         self.result_details.clear();
+        self.verification_report = None;
         self.outcome = Outcome::Idle;
-        self.status = "Inputs changed. Inspect and scan to continue.".into();
+        self.set_status(Status::Inputs);
     }
 
     /// Change the original image, retaining only imported artifacts for re-verification.
@@ -173,7 +330,7 @@ impl Session {
             self.review = imported;
             self.output = output;
             self.manifest = manifest;
-            self.status = "Imported plan remains read-only. Verify against the chosen original image and output.".into();
+            self.set_status(Status::ImportedInput);
         } else if !generated && manifest.is_some() {
             self.output = output;
             self.manifest = manifest;
@@ -216,7 +373,7 @@ impl Session {
         }
         patch.selected = !patch.selected;
         self.clear_results();
-        self.status = "Selection changed. Generate a new plan to review.".into();
+        self.set_status(Status::Selection);
     }
 
     /// Drop the review, manifest, and result text after any input that makes them stale.
@@ -225,6 +382,7 @@ impl Session {
         self.review = None;
         self.manifest = None;
         self.result_details.clear();
+        self.verification_report = None;
         self.outcome = Outcome::Idle;
     }
 
@@ -241,16 +399,16 @@ impl Session {
 
     /// Prepare one operation with immutable paths and generation tags.
     /// Example: pass `session.prepare(Action::Scan)?` to a worker's `Job::run`.
-    pub fn prepare(&mut self, action: Action) -> Result<Job, String> {
+    pub fn prepare(&mut self, action: Action) -> Result<Job, PreparationError> {
         if self.busy() {
-            return Err("An operation is already running.".into());
+            return Err(PreparationError::Busy);
         }
         if action != Action::Connect && !self.connected {
-            return Err("Connect a compatible bme engine first.".into());
+            return Err(PreparationError::Engine);
         }
-        let image = || self.image.clone().ok_or("Choose an original image first.");
+        let image = || self.image.clone().ok_or(PreparationError::Image);
         let request = match action {
-            Action::Import => return Err("Plan import requires an explicit path.".into()),
+            Action::Import => return Err(PreparationError::ImportPath),
             Action::Connect => Request::Capabilities,
             Action::Inspect => Request::Inspect { image: image()? },
             Action::Scan => Request::Scan {
@@ -258,10 +416,7 @@ impl Session {
                 source: self.source.clone(),
             },
             Action::Plan | Action::Recommended => {
-                let scan = self
-                    .scan
-                    .as_ref()
-                    .ok_or("Scan this image and source before planning.")?;
+                let scan = self.scan.as_ref().ok_or(PreparationError::Scan)?;
                 let selection = if action == Action::Recommended {
                     vec!["recommended".into()]
                 } else {
@@ -273,7 +428,7 @@ impl Session {
                         .collect::<Vec<_>>()
                 };
                 if selection.is_empty() {
-                    return Err("Select an eligible correction first.".into());
+                    return Err(PreparationError::Selection);
                 }
                 Request::Plan {
                     image: image()?,
@@ -287,9 +442,7 @@ impl Session {
             }
             Action::Apply => {
                 if !self.can_apply() {
-                    return Err(
-                        "Build requires a current generated plan and a new output path.".into(),
-                    );
+                    return Err(PreparationError::Build);
                 }
                 Request::Patch {
                     image: image()?,
@@ -299,17 +452,14 @@ impl Session {
             }
             Action::Verify => Request::Verify {
                 input: image()?,
-                output: self.output.clone().ok_or("Choose a built output first.")?,
+                output: self.output.clone().ok_or(PreparationError::Output)?,
                 plan: self
                     .review
                     .as_ref()
-                    .ok_or("Open or generate the matching plan first.")?
+                    .ok_or(PreparationError::Plan)?
                     .path
                     .clone(),
-                manifest: self
-                    .manifest
-                    .clone()
-                    .ok_or("Choose an output with its paired manifest first.")?,
+                manifest: self.manifest.clone().ok_or(PreparationError::Manifest)?,
             },
             Action::Sources => Request::CatalogList,
             Action::Tools => Request::ToolsDoctor,
@@ -335,7 +485,7 @@ impl Session {
         self.active = Some(token);
         self.cancel = Arc::new(AtomicBool::new(false));
         self.outcome = Outcome::Running;
-        self.status = action.label().into();
+        self.set_status(Status::Activity(action));
         token
     }
 
@@ -366,12 +516,13 @@ impl Session {
         match action {
             Action::Connect => {
                 self.connected = true;
-                self.engine_status = format!("bme {} · offline", payload.reply.version);
-                self.status = "Engine ready. Choose an image to inspect.".into();
+                self.engine_attempted = true;
+                self.engine_version = Some(payload.reply.version.clone());
+                self.set_status(Status::Ready);
             }
             Action::Inspect => {
                 self.inspection = Some(data);
-                self.status = "Image inspected. Scan a source for matching corrections.".into();
+                self.set_status(Status::Inspected);
             }
             Action::Scan => {
                 let mut scan: Scan = serde_json::from_value(data).map_err(|e| {
@@ -387,9 +538,7 @@ impl Session {
                 self.review = None;
                 self.manifest = None;
                 self.source_details = payload.extra.map(|v| pretty(&v)).unwrap_or_default();
-                self.status =
-                    "Scan complete. Select corrections or review the engine's recommendation."
-                        .into();
+                self.set_status(Status::Scanned);
             }
             Action::Plan | Action::Recommended => {
                 let review = payload
@@ -398,8 +547,7 @@ impl Session {
                 self.validate_generated(&review.document)?;
                 self.review = Some(review);
                 self.manifest = None;
-                self.status =
-                    "Review the resolved plan, then choose a new output and build a copy.".into();
+                self.set_status(Status::Planned);
             }
             Action::Apply => {
                 data["manifest_file"]
@@ -407,7 +555,8 @@ impl Session {
                     .ok_or_else(|| local_error("patch: expected manifest_file display path"))?;
                 self.manifest = self.output.as_ref().map(|path| manifest_path(path));
                 self.result_details = pretty(&data);
-                self.status = "Patched copy published. Independent verification is next.".into();
+                self.verification_report = None;
+                self.set_status(Status::Published);
             }
             Action::Verify => {
                 let verification = Verification::from_data(&data)?;
@@ -416,27 +565,28 @@ impl Session {
                 } else {
                     Outcome::VerificationIncomplete
                 };
-                self.status = if verification.complete { "Offline verification complete" } else { "Verification incomplete. Review skipped checks and retry after addressing them." }.into();
+                self.set_status(if verification.complete {
+                    Status::Verified
+                } else {
+                    Status::Incomplete
+                });
                 self.log(&pretty(&data));
                 self.result_details = verification_summary(&data);
+                self.verification_report = Some(data);
             }
             Action::Sources => {
                 self.source_details = pretty(&data);
-                self.status =
-                    "Registered sources loaded. Firmware operations remain offline.".into();
+                self.set_status(Status::Sources);
             }
             Action::Tools => {
-                self.tool_details = format!(
-                    "{}\n\nPaths\n{}",
-                    pretty(&data),
-                    payload.extra.map(|v| pretty(&v)).unwrap_or_default()
-                );
-                self.status = "Tool diagnostics complete.".into();
+                self.tool_report = Some((data, payload.extra));
+                self.set_status(Status::Tools);
             }
             Action::Import => {
                 self.review = payload.review;
                 self.result_details.clear();
-                self.status = "Imported plan: review and verification only. Choose its original image and output.".into();
+                self.verification_report = None;
+                self.set_status(Status::Imported);
             }
         }
         Ok(())
@@ -491,7 +641,8 @@ impl Session {
     fn fail(&mut self, action: Action, error: EngineError) {
         if action == Action::Connect {
             self.connected = false;
-            self.engine_status = "Engine unavailable".into();
+            self.engine_attempted = true;
+            self.engine_version = None;
         }
         self.outcome = match error.code.as_deref() {
             Some("PUBLISH_INCOMPLETE") => Outcome::PublicationIncomplete,
@@ -509,11 +660,14 @@ impl Session {
             self.review = None;
         }
         self.status = error.to_string();
+        self.status_detail = self.status.clone();
+        self.status_kind = Status::Failed;
         let definite = matches!(
             error.kind,
             ErrorKind::Engine | ErrorKind::Configuration | ErrorKind::Launch
         );
         if action == Action::Apply && !definite {
+            self.status_kind = Status::PublicationUnknown;
             self.status = format!(
                 "Publication outcome unknown. Inspect output artifacts before retrying. {}",
                 self.status
@@ -531,6 +685,11 @@ impl Session {
             }
             Some(details) => pretty(details),
             None => error.to_string(),
+        };
+        self.verification_report = if self.outcome == Outcome::VerificationIncomplete {
+            error.details.clone()
+        } else {
+            None
         };
     }
 
@@ -552,7 +711,7 @@ impl Session {
     /// Install a copied imported review without granting permission to apply it.
     /// Example: `session.import_review(path)` preserves user files and allows verification only.
     pub fn import_review(&mut self, path: &Path) -> Result<(), String> {
-        let completion = self.prepare_import(path)?.run();
+        let completion = self.prepare_import(path).map_err(|e| e.to_string())?.run();
         self.finish(completion);
         if self.outcome == Outcome::Failed {
             return Err(self.status.clone());
@@ -562,9 +721,9 @@ impl Session {
 
     /// Snapshot an import without reading the selected file on the event loop.
     /// Example: run `session.prepare_import(path)?.run()` on a worker.
-    pub fn prepare_import(&mut self, path: &Path) -> Result<ImportJob, String> {
+    pub fn prepare_import(&mut self, path: &Path) -> Result<ImportJob, PreparationError> {
         if self.busy() {
-            return Err("Wait for the active operation before importing a plan.".into());
+            return Err(PreparationError::WaitImport);
         }
         let token = self.begin(Action::Import);
         Ok(ImportJob {
@@ -581,6 +740,7 @@ impl Session {
         self.output = output;
         self.manifest = None;
         self.result_details.clear();
+        self.verification_report = None;
         self.outcome = Outcome::Idle;
     }
 
@@ -591,6 +751,7 @@ impl Session {
         self.output = Some(output);
         self.outcome = Outcome::Idle;
         self.result_details.clear();
+        self.verification_report = None;
     }
 
     /// Present the exact reviewed document and whether it is read-only.

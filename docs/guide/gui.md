@@ -1,5 +1,7 @@
 # Desktop interface on Linux
 
+English | [Brazilian Portuguese](../pt-BR/guide/gui.md)
+
 `bme-gui` is a desktop client for `bme`. It reads firmware images and creates new output files; it does not access flash chips. Verification checks the image offline and does not establish boot safety, physical board compatibility or acceptance by platform signature enforcement.
 
 ## Build and run
@@ -55,7 +57,7 @@ Light and dark views of the synthetic workflow:
 
 ## Settings and diagnostics
 
-The default theme follows the desktop and falls back to light. **Settings** also offers explicit light and dark choices. Theme and engine-path preferences are stored in `$XDG_CONFIG_HOME/biosmod-engine/gui.json`, or `~/.config/biosmod-engine/gui.json` when `XDG_CONFIG_HOME` is unset. Engine edits invalidate the previous connection immediately; the preference is saved on Enter or when the field loses focus. Choosing an executable with Browse saves it immediately. Image and output paths are not saved there.
+The default theme follows the desktop and falls back to light. **Settings** also offers explicit light and dark choices. The language selector offers English (the default) and Português (Brasil); changes apply immediately and are saved with the other preferences. Application-owned text follows this choice; native file-picker controls may follow the desktop language. Engine diagnostics and catalog text remain in their original language. Theme, language and engine-path preferences are stored in `$XDG_CONFIG_HOME/biosmod-engine/gui.json`, or `~/.config/biosmod-engine/gui.json` when `XDG_CONFIG_HOME` is unset. Engine edits invalidate the previous connection immediately; the preference is saved on Enter or when the field loses focus. Choosing an executable with Browse saves it immediately. Image and output paths are not saved there.
 
 Read-only operations can be cancelled. Building a copy cannot be safely cancelled from the interface; let publication finish. If the process is interrupted externally, check both output paths before trying again. The Diagnostics page can copy or export bounded recent messages. Review those messages for local paths before sharing them.
 

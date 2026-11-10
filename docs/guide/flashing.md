@@ -1,5 +1,7 @@
 # Before and after flashing
 
+English | [Brazilian Portuguese](../pt-BR/guide/flashing.md)
+
 `bme` does not flash. These steps are for writing its output with an external SPI programmer. A bad image leaves a board that will not POST; only flash if you can recover with a programmer (`bme guide recovery`).
 
 ## 1. Read the chip twice and keep the dump

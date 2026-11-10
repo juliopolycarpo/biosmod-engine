@@ -1,5 +1,7 @@
 # Biosmod Engine
 
+English | [Brazilian Portuguese](README.pt-BR.md)
+
 `bme` inspects firmware images, finds cataloged defects, plans guarded patches and builds verified patched copies. The CLI is one executable with no runtime dependencies. Humans and agents use the same commands; add `--json` for one machine-readable document per run. `bme-gui` provides a Linux desktop interface to the same engine.
 
 `bme` never reads or writes a flash chip. Inputs are never modified and outputs are always new files.
@@ -45,7 +47,7 @@ cargo build --release -p biosmod-cli -p biosmod-gui
 target/release/bme-gui
 ```
 
-The desktop interface scans an image, reviews a plan, builds a new copy and independently verifies it. It follows the system light or dark theme, with a manual choice in Settings. See the [desktop guide](docs/guide/gui.md) for dependencies, installation, limits and troubleshooting.
+The desktop interface scans an image, reviews a plan, builds a new copy and independently verifies it. It follows the system light or dark theme, with a manual choice in Settings. The interface supports English and Brazilian Portuguese; English is the default. See the [desktop guide](docs/guide/gui.md) for dependencies, installation, limits and troubleshooting.
 
 ## What it does
 

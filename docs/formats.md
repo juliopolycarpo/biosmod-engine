@@ -1,5 +1,7 @@
 # Supported formats
 
+English | [Brazilian Portuguese](pt-BR/formats.md)
+
 | Structure | Support |
 |---|---|
 | Intel flash descriptor | regions reported by `inspect`; BIOS region not required for parsing |

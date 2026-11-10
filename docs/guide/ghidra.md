@@ -1,5 +1,7 @@
 # Analysis toolchain
 
+English | [Brazilian Portuguese](../pt-BR/guide/ghidra.md)
+
 ```sh
 bme tools doctor              # read-only: JDK, Ghidra version, extension
 bme tools setup ghidra        # pinned install under the data directory (Linux)

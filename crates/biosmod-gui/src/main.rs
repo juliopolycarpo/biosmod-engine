@@ -39,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     slint::BackendSelector::new().select()?;
     slint::set_xdg_app_id("dev.polycarpo.biosmod-engine")?;
     let ui = AppWindow::new()?;
+    settings.language.select()?;
     if smoke {
         ui.show()?;
         slint::Timer::single_shot(std::time::Duration::from_millis(350), || {
@@ -47,7 +48,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         slint::run_event_loop()?;
         return Ok(());
     }
-    let mut desktop = Desktop::new(engine, settings, preferences)?;
+    // Leave unreadable or malformed preferences untouched for recovery.
+    let writable_preferences = if warning.is_some() { None } else { preferences };
+    let mut desktop = Desktop::new(engine, settings, writable_preferences)?;
     desktop.session.image = image;
     if let Some(warning) = warning {
         desktop.session.diagnostics = warning;

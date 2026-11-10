@@ -4,3 +4,5 @@
 *.bin
 !tests/fixtures/**/*.bin
 *.partial*
+
+__pycache__/

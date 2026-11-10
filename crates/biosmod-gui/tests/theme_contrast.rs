@@ -50,6 +50,7 @@ fn status_tones_have_text_contrast_in_every_color_scheme() {
         slint::BackendSelector::new().select().unwrap();
     }
     let window = AppWindow::new().unwrap();
+    biosmod_gui::i18n::Language::En.select().unwrap();
     window.show().unwrap();
     if std::env::var_os("BME_GUI_NATIVE_SMOKE").is_some() {
         // The desktop reports its color scheme asynchronously after the window appears.

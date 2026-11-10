@@ -1,0 +1,53 @@
+# Arquitetura
+
+[English](../architecture.md) | Português (Brasil)
+
+Três crates em um workspace:
+
+| Crate | Responsabilidade | Nunca faz |
+|---|---|---|
+| `biosmod-core` (biblioteca) | análise de firmware, modelos e validação de catálogo, correspondência de patches, planejamento, reconstrução e verificação | I/O de sistema de arquivos, rede ou terminal |
+| `biosmod-cli` (executável `bme`) | argumentos, arquivos, fontes de catálogo, configuração, downloads, subprocessos e saída | interpretar firmware por conta própria |
+| `biosmod-gui` (executável `bme-gui`) | apresentação, estado da sessão revisada e supervisão do subprocesso `bme` | interpretar ou modificar firmware independentemente |
+
+Funções do core recebem bytes e um `FileSource` e retornam `Result`s tipados com um `Code` estável. A CLI os encapsula no envelope `bme/1`.
+
+A interface chama um `bme` compatível como subprocesso. Ela mantém os bytes do plano revisado em um diretório privado de sessão, aplica somente um plano gerado nessa sessão e confere o resultado da verificação independente. Ela armazena preferências de apresentação separadamente da configuração de fontes e confiança da CLI. Compilações do core e da CLI não dependem do Slint.
+
+## Módulos do core
+
+| Módulo | Função |
+|---|---|
+| `firmware` | regiões de descriptor, análise FV/FFS/seções com limites de profundidade e decodificação; `pe` para PE32/TE; `rebuild` para checksums, recodificação LZMA e reorganização de volume |
+| `codec` | wrapper liblzma: decodificação limitada e codificação que reproduz os parâmetros do fluxo original |
+| `catalog` | documentos tipados (`bme.catalog/1`, `bme.board/1`, `bme.patch/1`, `bme.evidence/1`) e carregamento por índice verificado |
+| `json` | análise estrita: chaves duplicadas e dados adicionais são erros |
+| `validation` | regras semânticas: referências, conflitos simétricos, ciclos, geometria de hunks, camadas e fatos |
+| `patch` | aplicação e reversão de hunks, estado e busca de assinaturas mascaradas |
+| `analysis` | correspondência de módulos (desfazendo correções conhecidas), detecção de versão, estados de patches e relatórios de análise |
+| `plan` | resolução de seleção, composição, verificações estruturais, reconstrução no local ou com reorganização, verificação independente; documentos de plano e manifesto |
+| `schema` | JSON Schemas gerados a partir dos tipos de documento |
+| `legacy` | conversão de registros schema-1 do x99-bios-fixes |
+| `breadcrumbs`, `synthetic` | decodificação de diagnóstico CMOS do MR9A; firmware de teste sem conteúdo de fornecedor |
+
+## Etapas de geração
+
+1. **Resolver**: expandir substituições, verificar conflitos, restrições de hold/diagnóstico/manual, fatos e requisitos necessários.
+2. **Localizar**: para cada componente, localizar o módulo por GUID e tipo de folha, reverter correções reconhecidas e exigir o hash de origem registrado. Componentes em camadas são conferidos primeiro contra seu `input_sha256`.
+3. **Contexto**: módulos no `context` de uma variante devem corresponder aos hashes revisados.
+4. **Compor**: aplicar correções de base e depois as em camadas; resultados de patch único devem corresponder aos hashes registrados.
+5. **Estrutura**: verificações opcionais (base da imagem XIP, ausência de bytes relocados). Tabelas ACPI são recolocadas em seu contêiner.
+6. **Reconstruir**: arquivos reconstruídos mantêm sua posição se couberem; caso contrário, o volume é reorganizado no espaço livre. Arquivos XIP, fixos, de topo e de preenchimento com dados nunca se movem.
+7. **Verificar**: analisar novamente; cada patch selecionado e mantido deve ser lido como `fixed`; cada byte fora da lista permitida deve ser igual à entrada; hashes de módulos PE devem corresponder.
+8. **Publicar** (CLI): preparar imagem e manifesto no diretório de saída, sincronizar e criar links primeiro para o manifesto e depois para a imagem, sem substituir nada. Uma falha após publicar o manifesto o remove; se isso também falhar, `PUBLISH_INCOMPLETE` informa o que restou.
+
+## Limites de confiança
+
+- Arquivos de catálogo são entrada não confiável: limites de tamanho, análise estrita, hashes do índice, regras de caminhos e validação semântica.
+- Planos não são confiáveis: `patch --plan` recalcula e compara tudo.
+- Catálogos remotos só são confiáveis por uma chave minisign configurada localmente e como cópias validadas.
+- Arquivos de ferramentas baixados só são confiáveis por hashes fixados.
+
+## Ausências deliberadas
+
+Não há daemon, infraestrutura de plugins, banco de dados ou código de gravação de chips. A interface usa o mesmo protocolo `--json` dos demais clientes.

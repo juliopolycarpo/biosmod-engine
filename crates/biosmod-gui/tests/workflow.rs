@@ -289,3 +289,115 @@ fn recommendation_is_resolved_by_engine_and_changes_invalidate_review() {
     assert!(session.review.is_none());
     assert!(session.scan.is_none());
 }
+
+#[cfg(unix)]
+#[test]
+fn language_switch_preserves_engine_request_and_firmware_result() {
+    use biosmod_gui::{
+        desktop::{Desktop, bind},
+        i18n::Language,
+        settings::Settings,
+        ui::AppWindow,
+    };
+    use std::os::unix::fs::PermissionsExt;
+
+    i_slint_backend_testing::init_no_event_loop();
+    let window = AppWindow::new().unwrap();
+    Language::En.select().unwrap();
+    let fixture = SyntheticEngine::new();
+    let mut session = fixture.session();
+    let index = session
+        .scan
+        .as_ref()
+        .unwrap()
+        .report
+        .patches
+        .iter()
+        .position(|patch| patch.id == "PA" && patch.selectable())
+        .unwrap();
+    session.toggle(index);
+    step(&mut session, &fixture.engine, Action::Plan);
+    let reviewed = session.review.as_ref().unwrap().clone();
+    let reviewed_bytes = reviewed.bytes.clone();
+
+    // This forwarding fake records exactly what the GUI sends while the real CLI
+    // performs publication, so a locale-dependent request cannot hide in the result.
+    let root = fixture.directory.path();
+    let wrapper = root.join("recording-engine");
+    let args_path = root.join("recorded-args");
+    let env_path = root.join("recorded-env");
+    let calls_path = root.join("recorded-calls");
+    std::fs::write(&wrapper, "#!/bin/sh\nprintf 'call\\n' >> \"$BME_TRACE_CALLS\"\nprintf '%s\\0' \"$@\" > \"$BME_TRACE_ARGS\"\nenv -0 | sort -z > \"$BME_TRACE_ENV\"\nexec \"$BME_REAL_ENGINE\" \"$@\"\n").unwrap();
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let engine = Engine::new(&wrapper, root)
+        .unwrap()
+        .with_env("BME_REAL_ENGINE", &fixture.binary)
+        .with_env("BME_TRACE_ARGS", &args_path)
+        .with_env("BME_TRACE_ENV", &env_path)
+        .with_env("BME_TRACE_CALLS", &calls_path)
+        .with_env("BME_CONFIG_HOME", root.join("config"))
+        .with_env("BME_CACHE_HOME", root.join("cache"))
+        .with_env("BME_DATA_HOME", root.join("data"));
+    let output = root.join("same-output.bin");
+    session.set_output(Some(output.clone()));
+    step(&mut session, &engine, Action::Apply);
+    let english_output = std::fs::read(&output).unwrap();
+    let manifest_path = manifest_path(&output);
+    let english_manifest: Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    let english_args = std::fs::read(&args_path).unwrap();
+    let english_env = std::fs::read(&env_path).unwrap();
+    std::fs::remove_file(&output).unwrap();
+    std::fs::remove_file(&manifest_path).unwrap();
+
+    let calls_before = std::fs::read(&calls_path).unwrap();
+    let mut desktop = Desktop::new(
+        wrapper.clone(),
+        Settings::default(),
+        Some(root.join("gui.json")),
+    )
+    .unwrap();
+    desktop.session = session;
+    let state = bind(&window, desktop);
+    window.invoke_language_changed(1);
+    assert_eq!(
+        std::fs::read(&calls_path).unwrap(),
+        calls_before,
+        "language selection unexpectedly started the engine"
+    );
+    assert_eq!(
+        reviewed.bytes, reviewed_bytes,
+        "reviewed plan bytes changed on language selection"
+    );
+    let mut state = state.lock().unwrap();
+    assert!(std::sync::Arc::ptr_eq(
+        &reviewed,
+        state.session.review.as_ref().unwrap()
+    ));
+    assert_eq!(std::fs::read(&reviewed.path).unwrap(), reviewed_bytes);
+    state.session.set_output(Some(output.clone()));
+    step(&mut state.session, &engine, Action::Apply);
+    let portuguese_manifest: Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    assert_eq!(
+        std::fs::read(&args_path).unwrap(),
+        english_args,
+        "engine arguments changed with GUI language"
+    );
+    assert_eq!(
+        std::fs::read(&env_path).unwrap(),
+        english_env,
+        "engine environment changed with GUI language"
+    );
+    assert_eq!(
+        std::fs::read(&output).unwrap(),
+        english_output,
+        "firmware bytes changed with GUI language"
+    );
+    assert_eq!(portuguese_manifest["plan"], english_manifest["plan"]);
+    assert_eq!(
+        portuguese_manifest["verification"],
+        english_manifest["verification"]
+    );
+    Language::En.select().unwrap();
+}

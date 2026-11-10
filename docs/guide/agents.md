@@ -1,5 +1,7 @@
 # The JSON protocol
 
+English | [Brazilian Portuguese](../pt-BR/guide/agents.md)
+
 Pass `--json` to any command. stdout then carries exactly one JSON document, for successes and failures alike; progress notes go to stderr (`--quiet` silences them). `bme` never prompts.
 
 ```json

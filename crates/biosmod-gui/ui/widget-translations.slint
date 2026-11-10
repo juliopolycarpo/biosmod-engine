@@ -1,0 +1,10 @@
+// These translation keys mirror the context menus in Slint 1.18.1's fluent
+// LineEditBase and TextEditBase. The compiler translates those built-in
+// widgets from the same bundled catalog. Keep this inventory in sync when
+// updating Slint. This file is only used by the translation extractor.
+component LineEditBase inherits Rectangle {
+    in property <[string]> messages: [@tr("Undo"), @tr("Redo"), @tr("Cut"), @tr("Copy"), @tr("Paste"), @tr("Select All")];
+}
+component TextEditBase inherits Rectangle {
+    in property <[string]> messages: [@tr("Cut"), @tr("Copy"), @tr("Paste"), @tr("Select All")];
+}
