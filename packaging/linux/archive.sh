@@ -23,7 +23,12 @@ install -m 644 packaging/linux/dev.polycarpo.biosmod-engine.desktop "$root/share
 install -m 644 packaging/linux/dev.polycarpo.biosmod-engine.svg "$root/share/icons/hicolor/scalable/apps/"
 install -m 644 LICENSE packaging/linux/licenses/* "$root/share/licenses/biosmod-engine/"
 python3 packaging/linux/collect-notices.py "$root/share/licenses/biosmod-engine/third-party"
-install -m 644 README.md "$root/"
+install -m 644 README.md README.pt-BR.md CONTRIBUTING.md CONTRIBUTING.pt-BR.md LICENSE "$root/"
+cp -R docs "$root/docs"
+# Documentation license/provenance links retain their repository-relative paths.
+mkdir -p "$root/packaging/linux" "$root/tools/ghidra"
+cp -R packaging/linux/licenses "$root/packaging/linux/licenses"
+install -m 644 tools/ghidra/NOTICE tools/ghidra/LICENSE-Apache-2.0.txt "$root/tools/ghidra/"
 mkdir -p dist
 tar -C "$staging" -czf "dist/$package.tar.gz" "$package"
 printf 'Created %s\n' "dist/$package.tar.gz"
