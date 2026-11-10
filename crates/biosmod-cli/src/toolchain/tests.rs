@@ -669,3 +669,59 @@ fn analysis_log_keeps_the_output_of_every_module() {
         "ghidra.log: expected output of both modules | received {log:?}"
     );
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn non_utf8_analysis_output_is_displayable() {
+    use std::os::unix::ffi::OsStringExt;
+    let dir = tempfile::tempdir().unwrap();
+    let (home, modules) = home_with_headless(dir.path(), b"");
+    let output = dir
+        .path()
+        .join(std::ffi::OsString::from_vec(b"exports-\xff".to_vec()));
+    let runner = FakeExporter {
+        incomplete: None,
+        missing: None,
+        calls: RefCell::new(vec![]),
+    };
+    let reply = run_analysis(
+        &runner,
+        &home,
+        &dir.path().join("project"),
+        &output,
+        &modules,
+        60,
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(reply.data["output"], output.to_string_lossy().as_ref());
+    assert_eq!(
+        reply.data["log"],
+        output.join("ghidra.log").to_string_lossy().as_ref()
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn non_utf8_tool_paths_serialize_in_replies() {
+    use std::os::unix::ffi::OsStringExt;
+    let path = PathBuf::from(std::ffi::OsString::from_vec(b"/tmp/ghidra-\xff".to_vec()));
+    let home = GhidraHome {
+        path: path.clone(),
+        origin: "config",
+    };
+    let failed = checks_reply(vec![check("test", false, "missing")], &home).unwrap_err();
+    assert_eq!(
+        failed.details.unwrap()["ghidra_home"]["path"],
+        path.to_string_lossy().as_ref()
+    );
+    let installed = Installed {
+        ghidra: path.clone(),
+        extension: path.clone(),
+        profile: Profile::pinned(),
+        startup_check: None,
+    };
+    let reply = Reply::new(installed, "");
+    assert_eq!(reply.data["ghidra"], path.to_string_lossy().as_ref());
+    assert_eq!(reply.data["extension"], path.to_string_lossy().as_ref());
+}

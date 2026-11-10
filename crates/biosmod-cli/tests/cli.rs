@@ -606,3 +606,171 @@ fn committed_schemas_match_the_types_and_the_official_catalog() {
     let shown = sandbox.run(["catalog", "show", "--json"]).json();
     assert_eq!(shown["data"]["sources"][0]["manifest"]["id"], "official");
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn non_utf8_paths_in_json_replies() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    let sandbox = Sandbox::new();
+    let (image, catalog) = sandbox.synthetic();
+    let plan = sandbox
+        .dir
+        .path()
+        .join(OsString::from_vec(b"plan-\xff.json".to_vec()));
+    let extracted = sandbox
+        .dir
+        .path()
+        .join(OsString::from_vec(b"module-\xff.pe".to_vec()));
+    let synthetic = sandbox
+        .dir
+        .path()
+        .join(OsString::from_vec(b"fixture-\xff".to_vec()));
+    let guid = biosmod_core::synthetic::PEIM_GUID.to_string();
+    let cases: Vec<(Vec<OsString>, &str, &std::path::Path)> = vec![
+        (
+            vec![
+                "plan".into(),
+                image.clone().into_os_string(),
+                "--catalog".into(),
+                catalog.into_os_string(),
+                "--allow-unsigned-local".into(),
+                "--select".into(),
+                "PA".into(),
+                "-o".into(),
+                plan.clone().into_os_string(),
+                "--json".into(),
+            ],
+            "plan_file",
+            &plan,
+        ),
+        (
+            vec![
+                "extract".into(),
+                image.into_os_string(),
+                "--guid".into(),
+                guid.into(),
+                "-o".into(),
+                extracted.clone().into_os_string(),
+                "--json".into(),
+            ],
+            "output",
+            &extracted,
+        ),
+        (
+            vec![
+                "dev".into(),
+                "synthetic".into(),
+                "-o".into(),
+                synthetic.clone().into_os_string(),
+                "--json".into(),
+            ],
+            "image",
+            &synthetic,
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (args, field, path) in cases {
+        let run = sandbox.run(args);
+        if run.code != 0 {
+            failures.push(format!(
+                "{field} {}: expected exit 0 | received {} stderr {}",
+                path.display(),
+                run.code,
+                run.stderr
+            ));
+            continue;
+        }
+        let value = run.json();
+        let expected = if field == "image" {
+            path.join("synthetic.bin").to_string_lossy().into_owned()
+        } else {
+            path.to_string_lossy().into_owned()
+        };
+        assert_eq!(
+            value["data"][field], expected,
+            "({field}): expected display path"
+        );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn tools_paths_and_doctor_accept_non_utf8_directories() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    let sandbox = Sandbox::new();
+    let path = sandbox
+        .dir
+        .path()
+        .join(OsString::from_vec(b"data-\xff".to_vec()));
+    for command in ["paths", "doctor"] {
+        let result = std::process::Command::new(env!("CARGO_BIN_EXE_bme"))
+            .args(["tools", command, "--json"])
+            .env("BME_CONFIG_HOME", sandbox.path("config"))
+            .env("BME_CACHE_HOME", sandbox.path("cache"))
+            .env("BME_DATA_HOME", &path)
+            .env_remove("GHIDRA_INSTALL_DIR")
+            .output()
+            .unwrap();
+        let document: Value = serde_json::from_slice(&result.stdout).unwrap_or_else(|_| {
+            panic!(
+                "tools {command}: expected JSON | stderr {}",
+                String::from_utf8_lossy(&result.stderr)
+            )
+        });
+        let home = if command == "paths" {
+            &document["data"]["ghidra_home"]
+        } else {
+            &document["error"]["details"]["ghidra_home"]
+        };
+        assert!(
+            home["path"]
+                .as_str()
+                .unwrap()
+                .starts_with(path.to_string_lossy().as_ref())
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn catalog_import_reports_non_utf8_output_path() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    let sandbox = Sandbox::new();
+    let input = sandbox.path("records");
+    fs::create_dir(&input).unwrap();
+    let record = serde_json::json!({"schema": 1, "id": "valid", "title": "test", "findings": [], "finding_confidence": {}, "local_fix_confidence": "", "physical_fix_confidence": "", "hardware_tested": false, "tier": 1, "supersedes": [], "conflicts": [], "limits": "", "boards": {}});
+    fs::write(input.join("record.json"), record.to_string()).unwrap();
+    let output = sandbox
+        .dir
+        .path()
+        .join(OsString::from_vec(b"output-\xff".to_vec()));
+    let run = sandbox.run(vec![
+        "catalog".into(),
+        "import-x99fix".into(),
+        input.into_os_string(),
+        "--map".into(),
+        "board=firmware".into(),
+        "--commit".into(),
+        "a".repeat(40).into(),
+        "-o".into(),
+        output.clone().into_os_string(),
+        "--json".into(),
+    ]);
+    assert_eq!(
+        run.code,
+        0,
+        "catalog import {}: expected exit 0 | stdout {} stderr {}",
+        output.display(),
+        run.stdout,
+        run.stderr
+    );
+    assert_eq!(
+        run.json()["data"]["output"],
+        output.to_string_lossy().as_ref()
+    );
+    assert!(output.join("valid.json").exists());
+}

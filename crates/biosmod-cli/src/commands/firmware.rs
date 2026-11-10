@@ -1,6 +1,7 @@
 //! Firmware commands: inspect, scan, plan, patch, verify, extract, replace, derive.
 
 use super::{Ctx, Token, load_sources, parse_token, read_bounded, read_image};
+use crate::output::display_path;
 use crate::output::{Reply, table};
 use crate::publish::{self, Filesystem, check_outputs, manifest_path};
 use crate::sources::{self, LoadPolicy, Loaded};
@@ -95,7 +96,7 @@ pub fn inspect(args: &InspectArgs) -> Result<Reply> {
         }));
     }
     let data = json!({
-        "path": args.rom.to_string_lossy(), "length": image.bytes.len(), "sha256": sha256_hex(&image.bytes),
+        "path": display_path(&args.rom), "length": image.bytes.len(), "sha256": sha256_hex(&image.bytes),
         "flash_base": image.flash_base(), "descriptor_regions": regions, "volumes": volumes,
     });
     Ok(Reply::new(data, text))
@@ -478,7 +479,7 @@ pub fn plan(ctx: &Ctx, args: &PlanArgs) -> Result<Reply> {
             args.output.display()
         );
     Ok(Reply::new(
-        json!({"plan_file": args.output, "plan": document}),
+        json!({"plan_file": display_path(&args.output), "plan": document}),
         text,
     ))
 }
@@ -679,7 +680,7 @@ pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
         manifest_file.display()
     );
     Ok(Reply::new(
-        json!({"output": args.output.to_string_lossy(), "manifest_file": manifest_file.to_string_lossy(), "manifest": manifest}),
+        json!({"output": display_path(&args.output), "manifest_file": display_path(&manifest_file), "manifest": manifest}),
         text,
     ))
 }
@@ -869,7 +870,7 @@ pub fn extract(args: &ExtractArgs) -> Result<Reply> {
         data.len()
     );
     Ok(Reply::new(
-        json!({"output": args.output, "length": data.len(), "sha256": digest, "compressed": leaf.compressed, "file_offset": image.file(&leaf).offset}),
+        json!({"output": display_path(&args.output), "length": data.len(), "sha256": digest, "compressed": leaf.compressed, "file_offset": image.file(&leaf).offset}),
         text,
     ))
 }

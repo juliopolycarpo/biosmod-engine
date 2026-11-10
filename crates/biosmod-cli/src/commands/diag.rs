@@ -2,7 +2,7 @@
 
 use crate::BreadcrumbCommand;
 use crate::config::io_error;
-use crate::output::Reply;
+use crate::output::{Reply, display_path};
 use crate::publish::check_outputs;
 use biosmod_core::breadcrumbs::{self, Breadcrumbs};
 use biosmod_core::synthetic::Fixture;
@@ -163,7 +163,7 @@ pub fn synthetic(output: &Path) -> Result<Reply> {
         catalog.display()
     );
     Ok(Reply::new(
-        json!({"image": image, "catalog": catalog}),
+        json!({"image": display_path(&image), "catalog": display_path(&catalog)}),
         text,
     ))
 }
