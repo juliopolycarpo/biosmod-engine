@@ -42,50 +42,6 @@ impl Patch {
         format!("{alias}::{}@{}", self.id, self.version)
     }
 
-    /// List why the desktop cannot select this row, without the engine's own detail line.
-    /// Example: a diagnostic returns the CLI-only selection notice; a selectable row returns none.
-    pub fn limits(&self) -> Vec<String> {
-        let mut lines = Vec::new();
-        if let Some(blocked) = &self.blocked {
-            lines.push(blocked.clone());
-        }
-        if !self.requires_facts.is_empty() {
-            lines.push(format!(
-                "Requires physical observations: {}. Review with the CLI.",
-                self.requires_facts.join(", ")
-            ));
-        }
-        if !self.selectable() {
-            lines.push("Desktop selection requires a present, independently plannable correction without hold or hardware gates. Joint prerequisites require the CLI.".into());
-        }
-        lines
-    }
-
-    /// Explain engine blockers and the desktop's supported selection scope.
-    /// Example: a diagnostic remains visible with a CLI-only explanation.
-    pub fn explanation(&self) -> String {
-        let mut lines = vec![self.detail.clone()];
-        lines.extend(self.limits());
-        lines.join("\n")
-    }
-
-    /// Name the scan state for people instead of echoing the protocol token.
-    /// Example: `likely-present` reads `Likely present`; an unknown state is shown unchanged.
-    pub fn state_label(&self) -> String {
-        match self.state.as_str() {
-            "present" => "Defect present",
-            "fixed" => "Fixed",
-            "partial" => "Partially patched",
-            "likely-present" => "Likely present",
-            "likely-fixed" => "Likely fixed",
-            "not-detected" => "Not detected",
-            "not-applicable" => "Not applicable",
-            "unsupported" => "Unsupported",
-            other => other,
-        }
-        .into()
-    }
-
     /// Choose how prominently the state is shown.
     /// Example: `present` asks for attention, `fixed` reads as good news, unknown states stay quiet.
     pub fn state_tone(&self) -> StateTone {
@@ -259,7 +215,6 @@ mod tests {
         let mut gated = p.clone();
         gated.requires_facts.push("physical-board".into());
         assert!(!gated.selectable());
-        assert!(gated.explanation().contains("physical-board"));
         for tier in ["hold", "future-tier"] {
             let mut p = p.clone();
             p.tier = tier.into();
@@ -269,45 +224,22 @@ mod tests {
         p.plannable = false;
         p.blocked = Some("needs prerequisite".into());
         assert!(!p.selectable());
-        assert!(p.explanation().contains("needs prerequisite"));
     }
     #[test]
-    fn limits_exclude_the_engine_detail_and_explanation_keeps_it_first() {
-        let selectable = correction();
-        assert!(selectable.limits().is_empty());
-        assert_eq!(selectable.explanation(), "exact match");
-        let mut blocked = selectable;
-        blocked.plannable = false;
-        blocked.blocked = Some("needs prerequisite".into());
-        let limits = blocked.limits();
-        assert_eq!(limits[0], "needs prerequisite");
-        assert!(
-            limits.len() == 2,
-            "limits: expected blocker + selection notice | received {limits:?}"
-        );
-        assert!(
-            blocked
-                .explanation()
-                .starts_with("exact match\nneeds prerequisite")
-        );
-    }
-    #[test]
-    fn state_labels_and_tones_cover_every_engine_state() {
-        let expected = [
-            ("present", "Defect present", StateTone::Attention),
-            ("partial", "Partially patched", StateTone::Attention),
-            ("fixed", "Fixed", StateTone::Good),
-            ("likely-present", "Likely present", StateTone::Quiet),
-            ("likely-fixed", "Likely fixed", StateTone::Quiet),
-            ("not-detected", "Not detected", StateTone::Quiet),
-            ("not-applicable", "Not applicable", StateTone::Quiet),
-            ("unsupported", "Unsupported", StateTone::Quiet),
-            ("new-state", "new-state", StateTone::Quiet),
-        ];
-        for (state, label, tone) in expected {
+    fn state_tones_cover_every_engine_state() {
+        for (state, tone) in [
+            ("present", StateTone::Attention),
+            ("partial", StateTone::Attention),
+            ("fixed", StateTone::Good),
+            ("likely-present", StateTone::Quiet),
+            ("likely-fixed", StateTone::Quiet),
+            ("not-detected", StateTone::Quiet),
+            ("not-applicable", StateTone::Quiet),
+            ("unsupported", StateTone::Quiet),
+            ("new-state", StateTone::Quiet),
+        ] {
             let mut p = correction();
             p.state = state.into();
-            assert_eq!(p.state_label(), label, "state {state}: label");
             assert_eq!(p.state_tone(), tone, "state {state}: tone");
         }
     }

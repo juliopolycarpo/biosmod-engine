@@ -848,7 +848,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
     }
     sync_rows(
         ui.get_image_facts(),
-        localized_image_facts(ui, session.inspection.as_ref()),
+        image_facts(ui, session.inspection.as_ref()),
         |m| ui.set_image_facts(m),
     );
     ui.set_image_sha(image_sha(session.inspection.as_ref()).into());
@@ -857,7 +857,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
         session
             .scan
             .as_ref()
-            .map(|scan| localized_scan_facts(ui, scan))
+            .map(|scan| scan_facts(ui, scan))
             .unwrap_or_default(),
         |m| ui.set_scan_facts(m),
     );
@@ -869,7 +869,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             s.report
                 .patches
                 .iter()
-                .map(|p| localized_patch_row(ui, &s.alias, p, selectable))
+                .map(|p| patch_row(ui, &s.alias, p, selectable))
                 .collect()
         })
         .unwrap_or_default();
@@ -1167,41 +1167,11 @@ pub fn status_tone(outcome: Outcome) -> Tone {
     }
 }
 
-/// Present one scan row, enabling its checkbox only while no operation is running.
-/// Example: `patch_row("lab", &patch, true).id` is `lab::PA@1.0.0`.
-pub fn patch_row(alias: &str, patch: &Patch, idle: bool) -> PatchRow {
-    PatchRow {
-        id: patch.qualified(alias).into(),
-        title: patch.title.as_str().into(),
-        version: patch.version.as_str().into(),
-        class: patch.class.as_str().into(),
-        tier: patch.tier.as_str().into(),
-        state: patch.state_label().into(),
-        tone: match patch.state_tone() {
-            StateTone::Attention => Tone::Attention,
-            StateTone::Good => Tone::Good,
-            StateTone::Quiet => Tone::Quiet,
-        },
-        detail: patch.detail.as_str().into(),
-        blocker: patch.limits().join("\n").into(),
-        evidence: if patch.evidence.is_empty() {
-            "No hardware observations for this patch version.".into()
-        } else {
-            format!(
-                "Scoped evidence: {}. See Sources & tools for image, board and scenario.",
-                patch.evidence.join(", ")
-            )
-            .into()
-        },
-        selectable: patch.selectable() && idle,
-        selected: patch.selected,
-    }
-}
-
-fn localized_patch_row(ui: &AppWindow, alias: &str, patch: &Patch, idle: bool) -> PatchRow {
+/// Present one scan row in the selected language, enabling its checkbox only while idle.
+/// Example: `patch_row(&window, "lab", &patch, true).id` is `lab::PA@1.0.0`.
+pub fn patch_row(ui: &AppWindow, alias: &str, patch: &Patch, idle: bool) -> PatchRow {
     let text = ui.global::<UiText>();
-    let mut row = patch_row(alias, patch, idle);
-    row.state = match patch.state.as_str() {
+    let state = match patch.state.as_str() {
         "present" => text.get_defect_present(),
         "fixed" => text.get_fixed(),
         "partial" => text.get_partially_patched(),
@@ -1212,6 +1182,7 @@ fn localized_patch_row(ui: &AppWindow, alias: &str, patch: &Patch, idle: bool) -
         "unsupported" => text.get_unsupported(),
         _ => patch.state.as_str().into(),
     };
+    // Engine detail stays in `detail`; `blocker` lists only why the desktop cannot select it.
     let mut limits = Vec::new();
     if let Some(blocked) = &patch.blocked {
         limits.push(blocked.clone());
@@ -1225,13 +1196,28 @@ fn localized_patch_row(ui: &AppWindow, alias: &str, patch: &Patch, idle: bool) -
     if !patch.selectable() {
         limits.push(text.get_selection_limit().to_string());
     }
-    row.blocker = limits.join("\n").into();
-    row.evidence = if patch.evidence.is_empty() {
-        text.get_no_evidence()
-    } else {
-        text.invoke_scoped_evidence(patch.evidence.join(", ").into())
-    };
-    row
+    PatchRow {
+        id: patch.qualified(alias).into(),
+        title: patch.title.as_str().into(),
+        version: patch.version.as_str().into(),
+        class: patch.class.as_str().into(),
+        tier: patch.tier.as_str().into(),
+        state,
+        tone: match patch.state_tone() {
+            StateTone::Attention => Tone::Attention,
+            StateTone::Good => Tone::Good,
+            StateTone::Quiet => Tone::Quiet,
+        },
+        detail: patch.detail.as_str().into(),
+        blocker: limits.join("\n").into(),
+        evidence: if patch.evidence.is_empty() {
+            text.get_no_evidence()
+        } else {
+            text.invoke_scoped_evidence(patch.evidence.join(", ").into())
+        },
+        selectable: patch.selectable() && idle,
+        selected: patch.selected,
+    }
 }
 
 /// Update a Slint list in place so unchanged rows are not re-rendered.
@@ -1263,28 +1249,9 @@ fn fact(label: &str, value: impl Into<SharedString>) -> Fact {
     }
 }
 
-/// Summarize an inspection for the findings header.
-/// Example: a 36864-byte image with two volumes reads `Size 36,864 bytes` and `Volumes 2`.
-pub fn image_facts(inspection: Option<&serde_json::Value>) -> Vec<Fact> {
-    let Some(v) = inspection else {
-        return Vec::new();
-    };
-    let layout = if v["descriptor_regions"].is_null() {
-        "Bare BIOS / firmware volumes"
-    } else {
-        "Intel flash descriptor"
-    };
-    vec![
-        fact("Size", group_digits(&v["length"].to_string()) + " bytes"),
-        fact(
-            "Volumes",
-            v["volumes"].as_array().map_or(0, Vec::len).to_string(),
-        ),
-        fact("Layout", layout),
-    ]
-}
-
-fn localized_image_facts(ui: &AppWindow, inspection: Option<&serde_json::Value>) -> Vec<Fact> {
+/// Summarize an inspection for the findings header in the selected language.
+/// Example: in English a 36864-byte image with two volumes reads `Size 36,864 bytes` and `Volumes 2`.
+pub fn image_facts(ui: &AppWindow, inspection: Option<&serde_json::Value>) -> Vec<Fact> {
     let Some(value) = inspection else {
         return Vec::new();
     };
@@ -1317,32 +1284,9 @@ pub fn image_sha(inspection: Option<&serde_json::Value>) -> String {
         .unwrap_or_default()
 }
 
-/// Summarize the catalog source behind a scan.
+/// Summarize the catalog source behind a scan in the selected language.
 /// Example: alias `lab` with catalog `synthetic 1.0.0` reads `lab · synthetic 1.0.0`.
-pub fn scan_facts(scan: &crate::model::SourceReport) -> Vec<Fact> {
-    let boards = if scan.report.boards.is_empty() {
-        "none matched".to_owned()
-    } else {
-        scan.report.boards.join(", ")
-    };
-    vec![
-        fact(
-            "Source",
-            format!("{} · {} {}", scan.alias, scan.catalog, scan.catalog_version),
-        ),
-        fact("Trust", scan.trust.as_str()),
-        fact(
-            "Firmware",
-            scan.report
-                .firmware
-                .as_deref()
-                .unwrap_or("unknown or ambiguous"),
-        ),
-        fact("Boards", boards),
-    ]
-}
-
-fn localized_scan_facts(ui: &AppWindow, scan: &crate::model::SourceReport) -> Vec<Fact> {
+pub fn scan_facts(ui: &AppWindow, scan: &crate::model::SourceReport) -> Vec<Fact> {
     let text = ui.global::<UiText>();
     vec![
         fact(

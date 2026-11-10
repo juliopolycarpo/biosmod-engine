@@ -937,13 +937,15 @@ fn opening_a_plan_resets_the_previous_operations_elapsed_time() {
 
 #[test]
 fn patch_rows_separate_detail_from_limits_and_gate_selection_on_idleness() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _state) = bound_window(Settings::default(), None);
     let patch: Patch = serde_json::from_value(json!({
         "id":"PA","version":"1.0.0","title":"Correction","class":"correction","tier":"optional",
         "state":"likely-present","plannable":false,"manual":false,"detail":"signature in another build",
         "evidence":["obs-1"]
     }))
     .unwrap();
-    let row = patch_row("lab", &patch, true);
+    let row = patch_row(&window, "lab", &patch, true);
     assert_eq!(row.id, "lab::PA@1.0.0");
     assert_eq!(row.state, "Likely present");
     assert_eq!(row.tone, Tone::Quiet);
@@ -960,24 +962,64 @@ fn patch_rows_separate_detail_from_limits_and_gate_selection_on_idleness() {
     present.state = "present".into();
     present.plannable = true;
     present.evidence.clear();
-    assert!(patch_row("lab", &present, true).selectable);
+    assert!(patch_row(&window, "lab", &present, true).selectable);
     assert!(
-        !patch_row("lab", &present, false).selectable,
+        !patch_row(&window, "lab", &present, false).selectable,
         "busy session: expected the row to be disabled"
     );
-    let row = patch_row("lab", &present, true);
+    let row = patch_row(&window, "lab", &present, true);
     assert_eq!(row.tone, Tone::Attention);
     assert_eq!(row.blocker, "");
     assert_eq!(
         row.evidence,
         "No hardware observations for this patch version."
     );
+
+    let mut blocked = present.clone();
+    blocked.plannable = false;
+    blocked.blocked = Some("needs prerequisite".into());
+    blocked.requires_facts.push("physical-board".into());
+    let blocker = patch_row(&window, "lab", &blocked, true).blocker;
+    let limits: Vec<_> = blocker.lines().collect();
+    assert!(
+        limits.len() == 3
+            && limits[0] == "needs prerequisite"
+            && limits[1].contains("physical-board"),
+        "blocker: expected engine blocker, facts, selection notice without the detail | received {limits:?}"
+    );
+}
+
+#[test]
+fn patch_rows_name_every_engine_state_in_english() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _state) = bound_window(Settings::default(), None);
+    let mut patch = fake_scan().report.patches.remove(0);
+    for (state, label) in [
+        ("present", "Defect present"),
+        ("partial", "Partially patched"),
+        ("fixed", "Fixed"),
+        ("likely-present", "Likely present"),
+        ("likely-fixed", "Likely fixed"),
+        ("not-detected", "Not detected"),
+        ("not-applicable", "Not applicable"),
+        ("unsupported", "Unsupported"),
+        ("new-state", "new-state"),
+    ] {
+        patch.state = state.into();
+        assert_eq!(
+            patch_row(&window, "lab", &patch, true).state,
+            label,
+            "state {state}: label"
+        );
+    }
 }
 
 #[test]
 fn facts_describe_the_image_and_scan_source() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _state) = bound_window(Settings::default(), None);
     let inspection = json!({"length": 36864, "volumes": [{}, {}], "sha256": "abc123", "descriptor_regions": null});
-    let facts = image_facts(Some(&inspection));
+    let facts = image_facts(&window, Some(&inspection));
     let pairs: Vec<_> = facts
         .iter()
         .map(|f| (f.label.to_string(), f.value.to_string()))
@@ -992,9 +1034,9 @@ fn facts_describe_the_image_and_scan_source() {
         "image facts"
     );
     assert_eq!(image_sha(Some(&inspection)), "abc123");
-    assert!(image_facts(None).is_empty() && image_sha(None).is_empty());
+    assert!(image_facts(&window, None).is_empty() && image_sha(None).is_empty());
 
-    let scan = scan_facts(&fake_scan());
+    let scan = scan_facts(&window, &fake_scan());
     assert_eq!(scan[0].value, "lab · fixture 1");
     assert_eq!(scan[2].value, "synthetic");
     assert_eq!(scan[3].value, "none matched");
