@@ -23,6 +23,8 @@ SLINT_BACKEND=winit-software target/release/bme-gui
 
 A CI usa Ubuntu 24.04 x86_64 (glibc 2.39) como alvo do pacote e exercita conexões X11 e Wayland sem monitor separadamente. Ainda são necessários teste de instalação limpa e qualificação manual de GNOME, KDE Plasma, escala e leitor de tela antes de declarar suporte a esses ambientes. Acompanhe as verificações restantes em [#8](https://github.com/juliopolycarpo/biosmod-engine/issues/8). O comportamento da interface no Windows e macOS ainda não foi qualificado.
 
+A janela inicia no tamanho mínimo suportado de 760×600, deixando espaço para painéis e decorações em desktops pequenos. Redimensione-a para ter uma área de trabalho maior.
+
 ## Pacote Linux
 
 Compile na base Ubuntu 24.04 pretendida para evitar exigir uma glibc mais recente:
@@ -63,7 +65,7 @@ Operações somente de leitura podem ser canceladas. A geração de uma cópia n
 
 ## Limites do firmware
 
-O mecanismo alinha arquivos FFS em relação ao volume, permitindo analisar e reorganizar volumes em qualquer deslocamento da imagem. Em imagens com descriptor, endereços flash mapeiam o fim da região BIOS para 4 GiB. Deslocamentos diferentes de tabelas ACPI que compartilham uma identidade de arquivo não são suportados para análise e planejamento. Verificações de cobertura de relocação TE são explicitamente não suportadas. Essas proteções não concluem as investigações em [#5](https://github.com/juliopolycarpo/biosmod-engine/issues/5) e [#6](https://github.com/juliopolycarpo/biosmod-engine/issues/6).
+O mecanismo alinha arquivos FFS em relação ao volume, permitindo analisar e reorganizar volumes em qualquer deslocamento da imagem. Em imagens com descriptor, endereços flash mapeiam o fim da região BIOS para 4 GiB. Tabelas ACPI catalogadas em deslocamentos disjuntos de uma seção RAW suportam alterações de mesmo tamanho e verificação independente, usando GUID, seção folha e deslocamento da tabela como identidade ([#36](https://github.com/juliopolycarpo/biosmod-engine/pull/36)). Sobreposições e redimensionamentos de múltiplas tabelas que possam mover outra tabela são recusados. Verificações de cobertura de relocação TE continuam não suportadas e retornam `FORMAT_UNSUPPORTED`.
 
 Quando a verificação independente não pode terminar, a CLI informa `VERIFICATION_INCOMPLETE` com o relatório parcial nos detalhes do erro. A interface mantém resultados incompletos separados dos verificados.
 

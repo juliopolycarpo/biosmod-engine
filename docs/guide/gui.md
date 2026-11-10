@@ -23,6 +23,8 @@ SLINT_BACKEND=winit-software target/release/bme-gui
 
 CI targets Ubuntu 24.04 x86_64 (glibc 2.39) for the archive and exercises separate X11 and headless Wayland connections. A clean-install test and manual GNOME, KDE Plasma, scaling and screen-reader qualification are still needed before claiming those environments are supported. Track the remaining desktop checks in [#8](https://github.com/juliopolycarpo/biosmod-engine/issues/8). Windows and macOS GUI behavior is not yet qualified.
 
+The window starts at its supported 760×600 minimum so small desktops have room for panels and decorations. Resize it for a larger workspace.
+
 ## Linux archive
 
 Build on the intended Ubuntu 24.04 baseline to avoid requiring a newer glibc:
@@ -63,7 +65,7 @@ Read-only operations can be cancelled. Building a copy cannot be safely cancelle
 
 ## Firmware limits
 
-The engine aligns FFS files relative to their volume, so volumes at any image offset parse and reflow. In descriptor images, flash addresses map the end of the BIOS region to 4 GiB. Different ACPI table offsets sharing one file identity are unsupported for scan and planning. TE relocation coverage checks are explicitly unsupported. These safeguards do not complete the investigations in [#5](https://github.com/juliopolycarpo/biosmod-engine/issues/5) and [#6](https://github.com/juliopolycarpo/biosmod-engine/issues/6).
+The engine aligns FFS files relative to their volume, so volumes at any image offset parse and reflow. In descriptor images, flash addresses map the end of the BIOS region to 4 GiB. Cataloged ACPI tables at disjoint offsets in one RAW section support same-length edits and independent verification, using GUID, leaf and table offset as their identity ([#36](https://github.com/juliopolycarpo/biosmod-engine/pull/36)). Overlaps and multi-table resizing that could move another table are refused. TE relocation coverage checks remain unsupported and return `FORMAT_UNSUPPORTED`.
 
 When independent verification cannot finish, the CLI reports `VERIFICATION_INCOMPLETE` with the partial report in error details. The GUI keeps incomplete results separate from verified results.
 
