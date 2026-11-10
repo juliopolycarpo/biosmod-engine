@@ -25,8 +25,13 @@ pub struct Desktop {
     exporting: bool,
     closing: bool,
     presented_review: RefCell<Option<Arc<Review>>>,
+    presented_tools: RefCell<Option<ToolPresentation>>,
     export_writer: Arc<dyn ExportWriter>,
 }
+type ToolPresentation = (
+    Arc<(serde_json::Value, Option<serde_json::Value>)>,
+    Language,
+);
 type Shared = Arc<Mutex<Desktop>>;
 
 trait ExportWriter: Send + Sync {
@@ -60,6 +65,7 @@ impl Desktop {
             exporting: false,
             closing: false,
             presented_review: RefCell::new(None),
+            presented_tools: RefCell::new(None),
             export_writer: Arc::new(NewFileWriter),
         })
     }
@@ -910,23 +916,13 @@ fn sync(ui: &AppWindow, state: &Desktop) {
         Outcome::Interrupted => t.get_title_interrupted(),
         _ => t.get_title_output(),
     });
-    ui.set_source_details(session.source_details.as_str().into());
-    ui.set_tool_details(
-        session
-            .tool_report
-            .as_ref()
-            .map(|(data, paths)| {
-                format!(
-                    "{}\n\n{}\n{}",
-                    crate::model::pretty(data),
-                    t.get_tool_paths(),
-                    paths.as_ref().map(crate::model::pretty).unwrap_or_default()
-                )
-                .into()
-            })
-            .unwrap_or_default(),
-    );
-    ui.set_diagnostics(session.diagnostics.as_str().into());
+    if ui.get_source_details().as_str() != session.source_details {
+        ui.set_source_details(session.source_details.as_str().into());
+    }
+    sync_tool_details(ui, state);
+    if ui.get_diagnostics().as_str() != session.diagnostics {
+        ui.set_diagnostics(session.diagnostics.as_str().into());
+    }
     ui.set_stage(
         if session.manifest.is_some()
             || matches!(
@@ -945,6 +941,45 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             0
         },
     );
+}
+
+#[cfg(test)]
+thread_local! { static TOOL_RENDER_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
+fn sync_tool_details(ui: &AppWindow, state: &Desktop) {
+    let mut presented = state.presented_tools.borrow_mut();
+    match (&state.session.tool_report, presented.as_ref()) {
+        (Some(current), Some((previous, language)))
+            if Arc::ptr_eq(current, previous) && *language == state.settings.language =>
+        {
+            return;
+        }
+        (None, None) if ui.get_tool_details().is_empty() => return,
+        _ => {}
+    }
+    if let Some(report) = &state.session.tool_report {
+        ui.set_tool_details(render_tool_details(ui, &report.0, report.1.as_ref()));
+        *presented = Some((report.clone(), state.settings.language));
+    } else {
+        ui.set_tool_details(SharedString::default());
+        *presented = None;
+    }
+}
+
+fn render_tool_details(
+    ui: &AppWindow,
+    data: &serde_json::Value,
+    paths: Option<&serde_json::Value>,
+) -> SharedString {
+    #[cfg(test)]
+    TOOL_RENDER_COUNT.with(|count| count.set(count.get() + 1));
+    format!(
+        "{}\n\n{}\n{}",
+        crate::model::pretty(data),
+        ui.global::<UiText>().get_tool_paths(),
+        paths.map(crate::model::pretty).unwrap_or_default()
+    )
+    .into()
 }
 
 /// Render an operation label from its semantic action on the UI thread.

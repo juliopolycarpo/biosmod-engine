@@ -403,7 +403,7 @@ fn missing_optional_tools_show_doctor_checks_and_paths() {
     );
     let (doctor, paths) = session
         .tool_report
-        .as_ref()
+        .as_deref()
         .expect("tools: expected doctor report");
     assert_eq!(doctor["error"]["code"], "TOOL_UNAVAILABLE");
     assert_eq!(doctor["error"]["message"], "missing optional tools");
