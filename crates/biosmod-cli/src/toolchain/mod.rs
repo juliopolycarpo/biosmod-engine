@@ -601,6 +601,7 @@ fn gradle_home(env: &Env, args: &SetupArgs, note: &mut dyn FnMut(&str)) -> Resul
         return Ok(home.clone());
     }
     let home = env.cache.join(format!("gradle-{}", profile.gradle_version));
+    check_recovery(&home)?;
     if home.join(MARKER).is_file() && home.join("bin/gradle").is_file() {
         return Ok(home);
     }
@@ -642,22 +643,83 @@ fn marker_matches(dir: &Path, profile: &Profile) -> bool {
         .is_some_and(|p| p == *profile)
 }
 
-/// Move `staged` to `target`, replacing an existing directory only after the new one is complete.
-fn replace_dir(staged: &Path, target: &Path) -> Result<()> {
+/// Name the retained previous directory for one installation target.
+///
+/// Example: `ghidra_12.2_PUBLIC` uses `.bme-backup-ghidra_12.2_PUBLIC`.
+fn backup_path(target: &Path) -> PathBuf {
+    let mut name = std::ffi::OsString::from(".bme-backup-");
+    name.push(target.file_name().expect("target has a filename"));
+    target.with_file_name(name)
+}
+
+/// Refuse to overwrite a retained backup from an interrupted replacement.
+///
+/// Example: an orphan `.bme-old-123` requires inspection before setup proceeds.
+fn check_recovery(target: &Path) -> Result<()> {
     let parent = target.parent().expect("target has a parent");
-    let old = parent.join(format!(".bme-old-{}", std::process::id()));
-    let had_old = target.exists();
+    let backup = backup_path(target);
+    match fs::symlink_metadata(&backup) {
+        Ok(_) => {
+            return Err(failed(format!(
+                "{}: retained backup {} requires inspection and recovery before setup",
+                target.display(),
+                backup.display()
+            )));
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(io_error(&backup, e)),
+    }
+    let entries = match fs::read_dir(parent) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(io_error(parent, e)),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|e| io_error(parent, e))?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name
+            .strip_prefix(".bme-old-")
+            .is_some_and(|suffix| !suffix.is_empty() && suffix.bytes().all(|c| c.is_ascii_digit()))
+        {
+            return Err(failed(format!(
+                "{}: legacy backup {} requires inspection and recovery before setup",
+                target.display(),
+                entry.path().display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Replace a directory in two renames, retaining a named backup across interruption.
+///
+/// Example: replacing `tools/ghidra` retains `tools/.bme-backup-ghidra` until activation.
+fn replace_dir(staged: &Path, target: &Path) -> Result<()> {
+    check_recovery(target)?;
+    let old = backup_path(target);
+    let had_old = fs::symlink_metadata(target).is_ok();
     if had_old {
         fs::rename(target, &old).map_err(|e| io_error(target, e))?;
     }
     if let Err(e) = fs::rename(staged, target) {
-        if had_old {
-            let _ = fs::rename(&old, target);
+        if had_old && let Err(restore_error) = fs::rename(&old, target) {
+            return Err(failed(format!(
+                "{}: activation failed ({e}); previous installation remains at {} (restore failed: {restore_error})",
+                target.display(),
+                old.display()
+            )));
         }
         return Err(io_error(target, e));
     }
     if had_old {
-        let _ = fs::remove_dir_all(&old);
+        fs::remove_dir_all(&old).map_err(|e| {
+            failed(format!(
+                "{}: installed, but retained backup {} could not be removed: {e}",
+                target.display(),
+                old.display()
+            ))
+        })?;
     }
     Ok(())
 }
@@ -671,6 +733,7 @@ fn install_ghidra(
 ) -> Result<PathBuf> {
     let profile = &env.profile;
     let target = prefix.join(&profile.ghidra_dirname);
+    check_recovery(&target)?;
     if marker_matches(&target, profile) && headless(&target).is_file() {
         note(&format!("Ghidra already installed at {}", target.display()));
         return Ok(target);
@@ -829,6 +892,7 @@ fn install_extension(
     note: &mut dyn FnMut(&str),
 ) -> Result<PathBuf> {
     let target = extension_dir(ghidra);
+    check_recovery(&target)?;
     if target.exists() && !force && !marker_matches(&target, &env.profile) {
         return Err(failed(format!(
             "{}: exists and was not installed by this profile; pass --force to replace it",

@@ -80,7 +80,15 @@ impl Runner for FakeTools {
                 ..Finished::default()
             }),
             "git" if words.first().map(String::as_str) == Some("clone") => {
-                fs::create_dir_all(Path::new(&words[3]).join(".git")).unwrap();
+                let target = Path::new(&words[3]);
+                if target.exists() && fs::read_dir(target).unwrap().next().is_some() {
+                    return Ok(Finished {
+                        status: Some(128),
+                        stderr: format!("{}: destination is not empty", target.display()),
+                        ..Finished::default()
+                    });
+                }
+                fs::create_dir_all(target.join(".git")).unwrap();
                 ok("")
             }
             "git" if words.get(2).map(String::as_str) == Some("rev-parse") => {
@@ -724,4 +732,199 @@ fn non_utf8_tool_paths_serialize_in_replies() {
     let reply = Reply::new(installed, "");
     assert_eq!(reply.data["ghidra"], path.to_string_lossy().as_ref());
     assert_eq!(reply.data["extension"], path.to_string_lossy().as_ref());
+}
+
+#[test]
+fn interrupted_replacement_requires_recovery_before_retrying_setup() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = FakeTools::new();
+    let (transport, profile) = world();
+    let env = Env {
+        runner: &tools,
+        transport: &transport,
+        offline: false,
+        data: dir.path().join("data"),
+        cache: dir.path().join("cache"),
+        profile,
+    };
+    let prefix = env.data.join("tools");
+    let target = prefix.join(&env.profile.ghidra_dirname);
+    let backup = prefix.join(".bme-old-424242");
+    let unrelated = prefix.join("unrelated");
+    fs::create_dir_all(&target).unwrap();
+    fs::create_dir_all(&unrelated).unwrap();
+    fs::write(target.join("prior"), b"prior installation").unwrap();
+    fs::write(unrelated.join("keep"), b"unrelated installation").unwrap();
+    // A process can die after the first rename and before publishing its staged tree.
+    fs::rename(&target, &backup).unwrap();
+    let mut args = setup_args();
+    args.force = true;
+    let error = install(&env, &args, &mut |_| {})
+        .expect_err("interrupted replacement must require recovery");
+    assert!(
+        error.message.contains(&backup.display().to_string()),
+        "expected backup path in error: {error}"
+    );
+    assert!(
+        !target.exists(),
+        "{}: retry must not hide the interrupted replacement",
+        target.display()
+    );
+    assert_eq!(
+        fs::read(backup.join("prior")).unwrap(),
+        b"prior installation"
+    );
+    assert_eq!(
+        fs::read(unrelated.join("keep")).unwrap(),
+        b"unrelated installation"
+    );
+    fs::rename(&backup, &target).unwrap();
+    let installed =
+        install(&env, &args, &mut |_| {}).expect("retry after restoring backup succeeds");
+    assert!(installed.extension.join("data/types.gdt").is_file());
+    assert_eq!(
+        fs::read(unrelated.join("keep")).unwrap(),
+        b"unrelated installation"
+    );
+}
+
+/// Interrupt the first source clone after Ghidra was installed; later calls delegate normally.
+struct InterruptFirstClone {
+    inner: FakeTools,
+    interrupt: std::cell::Cell<bool>,
+}
+
+impl Runner for InterruptFirstClone {
+    fn run(&self, invocation: &Invocation) -> Result<Finished> {
+        if invocation
+            .program
+            .file_name()
+            .is_some_and(|name| name == "git")
+            && invocation
+                .words()
+                .first()
+                .is_some_and(|word| word == "clone")
+            && self.interrupt.replace(false)
+        {
+            let words = invocation.words();
+            let target = Path::new(&words[3]);
+            fs::create_dir_all(target).unwrap();
+            fs::write(target.join("partial-clone"), b"partial").unwrap();
+            panic!("simulated interruption during source clone");
+        }
+        self.inner.run(invocation)
+    }
+}
+
+#[test]
+fn interrupted_source_clone_preserves_installed_tools_and_retry_completes() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = InterruptFirstClone {
+        inner: FakeTools::new(),
+        interrupt: std::cell::Cell::new(true),
+    };
+    let (transport, profile) = world();
+    let env = Env {
+        runner: &tools,
+        transport: &transport,
+        offline: false,
+        data: dir.path().join("data"),
+        cache: dir.path().join("cache"),
+        profile,
+    };
+    let unrelated = env.data.join("tools/unrelated/keep");
+    fs::create_dir_all(unrelated.parent().unwrap()).unwrap();
+    fs::write(&unrelated, b"preserved").unwrap();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        install(&env, &setup_args(), &mut |_| {})
+    }));
+    let panic = outcome.expect_err("clone must be interrupted");
+    assert_eq!(
+        panic.downcast_ref::<&str>(),
+        Some(&"simulated interruption during source clone")
+    );
+    let ghidra = env.data.join("tools").join(&env.profile.ghidra_dirname);
+    assert!(
+        headless(&ghidra).is_file(),
+        "completed Ghidra installation must survive interruption"
+    );
+    assert_eq!(fs::read(&unrelated).unwrap(), b"preserved");
+    let partial = env.cache.join(EXTENSION);
+    assert_eq!(fs::read(partial.join("partial-clone")).unwrap(), b"partial");
+    let error =
+        install(&env, &setup_args(), &mut |_| {}).expect_err("partial clone must be reported");
+    assert!(
+        error.message.contains("destination is not empty"),
+        "{error}"
+    );
+    // Remove only the incomplete checkout, then retry the setup.
+    fs::remove_dir_all(&partial).unwrap();
+    let installed =
+        install(&env, &setup_args(), &mut |_| {}).expect("retry completes interrupted setup");
+    assert_eq!(installed.ghidra, ghidra);
+    assert!(installed.extension.join("data/types.gdt").is_file());
+    assert_eq!(fs::read(&unrelated).unwrap(), b"preserved");
+}
+
+#[test]
+fn target_specific_backup_survives_an_interrupted_activation_and_blocks_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("ghidra");
+    let staged = dir.path().join("staged");
+    let backup = backup_path(&target);
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("prior"), b"prior").unwrap();
+    fs::create_dir(&staged).unwrap();
+    fs::write(staged.join("new"), b"new").unwrap();
+    fs::rename(&target, &backup).unwrap();
+    let error = replace_dir(&staged, &target).unwrap_err();
+    assert!(
+        error.message.contains(&backup.display().to_string()),
+        "{error}"
+    );
+    assert!(!target.exists());
+    assert_eq!(fs::read(backup.join("prior")).unwrap(), b"prior");
+    assert_eq!(fs::read(staged.join("new")).unwrap(), b"new");
+    fs::rename(&backup, &target).unwrap();
+    replace_dir(&staged, &target).unwrap();
+    assert_eq!(fs::read(target.join("new")).unwrap(), b"new");
+    assert!(!backup.exists());
+}
+
+#[test]
+fn activation_failure_restores_previous_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("ghidra");
+    let missing = dir.path().join("missing-stage");
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("prior"), b"prior").unwrap();
+    let error = replace_dir(&missing, &target).unwrap_err();
+    assert!(
+        error.message.contains(&target.display().to_string()),
+        "{error}"
+    );
+    assert_eq!(fs::read(target.join("prior")).unwrap(), b"prior");
+    assert!(!backup_path(&target).exists());
+}
+
+#[test]
+fn active_target_and_retained_backup_are_both_preserved() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("gradle-9.3.1");
+    let backup = backup_path(&target);
+    let staged = dir.path().join("staged");
+    fs::create_dir(&target).unwrap();
+    fs::create_dir(&backup).unwrap();
+    fs::create_dir(&staged).unwrap();
+    fs::write(target.join("new"), b"new").unwrap();
+    fs::write(backup.join("old"), b"old").unwrap();
+    fs::write(staged.join("next"), b"next").unwrap();
+    let error = replace_dir(&staged, &target).unwrap_err();
+    assert!(
+        error.message.contains(&backup.display().to_string()),
+        "{error}"
+    );
+    assert_eq!(fs::read(target.join("new")).unwrap(), b"new");
+    assert_eq!(fs::read(backup.join("old")).unwrap(), b"old");
+    assert_eq!(fs::read(staged.join("next")).unwrap(), b"next");
 }
