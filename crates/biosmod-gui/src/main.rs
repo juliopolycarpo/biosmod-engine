@@ -1,6 +1,6 @@
 use biosmod_gui::{
     desktop::{Desktop, bind, connect, default_engine},
-    settings::{Settings, settings_path},
+    settings::{PreferencesStore, Settings, settings_path},
     ui::AppWindow,
 };
 use slint::ComponentHandle;
@@ -49,8 +49,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     // Leave unreadable or malformed preferences untouched for recovery.
-    let writable_preferences = if warning.is_some() { None } else { preferences };
-    let mut desktop = Desktop::new(engine, settings, writable_preferences)?;
+    let store = match (preferences, &warning) {
+        (Some(path), Some(_)) => PreferencesStore::Protected(path),
+        (Some(path), None) => PreferencesStore::Writable(path),
+        (None, _) => PreferencesStore::Unavailable,
+    };
+    let mut desktop = Desktop::new(engine, settings, store)?;
     desktop.session.image = image;
     if let Some(warning) = warning {
         desktop.session.diagnostics = warning;

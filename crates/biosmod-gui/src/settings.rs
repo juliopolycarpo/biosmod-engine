@@ -53,6 +53,18 @@ impl Settings {
     }
 }
 
+/// Where the desktop may persist preference changes for this session.
+/// Example: `PreferencesStore::Protected(path)` keeps a malformed `gui.json` untouched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreferencesStore {
+    /// Save changes to this file.
+    Writable(PathBuf),
+    /// The file exists but could not be loaded, so it stays as found for manual recovery.
+    Protected(PathBuf),
+    /// Neither `XDG_CONFIG_HOME` nor `HOME` names a configuration directory.
+    Unavailable,
+}
+
 /// Resolve presentation configuration using XDG, falling back to the home directory.
 /// Example: `settings_path(Some("/tmp/config".into()), None)` resolves `/tmp/config/biosmod-engine/gui.json`.
 pub fn settings_path(xdg: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {

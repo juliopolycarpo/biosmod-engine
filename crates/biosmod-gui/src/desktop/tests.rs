@@ -60,12 +60,44 @@ fn fake_scan() -> SourceReport {
 }
 
 fn bound_window(settings: Settings, settings_path: Option<PathBuf>) -> (AppWindow, Shared) {
+    let preferences =
+        settings_path.map_or(PreferencesStore::Unavailable, PreferencesStore::Writable);
+    bound_window_with_store(settings, preferences)
+}
+
+fn bound_window_with_store(
+    settings: Settings,
+    preferences: PreferencesStore,
+) -> (AppWindow, Shared) {
     let window = AppWindow::new().unwrap();
     settings.language.select().unwrap();
-    let desktop =
-        Desktop::new(PathBuf::from("/missing/fake-bme"), settings, settings_path).unwrap();
+    let desktop = Desktop::new(PathBuf::from("/missing/fake-bme"), settings, preferences).unwrap();
     let state = bind(&window, desktop);
     (window, state)
+}
+
+#[test]
+fn protected_preferences_name_the_unreadable_file_and_stay_untouched() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gui.json");
+    std::fs::write(&path, b"{bad-json").unwrap();
+    let (window, state) = bound_window_with_store(
+        Settings::default(),
+        PreferencesStore::Protected(path.clone()),
+    );
+    window.invoke_theme_changed(2);
+    let status = window.get_status();
+    assert_eq!(
+        state.lock().unwrap().session.status_kind,
+        Status::PreferencesProtected,
+        "protected preferences: expected status PreferencesProtected | received {status:?}"
+    );
+    assert!(
+        status.contains(path.to_str().unwrap()) && !status.contains("no writable configuration"),
+        "protected preferences: expected the malformed file path | received {status:?}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), b"{bad-json");
 }
 
 #[test]

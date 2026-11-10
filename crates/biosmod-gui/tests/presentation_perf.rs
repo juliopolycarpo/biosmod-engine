@@ -1,7 +1,7 @@
 //! Opt-in probe for UI callback latency with retained plans of different sizes.
 
 use biosmod_gui::desktop::{Desktop, bind};
-use biosmod_gui::settings::Settings;
+use biosmod_gui::settings::{PreferencesStore, Settings};
 use biosmod_gui::ui::AppWindow;
 use std::time::Instant;
 
@@ -14,7 +14,12 @@ fn output_edit_latency_with_retained_plan() {
         let path = dir.path().join("plan.json");
         let document = serde_json::json!({"schema":"bme.plan/1", "notes":["x".repeat(size)]});
         std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
-        let mut desktop = Desktop::new("/missing/bme".into(), Settings::default(), None).unwrap();
+        let mut desktop = Desktop::new(
+            "/missing/bme".into(),
+            Settings::default(),
+            PreferencesStore::Unavailable,
+        )
+        .unwrap();
         desktop.session.import_review(&path).unwrap();
         let window = AppWindow::new().unwrap();
         biosmod_gui::i18n::Language::En.select().unwrap();

@@ -123,6 +123,7 @@ pub enum Status {
     Raw,
     PreferencesError,
     PreferencesNoLocation,
+    PreferencesProtected,
     PickerError,
     ExportingPlan,
     ExportingDiagnostics,

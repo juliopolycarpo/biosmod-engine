@@ -296,7 +296,7 @@ fn language_switch_preserves_engine_request_and_firmware_result() {
     use biosmod_gui::{
         desktop::{Desktop, bind},
         i18n::Language,
-        settings::Settings,
+        settings::{PreferencesStore, Settings},
         ui::AppWindow,
     };
     use std::os::unix::fs::PermissionsExt;
@@ -354,7 +354,7 @@ fn language_switch_preserves_engine_request_and_firmware_result() {
     let mut desktop = Desktop::new(
         wrapper.clone(),
         Settings::default(),
-        Some(root.join("gui.json")),
+        PreferencesStore::Writable(root.join("gui.json")),
     )
     .unwrap();
     desktop.session = session;

@@ -627,6 +627,15 @@ msgstr "Não foi possível salvar as preferências: não há local de configura�
 
 #: ui/translations.slint:39
 msgctxt "UiText"
+msgid ""
+"Preferences not saved: {} could not be read. Fix or remove that file, then "
+"restart."
+msgstr ""
+"Preferências não salvas: não foi possível ler {}. Corrija ou remova esse "
+"arquivo e reinicie."
+
+#: ui/translations.slint:39
+msgctxt "UiText"
 msgid "Generated in this session"
 msgstr "Gerado nesta sessão"
 

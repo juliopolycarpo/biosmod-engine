@@ -3,7 +3,7 @@
 use biosmod_gui::controller::{Outcome, manifest_path};
 use biosmod_gui::desktop::{Desktop, bind, connect};
 use biosmod_gui::i18n::Language;
-use biosmod_gui::settings::Settings;
+use biosmod_gui::settings::{PreferencesStore, Settings};
 use biosmod_gui::ui::AppWindow;
 use slint::{ComponentHandle, Model, Timer, TimerMode};
 use std::cell::{Cell, RefCell};
@@ -199,7 +199,7 @@ fn real_desktop_synthetic_workflow() {
             .is_some(),
         "startup accessibility: expected {settings_label}"
     );
-    let mut desktop = Desktop::new(engine, settings, None).unwrap();
+    let mut desktop = Desktop::new(engine, settings, PreferencesStore::Unavailable).unwrap();
     desktop.session.image = Some(image);
     desktop.session.source = "lab".into();
     let state = bind(&window, desktop);

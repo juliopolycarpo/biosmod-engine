@@ -4,7 +4,7 @@
 use biosmod_gui::{
     desktop::{Desktop, bind},
     i18n::Language,
-    settings::Settings,
+    settings::{PreferencesStore, Settings},
     ui::{AppWindow, UiText},
 };
 use slint::ComponentHandle;
@@ -19,7 +19,12 @@ fn portuguese_plan_picker_opens_through_the_native_portal() {
         language: Language::PtBr,
         ..Settings::default()
     };
-    let desktop = Desktop::new("/missing/bme".into(), preferences, None).unwrap();
+    let desktop = Desktop::new(
+        "/missing/bme".into(),
+        preferences,
+        PreferencesStore::Unavailable,
+    )
+    .unwrap();
     let _state = bind(&window, desktop);
     assert_eq!(
         window.global::<UiText>().get_open_plan(),

@@ -6,7 +6,7 @@ use crate::controller::{
 use crate::engine::Engine;
 use crate::i18n::Language;
 use crate::model::{Patch, StateTone};
-use crate::settings::Settings;
+use crate::settings::{PreferencesStore, Settings};
 use crate::ui::{AppWindow, Fact, PatchRow, Tone, UiText};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
@@ -18,7 +18,7 @@ pub struct Desktop {
     pub session: Session,
     pub engine_path: PathBuf,
     settings: Settings,
-    settings_path: Option<PathBuf>,
+    preferences: PreferencesStore,
     started: Instant,
     dialog_open: bool,
     exporting: bool,
@@ -42,17 +42,17 @@ impl ExportWriter for NewFileWriter {
 
 impl Desktop {
     /// Build the window controller without performing engine I/O.
-    /// Example: `Desktop::new(engine_path, settings, settings_path)?`.
+    /// Example: `Desktop::new(engine_path, settings, PreferencesStore::Writable(path))?`.
     pub fn new(
         engine_path: PathBuf,
         settings: Settings,
-        settings_path: Option<PathBuf>,
+        preferences: PreferencesStore,
     ) -> std::io::Result<Self> {
         Ok(Self {
             session: Session::new()?,
             engine_path,
             settings,
-            settings_path,
+            preferences,
             started: Instant::now(),
             dialog_open: false,
             exporting: false,
@@ -581,8 +581,8 @@ pub fn default_engine() -> PathBuf {
 }
 
 fn save_settings(state: &mut Desktop) {
-    match &state.settings_path {
-        Some(path) => match state.settings.save(path) {
+    match &state.preferences {
+        PreferencesStore::Writable(path) => match state.settings.save(path) {
             Err(error) => state.session.set_detailed_status(
                 Status::PreferencesError,
                 error.clone(),
@@ -599,7 +599,16 @@ fn save_settings(state: &mut Desktop) {
             }
             Ok(()) => {}
         },
-        None => state.session.set_detailed_status(
+        PreferencesStore::Protected(path) => {
+            let path = path.display().to_string();
+            let fallback = format!(
+                "Preferences not saved: {path} could not be read. Fix or remove that file, then restart."
+            );
+            state
+                .session
+                .set_detailed_status(Status::PreferencesProtected, path, "", fallback)
+        }
+        PreferencesStore::Unavailable => state.session.set_detailed_status(
             Status::PreferencesNoLocation,
             "",
             "",
@@ -996,6 +1005,7 @@ fn localized_status_with_extra(
         Status::Raw => raw.into(),
         Status::PreferencesError => t.invoke_preferences_error(detail.into()),
         Status::PreferencesNoLocation => t.get_preferences_no_location(),
+        Status::PreferencesProtected => t.invoke_preferences_protected(detail.into()),
         Status::PickerError => t.invoke_picker_error(detail.into()),
         Status::ExportingPlan => t.get_exporting_plan(),
         Status::ExportingDiagnostics => t.get_exporting_diagnostics(),
