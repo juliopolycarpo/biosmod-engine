@@ -220,3 +220,20 @@ fn dismissed_notice_restores_the_status_it_replaced_once() {
         "workflow status after a notice: expected dismiss_notice to keep it"
     );
 }
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "set_status(Failed): expected a status without details")]
+fn set_status_rejects_a_status_that_needs_details() {
+    Session::new().unwrap().set_status(Status::Failed);
+}
+
+#[test]
+fn new_session_starts_with_the_start_guidance() {
+    let session = Session::new().unwrap();
+    assert_eq!(
+        (session.status_kind, session.status.as_str()),
+        (Status::Start, "Choose a firmware image to get started."),
+        "new session status"
+    );
+}

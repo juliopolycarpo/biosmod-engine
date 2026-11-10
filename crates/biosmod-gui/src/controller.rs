@@ -136,8 +136,10 @@ pub enum Status {
 }
 
 impl Status {
-    fn english(self) -> &'static str {
-        match self {
+    /// English text for a status that needs no details, or `None` for one that does.
+    /// Example: `Status::Ready.english()` is `Some("Engine ready. Choose an image to inspect.")`.
+    fn english(self) -> Option<&'static str> {
+        let text = match self {
             Self::Start => "Choose a firmware image to get started.",
             Self::Inputs => "Inputs changed. Inspect and scan to continue.",
             Self::ImportedInput => {
@@ -167,8 +169,25 @@ impl Status {
             Self::ClosingStop => "Stopping operation before closing…",
             Self::ExportNeedsPlan => "Review a plan before exporting it.",
             Self::Activity(action) => action.label(),
-            _ => "",
-        }
+            // These carry a detail or path; callers use set_detailed_status or set_notice.
+            Self::Precondition(_)
+            | Self::Failed
+            | Self::PublicationUnknown
+            | Self::Raw
+            | Self::PreferencesError
+            | Self::PreferencesNoLocation
+            | Self::PreferencesProtected
+            | Self::PickerError
+            | Self::ExportingPlan
+            | Self::ExportingDiagnostics
+            | Self::PlanExported
+            | Self::DiagnosticsExported
+            | Self::PlanExists
+            | Self::DiagnosticsExist
+            | Self::PlanExportError
+            | Self::DiagnosticsExportError => return None,
+        };
+        Some(text)
     }
 }
 
@@ -250,7 +269,7 @@ impl Session {
     /// Start an isolated session whose temporary files cannot overwrite user plans.
     /// Example: `let session = Session::new()?;`.
     pub fn new() -> std::io::Result<Self> {
-        Ok(Self {
+        let mut session = Self {
             directory: Arc::new(tempfile::Builder::new().prefix("bme-gui-").tempdir()?),
             generation: 0,
             next_operation: 0,
@@ -268,7 +287,7 @@ impl Session {
             scan_input: None,
             review: None,
             outcome: Outcome::Idle,
-            status: Status::Start.english().into(),
+            status: String::new(),
             status_kind: Status::Start,
             status_detail: String::new(),
             status_extra: String::new(),
@@ -278,15 +297,23 @@ impl Session {
             source_details: String::new(),
             tool_report: None,
             diagnostics: String::new(),
-        })
+        };
+        session.set_status(Status::Start);
+        Ok(session)
     }
 
     /// Set a semantic message while retaining an English representation for callers.
     /// Example: `session.set_status(Status::Selection)` after selection changes.
     pub fn set_status(&mut self, status: Status) {
+        let text = status.english();
+        debug_assert!(
+            text.is_some(),
+            "set_status({status:?}): expected a status without details | use set_detailed_status"
+        );
         self.noticed_status = None;
         self.status_kind = status;
-        self.status = status.english().into();
+        // Release builds name the variant instead of showing an empty status line.
+        self.status = text.map_or_else(|| format!("{status:?}"), Into::into);
         self.status_detail.clear();
         self.status_extra.clear();
     }
