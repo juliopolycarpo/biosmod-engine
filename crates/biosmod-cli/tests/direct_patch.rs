@@ -216,3 +216,55 @@ fn guarded_operations_refuse_snapshot_drift_before_publishing() {
         Value::Null
     );
 }
+
+#[test]
+fn a_finding_id_suggests_its_application_unit_without_selecting_it() {
+    let sandbox = Sandbox::new();
+    let (image, _) = sandbox.synthetic();
+    for id in ["B01", "official::B01"] {
+        let refused = sandbox.run(["patch", s(&image), id, "--json"]);
+        assert_eq!(refused.error_code(), "TARGET_NOT_FOUND");
+        let response = refused.json();
+        let message = response["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("B01") && message.contains("official::B01-B06"),
+            "{message}"
+        );
+        assert!(!image.with_file_name("synthetic.patched.bin").exists());
+    }
+}
+
+#[test]
+fn recommended_build_without_an_extension_and_empty_recommendation() {
+    let sandbox = Sandbox::new();
+    let (original, catalog) = sandbox.synthetic();
+    let image = sandbox.path("rom");
+    fs::rename(original, &image).unwrap();
+    let local = ["--catalog", s(&catalog), "--allow-unsigned-local", "--json"];
+    let patch = sandbox.run(
+        ["patch", s(&image), "--recommended"]
+            .into_iter()
+            .chain(local),
+    );
+    let output = sandbox.path("rom.patched");
+    assert_eq!(
+        patch.json()["data"]["output"],
+        s(&output),
+        "{}",
+        patch.stdout
+    );
+    assert!(output.is_file());
+    let recipe = sandbox.path("empty.json");
+    let refused = sandbox.run(
+        ["export", s(&output), "-o", s(&recipe)]
+            .into_iter()
+            .chain(local),
+    );
+    assert_eq!(refused.error_code(), "SELECTION_INVALID");
+    assert!(
+        refused
+            .stdout
+            .contains("no applicable recommended correction")
+    );
+    assert!(!recipe.exists());
+}

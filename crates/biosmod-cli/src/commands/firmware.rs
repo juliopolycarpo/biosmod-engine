@@ -310,12 +310,10 @@ fn prepare<'a>(
             ids.extend(report.recommended.iter().cloned());
             continue;
         }
-        let patch = catalog.patches.get(&token.id).ok_or_else(|| {
-            Error::new(
-                Code::TargetNotFound,
-                format!("patch {}: not in source {}", token.id, loaded[index].alias),
-            )
-        })?;
+        let patch = catalog
+            .patches
+            .get(&token.id)
+            .ok_or_else(|| unknown_patch(&token.id, &loaded[index..=index]))?;
         if let Some(v) = &token.version
             && *v != patch.version
         {
@@ -364,18 +362,7 @@ fn pick_source(loaded: &[Loaded], token: &Token, chosen: Option<usize>) -> Resul
         .filter(|i| loaded[*i].catalog.patches.contains_key(&token.id))
         .collect();
     match hits.as_slice() {
-        [] => Err(Error::new(
-            Code::TargetNotFound,
-            format!(
-                "patch {}: not in {}",
-                token.id,
-                loaded
-                    .iter()
-                    .map(|l| l.alias.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        )),
+        [] => Err(unknown_patch(&token.id, loaded)),
         [one] => Ok(*one),
         _ => Err(Error::new(
             Code::TargetAmbiguous,
@@ -390,6 +377,38 @@ fn pick_source(loaded: &[Loaded], token: &Token, chosen: Option<usize>) -> Resul
             ),
         )),
     }
+}
+
+fn unknown_patch(id: &str, sources: &[Loaded]) -> Error {
+    let aliases = sources
+        .iter()
+        .map(|source| source.alias.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let related: Vec<_> = sources
+        .iter()
+        .flat_map(|source| {
+            source
+                .catalog
+                .patches
+                .values()
+                .filter(|patch| patch.findings.iter().any(|finding| finding == id))
+                .map(|patch| format!("{}::{}", source.alias, patch.id))
+        })
+        .take(5)
+        .collect();
+    let hint = if related.is_empty() {
+        "Run `bme scan` with the same catalog to list patch IDs.".to_string()
+    } else {
+        format!(
+            "This finding appears in {}. Select an applicable patch ID.",
+            related.join(", ")
+        )
+    };
+    Error::new(
+        Code::TargetNotFound,
+        format!("patch {id:?}: not in {aliases}. {hint}"),
+    )
 }
 
 fn pin(source: &Loaded) -> SourcePin {
