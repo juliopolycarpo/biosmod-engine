@@ -1,6 +1,8 @@
 //! Session transitions and reviewed-plan ownership, independent of the windowing backend.
 
-use crate::engine::{Engine, EngineError, ErrorKind, Reply, Request, Verification};
+use crate::engine::{
+    Engine, EngineContract, EngineError, ErrorKind, Reply, Request, verification_complete,
+};
 use crate::model::{Scan, SourceReport, pretty};
 use serde_json::Value;
 use std::fs;
@@ -50,7 +52,6 @@ impl Action {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     Idle,
-    Running,
     Failed,
     Interrupted,
     PublicationIncomplete,
@@ -238,6 +239,7 @@ pub struct Session {
     pub manifest: Option<PathBuf>,
     pub connected: bool,
     pub engine_version: Option<String>,
+    pub(crate) engine_contract: Option<Arc<EngineContract>>,
     pub engine_attempted: bool,
     pub inspection: Option<Value>,
     pub scan: Option<SourceReport>,
@@ -274,6 +276,7 @@ impl Session {
             manifest: None,
             connected: false,
             engine_version: None,
+            engine_contract: None,
             engine_attempted: false,
             inspection: None,
             scan: None,
@@ -390,20 +393,19 @@ impl Session {
     /// Change the original image, retaining only imported artifacts for re-verification.
     /// Example: selecting an imported plan's original image never grants build permission.
     pub fn change_image(&mut self, image: Option<PathBuf>) {
-        let generated = self.review.as_ref().is_some_and(|review| review.generated);
-        let imported = self.review.take().filter(|review| !review.generated);
+        let keep = self.review.as_ref().is_none_or(|review| !review.generated);
+        let imported = self.review.take().filter(|_| keep);
         let output = self.output.clone();
         let manifest = self.manifest.clone();
         self.invalidate();
         self.image = image;
+        if keep && (imported.is_some() || manifest.is_some()) {
+            self.output = output;
+            self.manifest = manifest;
+        }
         if imported.is_some() {
             self.review = imported;
-            self.output = output;
-            self.manifest = manifest;
             self.set_status(Status::ImportedInput);
-        } else if !generated && manifest.is_some() {
-            self.output = output;
-            self.manifest = manifest;
         }
     }
 
@@ -520,17 +522,22 @@ impl Session {
                     output: self.output.clone().unwrap(),
                 }
             }
-            Action::Verify => Request::Verify {
-                input: image()?,
-                output: self.output.clone().ok_or(PreparationError::Output)?,
-                plan: self
-                    .review
-                    .as_ref()
-                    .ok_or(PreparationError::Plan)?
-                    .path
-                    .clone(),
-                manifest: self.manifest.clone().ok_or(PreparationError::Manifest)?,
-            },
+            Action::Verify => {
+                let output = self.output.clone().ok_or(PreparationError::Output)?;
+                if self.manifest.as_ref() != Some(&manifest_path(&output)) {
+                    return Err(PreparationError::Manifest);
+                }
+                Request::Verify {
+                    input: image()?,
+                    output,
+                    plan: self
+                        .review
+                        .as_ref()
+                        .ok_or(PreparationError::Plan)?
+                        .path
+                        .clone(),
+                }
+            }
             Action::Sources => Request::CatalogList,
             Action::Tools => Request::ToolsDoctor,
         };
@@ -544,6 +551,7 @@ impl Session {
             cancel: self.cancel.clone(),
             _directory: self.directory.clone(),
             reviewed: self.review.clone(),
+            contract: self.engine_contract.clone(),
         })
     }
 
@@ -554,7 +562,7 @@ impl Session {
         let token = (self.generation, self.next_operation, action);
         self.active = Some(token);
         self.cancel = Arc::new(AtomicBool::new(false));
-        self.outcome = Outcome::Running;
+        self.outcome = Outcome::Idle;
         self.set_status(Status::Activity(action));
         token
     }
@@ -585,6 +593,7 @@ impl Session {
         self.outcome = Outcome::Idle;
         match action {
             Action::Connect => {
+                self.engine_contract = Some(Arc::new(EngineContract::from_capabilities(&data)?));
                 self.connected = true;
                 self.engine_attempted = true;
                 self.engine_version = Some(payload.reply.version.clone());
@@ -629,13 +638,18 @@ impl Session {
                 self.set_status(Status::Published);
             }
             Action::Verify => {
-                let verification = Verification::from_data(&data)?;
-                self.outcome = if verification.complete {
+                let contract = self.engine_contract.as_deref().ok_or_else(|| {
+                    local_error(
+                        "verification: expected an engine contract from the active connection",
+                    )
+                })?;
+                let complete = verification_complete(&data, contract)?;
+                self.outcome = if complete {
                     Outcome::Verified
                 } else {
                     Outcome::VerificationIncomplete
                 };
-                self.set_status(if verification.complete {
+                self.set_status(if complete {
                     Status::Verified
                 } else {
                     Status::Incomplete
@@ -714,6 +728,7 @@ impl Session {
             self.connected = false;
             self.engine_attempted = true;
             self.engine_version = None;
+            self.engine_contract = None;
         }
         self.outcome = match error.code.as_deref() {
             Some("PUBLISH_INCOMPLETE") => Outcome::PublicationIncomplete,
@@ -830,6 +845,7 @@ pub struct Job {
     /// Pins the session directory until the child finishes.
     _directory: Arc<TempDir>,
     reviewed: Option<Arc<Review>>,
+    contract: Option<Arc<EngineContract>>,
 }
 pub struct Completion {
     token: (u64, u64, Action),
@@ -919,6 +935,16 @@ impl Job {
                 )));
             }
         }
+        let bound_engine;
+        let engine = if self.token.2 == Action::Connect {
+            engine
+        } else {
+            let contract = self.contract.clone().ok_or_else(|| {
+                local_error("engine: expected a contract from the active connection")
+            })?;
+            bound_engine = engine.clone().with_contract(contract);
+            &bound_engine
+        };
         let reply = if self.token.2 == Action::Connect {
             engine.handshake(&self.cancel)?
         } else {

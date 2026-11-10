@@ -141,6 +141,26 @@ fn plan_patch_verify_round_trip() {
             {"id": "PA", "state": "fixed"}, {"id": "TB", "state": "fixed"}
         ])
     );
+    let capabilities = sandbox.run(["capabilities", "--json"]).json();
+    let required = capabilities["data"]["verification_required_checks"]
+        .as_array()
+        .unwrap();
+    let actual = verified["data"]["checks"].as_array().unwrap();
+    assert_eq!(
+        required.len(),
+        actual.len(),
+        "required checks: expected {required:?} | received {actual:?}"
+    );
+    for name in required {
+        let count = actual
+            .iter()
+            .filter(|check| check["check"] == *name && check["ok"] == true)
+            .count();
+        assert_eq!(
+            count, 1,
+            "verification check {name}: expected one passing result | received {count}"
+        );
+    }
 
     // The output and manifest are never replaced.
     let again = sandbox.run([

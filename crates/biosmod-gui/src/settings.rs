@@ -3,6 +3,7 @@
 use crate::controller::read_regular_file;
 use crate::i18n::Language;
 use serde::{Deserialize, Serialize};
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -65,12 +66,54 @@ pub enum PreferencesStore {
     Unavailable,
 }
 
-/// Resolve presentation configuration using XDG, falling back to the home directory.
-/// Example: `settings_path(Some("/tmp/config".into()), None)` resolves `/tmp/config/biosmod-engine/gui.json`.
-pub fn settings_path(xdg: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
-    xdg.filter(|p| p.is_absolute())
-        .or_else(|| home.map(|h| h.join(".config")))
-        .map(|p| p.join("biosmod-engine/gui.json"))
+/// Normalize explicit BME directories against the GUI startup directory.
+/// Example: a `config` override at `/work` becomes `/work/config` for both GUI and engine.
+pub fn home_overrides(cwd: &Path, values: [Option<OsString>; 3]) -> Vec<(OsString, OsString)> {
+    ["BME_CONFIG_HOME", "BME_CACHE_HOME", "BME_DATA_HOME"]
+        .into_iter()
+        .zip(values)
+        .filter_map(|(name, value)| {
+            let path = PathBuf::from(value.filter(|value| !value.is_empty())?);
+            let path = if path.is_absolute() {
+                path
+            } else {
+                cwd.join(path)
+            };
+            Some((name.into(), path.into_os_string()))
+        })
+        .collect()
+}
+
+/// Resolve BME home overrides using the GUI process's startup working directory.
+/// Example: `process_home_overrides()?` can be passed to the engine subprocess.
+pub fn process_home_overrides() -> std::io::Result<Vec<(OsString, OsString)>> {
+    Ok(home_overrides(
+        &std::env::current_dir()?,
+        [
+            std::env::var_os("BME_CONFIG_HOME"),
+            std::env::var_os("BME_CACHE_HOME"),
+            std::env::var_os("BME_DATA_HOME"),
+        ],
+    ))
+}
+
+/// Resolve presentation configuration from the explicit BME directory or absolute XDG path.
+/// Example: `settings_path(Some("/tmp/config".into()), None, None)` resolves `/tmp/config/gui.json`.
+pub fn settings_path(
+    bme: Option<PathBuf>,
+    xdg: Option<PathBuf>,
+    home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    bme.filter(|p| !p.as_os_str().is_empty())
+        .map(|p| p.join("gui.json"))
+        .or_else(|| {
+            xdg.filter(|p| p.is_absolute())
+                .or_else(|| {
+                    home.filter(|h| !h.as_os_str().is_empty())
+                        .map(|h| h.join(".config"))
+                })
+                .map(|p| p.join("biosmod-engine/gui.json"))
+        })
 }
 
 #[cfg(test)]
@@ -94,14 +137,23 @@ mod tests {
         std::fs::write(&path, br#"{"theme":9}"#).unwrap();
         assert!(Settings::load(&path).unwrap_err().contains("received 9"));
         assert_eq!(
-            settings_path(Some("/tmp/c".into()), None),
+            settings_path(None, Some("/tmp/c".into()), None),
             Some("/tmp/c/biosmod-engine/gui.json".into())
         );
         assert_eq!(
-            settings_path(Some("relative".into()), Some("/home/test".into())),
+            settings_path(None, Some("relative".into()), Some("/home/test".into())),
             Some("/home/test/.config/biosmod-engine/gui.json".into())
         );
-        assert_eq!(settings_path(None, None), None);
+        assert_eq!(settings_path(None, None, None), None);
+        assert_eq!(settings_path(None, None, Some("".into())), None);
+        assert_eq!(
+            settings_path(
+                Some("".into()),
+                Some("/tmp/config".into()),
+                Some("/home/test".into())
+            ),
+            Some("/tmp/config/biosmod-engine/gui.json".into())
+        );
     }
 
     #[test]
@@ -138,7 +190,7 @@ mod tests {
         assert!(Settings::default().save(&blocker.join("gui.json")).is_err());
         assert_eq!(std::fs::read(&blocker).unwrap(), b"original");
         assert_eq!(
-            settings_path(Some("".into()), Some("/home/test".into())),
+            settings_path(None, Some("".into()), Some("/home/test".into())),
             Some("/home/test/.config/biosmod-engine/gui.json".into())
         );
         std::fs::write(&blocker, b"{bad-json").unwrap();
@@ -164,5 +216,54 @@ mod tests {
             .expect("settings FIFO: expected an immediate refusal | received a blocked open");
         let error = result.unwrap_err();
         assert!(error.contains("regular file"), "{error}");
+    }
+}
+
+#[cfg(test)]
+mod home_override_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_homes_are_normalized_and_preferences_stay_in_config_home() {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("home");
+        let paths = home_overrides(
+            root.path(),
+            [
+                Some("isolated-config".into()),
+                Some("".into()),
+                Some("/absolute-data".into()),
+            ],
+        );
+        let config = PathBuf::from(
+            &paths
+                .iter()
+                .find(|(key, _)| key == "BME_CONFIG_HOME")
+                .unwrap()
+                .1,
+        );
+        assert_eq!(config, root.path().join("isolated-config"));
+        assert!(!paths.iter().any(|(key, _)| key == "BME_CACHE_HOME"));
+        assert_eq!(
+            paths
+                .iter()
+                .find(|(key, _)| key == "BME_DATA_HOME")
+                .unwrap()
+                .1,
+            "/absolute-data"
+        );
+        let preferences =
+            settings_path(Some(config), Some("/tmp/xdg".into()), Some(home.clone())).unwrap();
+        Settings::default().save(&preferences).unwrap();
+        assert!(
+            preferences.is_file(),
+            "preferences: expected isolated config file at {}",
+            preferences.display()
+        );
+        assert!(
+            !home.join(".config/biosmod-engine/gui.json").exists(),
+            "preferences: expected HOME untouched | received file under {}",
+            home.display()
+        );
     }
 }

@@ -64,9 +64,22 @@ fn reply_payload(data: Value) -> Payload {
     }
 }
 
+fn fake_engine_contract() -> Arc<EngineContract> {
+    Arc::new(
+        EngineContract::from_capabilities(&json!({
+            "verification_required_checks": ["input-digest", "patch-states"],
+            "exit_codes": {"ok":0, "failed":1, "usage":2, "publication_incomplete":3},
+            "error_codes":[{"code":"USAGE","exit":2}, {"code":"PUBLISH_INCOMPLETE","exit":3},
+                {"code":"VERIFICATION_INCOMPLETE","exit":1}]
+        }))
+        .unwrap(),
+    )
+}
+
 #[test]
 fn semantic_incomplete_verification_is_not_reported_as_verified() {
     let mut session = Session::new().unwrap();
+    session.engine_contract = Some(fake_engine_contract());
     let data = json!({"complete": false, "checks": [{"check": "input-digest", "ok": true}], "skipped": [{"check": "patch-states and reproduction", "reason": "catalog unavailable"}], "notice": "Offline verification does not prove boot behavior."});
     session.accept(Action::Verify, reply_payload(data)).unwrap();
     assert_eq!(session.outcome, Outcome::VerificationIncomplete);
@@ -124,6 +137,7 @@ fn engine_reported_incomplete_verification_is_summarized_not_dumped() {
 #[test]
 fn verification_does_not_trust_complete_without_required_checks() {
     let mut session = Session::new().unwrap();
+    session.engine_contract = Some(fake_engine_contract());
     let data = json!({"complete": true, "checks": [], "skipped": [], "notice": "offline"});
     session.accept(Action::Verify, reply_payload(data)).unwrap();
     assert_eq!(session.outcome, Outcome::VerificationIncomplete);
@@ -225,4 +239,120 @@ fn new_session_starts_with_the_start_guidance() {
         (Status::Start, "Choose a firmware image to get started."),
         "new session status"
     );
+}
+
+#[test]
+fn connected_session_uses_its_advertised_verification_checks() {
+    let mut session = Session::new().unwrap();
+    let capability = json!({
+        "verification_required_checks": ["new-check"],
+        "exit_codes": {"ok":0, "failed":1, "usage":2, "publication_incomplete":3},
+        "error_codes":[{"code":"USAGE","exit":2}, {"code":"PUBLISH_INCOMPLETE","exit":3},
+            {"code":"VERIFICATION_INCOMPLETE","exit":1}]
+    });
+    session
+        .accept(Action::Connect, reply_payload(capability))
+        .unwrap();
+    let report = json!({"complete":true, "checks":[{"check":"new-check", "ok":true}], "skipped":[], "notice":"offline"});
+    session
+        .accept(Action::Verify, reply_payload(report))
+        .unwrap();
+    assert_eq!(
+        session.outcome,
+        Outcome::Verified,
+        "advertised required check should pass"
+    );
+    let missing = json!({"complete":true, "checks":[{"check":"other-check", "ok":true}], "skipped":[], "notice":"offline"});
+    session
+        .accept(Action::Verify, reply_payload(missing))
+        .unwrap();
+    assert_eq!(
+        session.outcome,
+        Outcome::VerificationIncomplete,
+        "missing advertised check must remain incomplete"
+    );
+    session.fail(
+        Action::Connect,
+        EngineError::new(ErrorKind::Protocol, "invalid capabilities"),
+    );
+    assert!(session.engine_contract.is_none());
+}
+
+#[test]
+fn verification_refuses_a_manifest_other_than_the_engines_default() {
+    let mut session = Session::new().unwrap();
+    session.connected = true;
+    session.engine_contract = Some(fake_engine_contract());
+    session.image = Some("/tmp/original.bin".into());
+    session.output = Some("/tmp/output.bin".into());
+    session.manifest = Some("/tmp/other.manifest.json".into());
+    session.review = Some(Arc::new(Review::new(
+        "/tmp/plan.json".into(),
+        b"{}".to_vec(),
+        json!({}),
+        false,
+    )));
+    assert!(
+        matches!(
+            session.prepare(Action::Verify),
+            Err(PreparationError::Manifest)
+        ),
+        "verify: expected refusal for a non-default manifest | received an accepted job"
+    );
+}
+
+#[test]
+fn changing_image_retains_only_imported_review_or_opened_output() {
+    for (generated, keep_review, keep_output) in [
+        (Some(true), false, false),
+        (Some(false), true, true),
+        (None, false, true),
+    ] {
+        let mut session = Session::new().unwrap();
+        session.review = generated.map(|generated| {
+            Arc::new(Review::new(
+                "/tmp/review.json".into(),
+                b"{}".to_vec(),
+                json!({}),
+                generated,
+            ))
+        });
+        session.output = Some("/tmp/output.bin".into());
+        session.manifest = Some("/tmp/output.bin.manifest.json".into());
+        session.change_image(Some("/tmp/new-image.bin".into()));
+        assert_eq!(
+            session.review.is_some(),
+            keep_review,
+            "review {generated:?}: expected retained={keep_review}"
+        );
+        assert_eq!(
+            session.output.is_some(),
+            keep_output,
+            "review {generated:?}: expected output retained={keep_output}"
+        );
+        assert_eq!(
+            session.manifest.is_some(),
+            keep_output,
+            "review {generated:?}: expected manifest retained={keep_output}"
+        );
+        assert_eq!(
+            session.image.as_deref(),
+            Some(Path::new("/tmp/new-image.bin"))
+        );
+    }
+}
+
+#[test]
+fn starting_operation_clears_previous_outcome_and_sets_busy() {
+    let mut session = Session::new().unwrap();
+    session.outcome = Outcome::Verified;
+    let _job = session
+        .prepare_import(Path::new("/tmp/review.json"))
+        .unwrap();
+    assert_eq!(
+        session.outcome,
+        Outcome::Idle,
+        "starting import: expected previous verified result cleared"
+    );
+    assert!(session.busy(), "starting import: expected active worker");
 }

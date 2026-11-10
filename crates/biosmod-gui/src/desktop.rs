@@ -6,7 +6,7 @@ use crate::controller::{
 use crate::engine::Engine;
 use crate::i18n::Language;
 use crate::model::{Patch, StateTone};
-use crate::settings::{PreferencesStore, Settings};
+use crate::settings::{PreferencesStore, Settings, process_home_overrides};
 use crate::ui::{AppWindow, Fact, PatchRow, Tone, UiText};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
@@ -19,6 +19,7 @@ pub struct Desktop {
     pub engine_path: PathBuf,
     settings: Settings,
     preferences: PreferencesStore,
+    engine_home_overrides: Vec<(std::ffi::OsString, std::ffi::OsString)>,
     started: Instant,
     dialog_open: bool,
     exporting: bool,
@@ -53,6 +54,7 @@ impl Desktop {
             engine_path,
             settings,
             preferences,
+            engine_home_overrides: process_home_overrides()?,
             started: Instant::now(),
             dialog_open: false,
             exporting: false,
@@ -307,12 +309,21 @@ pub fn connect(ui: &AppWindow, state: &Shared) {
     start(ui, state, Action::Connect);
 }
 
+fn configured_engine(state: &Desktop) -> Result<Engine, crate::engine::EngineError> {
+    Engine::new(&state.engine_path, PathBuf::from("/")).map(|engine| {
+        state
+            .engine_home_overrides
+            .iter()
+            .fold(engine, |engine, (key, value)| engine.with_env(key, value))
+    })
+}
+
 fn start(ui: &AppWindow, shared: &Shared, action: Action) {
     let mut state = shared.lock().unwrap();
     if state.dialog_open || state.exporting {
         return;
     }
-    let engine = Engine::new(&state.engine_path, PathBuf::from("/"));
+    let engine = configured_engine(&state);
     if let Err(error) = &engine {
         let detail = error.to_string();
         state
@@ -578,6 +589,7 @@ fn preview_engine(state: &mut Desktop, path: Option<PathBuf>) {
     state.session.invalidate();
     state.session.connected = false;
     state.session.engine_version = None;
+    state.session.engine_contract = None;
     state.session.engine_attempted = false;
     state.engine_path = engine;
 }
@@ -875,11 +887,10 @@ fn sync(ui: &AppWindow, state: &Desktop) {
         .scan
         .as_ref()
         .map(|s| {
-            let selectable = !session.busy();
             s.report
                 .patches
                 .iter()
-                .map(|p| patch_row(ui, &s.alias, p, selectable))
+                .map(|p| patch_row(ui, &s.alias, p))
                 .collect()
         })
         .unwrap_or_default();
@@ -1179,13 +1190,13 @@ pub fn status_tone(outcome: Outcome) -> Tone {
         Outcome::Verified => Tone::Good,
         Outcome::Failed | Outcome::PublicationIncomplete => Tone::Danger,
         Outcome::Interrupted | Outcome::VerificationIncomplete => Tone::Attention,
-        Outcome::Idle | Outcome::Running => Tone::Quiet,
+        Outcome::Idle => Tone::Quiet,
     }
 }
 
-/// Present one scan row in the selected language, enabling its checkbox only while idle.
-/// Example: `patch_row(&window, "lab", &patch, true).id` is `lab::PA@1.0.0`.
-pub fn patch_row(ui: &AppWindow, alias: &str, patch: &Patch, idle: bool) -> PatchRow {
+/// Present one scan row in the selected language with its selection eligibility.
+/// Example: `patch_row(&window, "lab", &patch).id` is `lab::PA@1.0.0`.
+pub fn patch_row(ui: &AppWindow, alias: &str, patch: &Patch) -> PatchRow {
     let text = ui.global::<UiText>();
     let state = match patch.state.as_str() {
         "present" => text.get_defect_present(),
@@ -1231,7 +1242,7 @@ pub fn patch_row(ui: &AppWindow, alias: &str, patch: &Patch, idle: bool) -> Patc
         } else {
             text.invoke_scoped_evidence(patch.evidence.join(", ").into())
         },
-        selectable: patch.selectable() && idle,
+        selectable: patch.selectable(),
         selected: patch.selected,
     }
 }

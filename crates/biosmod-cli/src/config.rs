@@ -36,7 +36,11 @@ impl Paths {
     /// Example: `Paths::resolve(&|k| (k == "HOME").then(|| "/home/u".into()), "linux")`
     /// gives `/home/u/.config/biosmod-engine` for configuration.
     pub fn resolve(get: &dyn Fn(&str) -> Option<OsString>, os: &str) -> Result<Paths> {
-        let base = |var: &str| get(var).map(PathBuf::from);
+        let base = |var: &str| {
+            get(var)
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        };
         let default = |kind: usize| -> Option<PathBuf> {
             match os {
                 "windows" => {
@@ -67,7 +71,7 @@ impl Paths {
             if let Some(dir) = base(own) {
                 return Ok(dir);
             }
-            if let Some(dir) = base(xdg) {
+            if let Some(dir) = base(xdg).filter(|dir| dir.is_absolute()) {
                 return Ok(dir.join(APP));
             }
             default(kind).ok_or_else(|| {
@@ -232,6 +236,55 @@ mod tests {
     }
 
     #[test]
+    fn relative_and_empty_xdg_paths_use_platform_defaults() {
+        let paths = Paths::resolve(
+            &env(&[
+                ("HOME", "/home/user"),
+                ("XDG_CONFIG_HOME", "relative"),
+                ("XDG_CACHE_HOME", ""),
+                ("XDG_DATA_HOME", "also-relative"),
+            ]),
+            "linux",
+        )
+        .unwrap();
+        assert_eq!(
+            paths.config,
+            PathBuf::from("/home/user/.config/biosmod-engine"),
+            "relative XDG_CONFIG_HOME must use HOME"
+        );
+        assert_eq!(
+            paths.cache,
+            PathBuf::from("/home/user/.cache/biosmod-engine"),
+            "empty XDG_CACHE_HOME must use HOME"
+        );
+        assert_eq!(
+            paths.data,
+            PathBuf::from("/home/user/.local/share/biosmod-engine"),
+            "relative XDG_DATA_HOME must use HOME"
+        );
+    }
+
+    #[test]
+    fn empty_explicit_home_uses_xdg_directory() {
+        let xdg_config_home = if cfg!(windows) { "C:/xdg" } else { "/xdg" };
+        let paths = Paths::resolve(
+            &env(&[
+                ("HOME", "/home/user"),
+                ("BME_CONFIG_HOME", ""),
+                ("XDG_CONFIG_HOME", xdg_config_home),
+            ]),
+            "linux",
+        )
+        .unwrap();
+        assert_eq!(
+            paths.config,
+            PathBuf::from(xdg_config_home).join("biosmod-engine"),
+            "empty BME_CONFIG_HOME: expected XDG directory | received {:?}",
+            paths.config
+        );
+    }
+
+    #[test]
     fn platform_defaults_and_overrides() {
         let linux = Paths::resolve(&env(&[("HOME", "/home/u")]), "linux").unwrap();
         assert_eq!(
@@ -259,10 +312,11 @@ mod tests {
                 PathBuf::from("C:/L/biosmod-engine/cache")
             )
         );
+        let xdg_cache_home = if cfg!(windows) { "C:/x" } else { "/x" };
         let overridden = Paths::resolve(
             &env(&[
                 ("HOME", "/h"),
-                ("XDG_CACHE_HOME", "/x"),
+                ("XDG_CACHE_HOME", xdg_cache_home),
                 ("BME_DATA_HOME", "/d"),
             ]),
             "linux",
@@ -270,7 +324,10 @@ mod tests {
         .unwrap();
         assert_eq!(
             (overridden.cache, overridden.data),
-            (PathBuf::from("/x/biosmod-engine"), PathBuf::from("/d"))
+            (
+                PathBuf::from(xdg_cache_home).join("biosmod-engine"),
+                PathBuf::from("/d")
+            )
         );
         let error = Paths::resolve(&env(&[]), "linux").unwrap_err();
         assert!(
