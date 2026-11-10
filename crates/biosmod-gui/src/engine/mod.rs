@@ -531,8 +531,11 @@ impl Engine {
     ///
     /// Example: `engine.handshake(&std::sync::atomic::AtomicBool::new(false))`.
     pub fn handshake(&self, cancel: &AtomicBool) -> Result<Reply, EngineError> {
-        let version = self.run(&Request::Version, cancel)?;
-        let capabilities = self.run(&Request::Capabilities, cancel)?;
+        let (version, capabilities) = run_pair(
+            cancel,
+            |pair_cancel| self.run(&Request::Version, pair_cancel),
+            |pair_cancel| self.run(&Request::Capabilities, pair_cancel),
+        )?;
         validate_handshake(&version, &capabilities)?;
         Ok(capabilities)
     }
@@ -736,6 +739,116 @@ impl Engine {
             self.contract.as_deref(),
         )
     }
+}
+
+/// Run two independent read-only requests and stop the peer after either fails.
+/// Example: `run_pair(&cancel, |c| engine.run(&a, c), |c| engine.run(&b, c))`.
+pub(crate) fn run_pair<F, G>(
+    cancel: &AtomicBool,
+    first: F,
+    second: G,
+) -> Result<(Reply, Reply), EngineError>
+where
+    F: FnOnce(&AtomicBool) -> Result<Reply, EngineError> + Send,
+    G: FnOnce(&AtomicBool) -> Result<Reply, EngineError> + Send,
+{
+    if cancel.load(Ordering::Relaxed) {
+        return Err(EngineError::new(
+            ErrorKind::Cancelled,
+            "engine operation cancelled",
+        ));
+    }
+    let pair_cancel = AtomicBool::new(false);
+    thread::scope(|scope| {
+        let (sender, receiver) = mpsc::channel();
+        let first_sender = sender.clone();
+        let pair_cancel_ref = &pair_cancel;
+        scope.spawn(move || pair_worker(first, pair_cancel_ref, first_sender, 0));
+        let pair_cancel_ref = &pair_cancel;
+        let second_sender = sender.clone();
+        scope.spawn(move || pair_worker(second, pair_cancel_ref, second_sender, 1));
+        drop(sender);
+        let mut results = [None, None];
+        while results.iter().any(Option::is_none) {
+            if cancel.load(Ordering::Relaxed) {
+                pair_cancel.store(true, Ordering::Relaxed);
+            }
+            match receiver.recv_timeout(Duration::from_millis(10)) {
+                Ok((index, result)) => {
+                    if result.is_err() {
+                        pair_cancel.store(true, Ordering::Relaxed);
+                    }
+                    results[index] = Some(result);
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(EngineError::new(
+                        ErrorKind::Io,
+                        "engine pair stopped without both results",
+                    ));
+                }
+            }
+        }
+        let [first, second] = results.map(Option::unwrap);
+        if cancel.load(Ordering::Relaxed) {
+            let mut error = EngineError::new(ErrorKind::Cancelled, "engine operation cancelled");
+            for result in [&first, &second] {
+                let diagnostics = match result {
+                    Ok(reply) => &reply.diagnostics,
+                    Err(error) => &error.diagnostics,
+                };
+                append_diagnostics(&mut error.diagnostics, diagnostics);
+            }
+            return Err(error);
+        }
+        match (first, second) {
+            (Ok(first), Ok(second)) => Ok((first, second)),
+            (Err(first), Err(mut second))
+                if first.kind == ErrorKind::Cancelled && second.kind != ErrorKind::Cancelled =>
+            {
+                append_diagnostics(&mut second.diagnostics, &first.diagnostics);
+                Err(second)
+            }
+            (Err(mut first), Err(second)) => {
+                append_diagnostics(&mut first.diagnostics, &second.diagnostics);
+                Err(first)
+            }
+            (Err(mut error), Ok(peer)) | (Ok(peer), Err(mut error)) => {
+                append_diagnostics(&mut error.diagnostics, &peer.diagnostics);
+                Err(error)
+            }
+        }
+    })
+}
+
+/// Retain both streams' diagnostics when independent requests complete.
+/// Example: appending `"paths"` to `"doctor"` yields `"doctor\npaths"`.
+pub(crate) fn append_diagnostics(destination: &mut String, extra: &str) {
+    if !extra.is_empty() {
+        if !destination.is_empty() {
+            destination.push('\n');
+        }
+        destination.push_str(extra);
+    }
+}
+
+/// Execute one paired request and always report its result to the coordinator.
+fn pair_worker<F>(
+    operation: F,
+    cancel: &AtomicBool,
+    sender: mpsc::Sender<(usize, Result<Reply, EngineError>)>,
+    index: usize,
+) where
+    F: FnOnce(&AtomicBool) -> Result<Reply, EngineError>,
+{
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(cancel)))
+        .unwrap_or_else(|_| {
+            Err(EngineError::new(
+                ErrorKind::Io,
+                "engine pair worker panicked",
+            ))
+        });
+    let _ = sender.send((index, result));
 }
 
 struct Drained {

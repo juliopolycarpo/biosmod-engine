@@ -488,3 +488,46 @@ fn tools_rejects_inconsistent_versions_and_honors_cancellation() {
     };
     assert_eq!(error.kind, ErrorKind::Cancelled);
 }
+
+#[cfg(unix)]
+struct MismatchedScanEngine {
+    directory: tempfile::TempDir,
+}
+
+#[cfg(unix)]
+impl MismatchedScanEngine {
+    fn new() -> Self {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("scan"), r#"printf 'scan warning' >&2
+printf '%s' '{"product":"biosmod-engine","protocol":"bme/1","version":"0.1.0","command":"scan","ok":true,"data":{}}'
+"#).unwrap();
+        std::fs::write(directory.path().join("catalog"), r#"printf 'catalog warning' >&2
+printf '%s' '{"product":"biosmod-engine","protocol":"bme/1","version":"0.2.0","command":"catalog show","ok":true,"data":{}}'
+"#).unwrap();
+        Self { directory }
+    }
+
+    fn engine(&self) -> Engine {
+        Engine::new("/bin/sh", self.directory.path()).unwrap()
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn scan_rejects_mismatched_engine_versions_and_retains_both_diagnostics() {
+    let fake = MismatchedScanEngine::new();
+    let mut session = Session::new().unwrap();
+    session.connected = true;
+    session.engine_contract = Some(fake_engine_contract());
+    session.image = Some("/tmp/fixture.bin".into());
+    session.source = "lab".into();
+    let job = session.prepare(Action::Scan).unwrap();
+    let error = match job.execute(&fake.engine()) {
+        Ok(_) => panic!("scan versions: expected refusal | received success"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind, ErrorKind::Protocol);
+    assert!(error.message.contains("0.1.0") && error.message.contains("0.2.0"));
+    assert!(error.diagnostics.contains("scan warning"));
+    assert!(error.diagnostics.contains("catalog warning"));
+}
