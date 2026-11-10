@@ -132,11 +132,8 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
         "second Space: expected the focused correction to toggle off"
     );
 
-    state.lock().unwrap().session.review = Some(std::sync::Arc::new(Review::new(
-        "/tmp/plan.json".into(),
-        b"{}".to_vec(),
+    state.lock().unwrap().session.review = Some(std::sync::Arc::new(Review::preview(
         json!({"schema":"bme.plan/1"}),
-        true,
     )));
     // Use a real callback to synchronize the generated-review screen.
     window.invoke_output_edited("/tmp/new.bin".into());
@@ -150,7 +147,7 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
         0,
         "image edits must immediately invalidate the generated review"
     );
-    assert!(!window.get_can_apply());
+    assert!(!window.get_can_build());
     settle(&window);
     key(&window, "y".into());
     assert_eq!(

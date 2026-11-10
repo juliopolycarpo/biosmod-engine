@@ -115,9 +115,7 @@ fn bind_with_language_selector(
             sync(&ui, &state);
         }
     });
-    action!(on_generate_plan, Action::Plan);
     action!(on_preview, Action::Preview);
-    action!(on_apply_plan, Action::Apply);
     action!(on_build, Action::Build);
     action!(on_verify, Action::Verify);
     action!(on_refresh_sources, Action::Sources);
@@ -389,7 +387,7 @@ fn start_engine_job(ui: &AppWindow, shared: &Shared, action: Action, export_path
                 return;
             }
             let verify = accepted
-                && matches!(action, Action::Apply | Action::Build)
+                && action == Action::Build
                 && state.session.manifest.is_some()
                 && state.session.outcome == Outcome::Idle;
             let validate = accepted
@@ -714,7 +712,7 @@ fn start_export(ui: &AppWindow, shared: &Shared, path: PathBuf, kind: ExportKind
                     .session
                     .review
                     .as_ref()
-                    .filter(|review| review.path.is_some())
+                    .filter(|review| review.recipe_path().is_some())
             });
             if retained.is_none() && state.session.connected && state.session.scan.is_some() {
                 drop(state);
@@ -887,12 +885,16 @@ fn sync(ui: &AppWindow, state: &Desktop) {
     ui.set_can_cancel(session.busy() && !session.publishing() && !stopping);
     ui.set_can_inspect(session.connected && session.image.is_some());
     ui.set_can_scan(session.connected && session.image.is_some() && !session.source.is_empty());
-    ui.set_can_plan(session.scan.as_ref().is_some_and(|s| {
-        s.report
+    let selected = session.scan.as_ref().map_or(0, |scan| {
+        scan.report
             .patches
             .iter()
-            .any(|p| p.selected && p.selectable())
-    }));
+            .filter(|patch| patch.selected && patch.selectable())
+            .count()
+    });
+    ui.set_selection_count(i32::try_from(selected).unwrap_or(i32::MAX));
+    ui.set_can_plan(selected > 0);
+    ui.set_building(session.activity() == Some(Action::Build));
     ui.set_can_recommend(session.can_recommend());
     ui.set_can_export_selection(
         ui.get_can_plan()
@@ -900,7 +902,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             || session
                 .review
                 .as_ref()
-                .is_some_and(|review| review.path.is_some()),
+                .is_some_and(|review| review.recipe_path().is_some()),
     );
     ui.set_manifest_path(
         session
@@ -909,7 +911,6 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             .map(|p| manifest_path(p).to_string_lossy().as_ref().into())
             .unwrap_or_default(),
     );
-    ui.set_can_apply(session.can_apply());
     ui.set_can_build(session.can_build());
     ui.set_can_verify(
         session.connected
@@ -1049,10 +1050,9 @@ pub fn localized_activity(ui: &AppWindow, action: Action) -> SharedString {
         Action::Connect => t.get_operation_connect(),
         Action::Inspect => t.get_operation_inspect(),
         Action::Scan => t.get_operation_scan(),
-        Action::Plan => t.get_operation_plan(),
         Action::Preview => t.get_operation_preview(),
         Action::Export => t.get_operation_export_selection(),
-        Action::Apply | Action::Build => t.get_operation_apply(),
+        Action::Build => t.get_operation_apply(),
         Action::Verify => t.get_operation_verify(),
         Action::Sources => t.get_operation_sources(),
         Action::Tools => t.get_operation_tools(),
@@ -1083,7 +1083,6 @@ fn localized_status_with_extra(
         Status::Ready => t.get_status_ready(),
         Status::Inspected => t.get_status_inspected(),
         Status::Scanned => t.get_status_scanned(),
-        Status::Planned => t.get_status_planned(),
         Status::Previewed => t.get_status_previewed(),
         Status::Published => t.get_status_published(),
         Status::Verified => t.get_status_verified(),
@@ -1163,7 +1162,7 @@ fn sync_review(ui: &AppWindow, state: &Desktop) {
 }
 
 /// Render a reviewed plan's summary in the selected language.
-/// Example: `plan_summary(&window, &review)` starts with `Generated in this session` in English.
+/// Example: `plan_summary(&window, &review)` starts with `Preview of selected changes` in English.
 pub fn plan_summary(ui: &AppWindow, review: &Review) -> SharedString {
     let t = ui.global::<UiText>();
     let plan = &review.document;
@@ -1180,7 +1179,7 @@ pub fn plan_summary(ui: &AppWindow, review: &Review) -> SharedString {
             .map(Into::into)
             .unwrap_or_else(|| t.get_none())
     };
-    let header = if review.generated {
+    let header = if review.recipe_path().is_none() {
         t.get_generated_plan()
     } else {
         t.get_imported_plan()

@@ -54,22 +54,6 @@ pub enum Request {
     CatalogShow {
         source: String,
     },
-    Plan {
-        image: PathBuf,
-        source: String,
-        selection: Vec<String>,
-        output: PathBuf,
-    },
-    Patch {
-        image: PathBuf,
-        plan: PathBuf,
-        output: PathBuf,
-    },
-    Verify {
-        input: PathBuf,
-        output: PathBuf,
-        plan: PathBuf,
-    },
     Build {
         image: PathBuf,
         selection: PatchSelection,
@@ -99,10 +83,9 @@ impl Request {
             Self::Scan { .. } => "scan",
             Self::CatalogList => "catalog list",
             Self::CatalogShow { .. } => "catalog show",
-            Self::Plan { .. } => "plan",
-            Self::Patch { .. } | Self::Build { .. } => "patch",
+            Self::Build { .. } => "patch",
             Self::Export { .. } => "export",
-            Self::Verify { .. } | Self::VerifyResult { .. } => "verify",
+            Self::VerifyResult { .. } => "verify",
             Self::ToolsDoctor => "tools doctor",
             Self::ToolsPaths => "tools paths",
         }
@@ -111,12 +94,10 @@ impl Request {
     fn publishes(&self) -> bool {
         matches!(
             self,
-            Self::Patch { .. }
-                | Self::Build {
-                    destination: PatchDestination::Publish(_),
-                    ..
-                }
-                | Self::Export { .. }
+            Self::Build {
+                destination: PatchDestination::Publish(_),
+                ..
+            } | Self::Export { .. }
         )
     }
 
@@ -142,41 +123,6 @@ impl Request {
                 args.push(option("--catalog=", OsStr::new(source)));
             }
             Self::CatalogShow { source } => args.push(option("--catalog=", OsStr::new(source))),
-            Self::Plan {
-                image,
-                source,
-                selection,
-                output,
-            } => {
-                if selection.is_empty() || selection.iter().any(|s| s.is_empty() || s.contains(','))
-                {
-                    return Err(EngineError::new(
-                        ErrorKind::Configuration,
-                        "selection: expected one or more nonempty patch IDs without commas",
-                    ));
-                }
-                args.push(path(image));
-                args.push(option("--catalog=", OsStr::new(source)));
-                args.push(option("--select=", OsStr::new(&selection.join(","))));
-                args.push(option("--output=", &path(output)));
-            }
-            Self::Patch {
-                image,
-                plan,
-                output,
-            } => {
-                args.push(path(image));
-                args.push(option("--plan=", &path(plan)));
-                args.push(option("--output=", &path(output)));
-            }
-            Self::Verify {
-                input,
-                output,
-                plan,
-            } => {
-                args.extend([path(input), path(output)]);
-                args.push(option("--plan=", &path(plan)));
-            }
             Self::Build {
                 image,
                 selection,

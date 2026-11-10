@@ -39,12 +39,11 @@ fn incomplete_publication_shows_recovery_and_import_does_not_block_close() {
 }
 
 fn fake_review(generated: bool) -> Arc<Review> {
-    Arc::new(Review::new(
-        PathBuf::from("/tmp/reviewed-plan.json"),
-        b"{}".to_vec(),
-        json!({}),
-        generated,
-    ))
+    Arc::new(if generated {
+        Review::preview(json!({}))
+    } else {
+        Review::imported(PathBuf::from("/tmp/recipe.json"), b"{}".to_vec(), json!({}))
+    })
 }
 
 fn fake_scan() -> SourceReport {
@@ -170,7 +169,7 @@ fn plan_summary_keeps_component_identity_and_policy() {
     i_slint_backend_testing::init_no_event_loop();
     let (window, _state) = bound_window(Settings::default(), None);
     let plan = json!({"firmware":"synthetic", "components":[{"name":"ACPI", "ffs_guid":"guid", "table_offset":128, "file_offset":4096, "patches":["A"]}], "facts":["board-rev"], "allow_hold":true, "allow_diagnostic":false, "source":{"manifest_sha256":"pinned"}});
-    let review = Review::new(PathBuf::from("/tmp/plan.json"), Vec::new(), plan, true);
+    let review = Review::preview(plan);
     let text = plan_summary(&window, &review);
     for expected in [
         "Generated in this session\n\nFirmware: synthetic",
@@ -416,6 +415,7 @@ fn make_reviewable(state: &Shared, generated: bool) {
     state.session.source = "lab".into();
     state.session.output = Some(PathBuf::from("/tmp/output.bin"));
     state.session.scan = Some(fake_scan());
+    state.session.scan_input = Some(json!({"sha256": "1".repeat(64)}));
     state.session.review = Some(fake_review(generated));
 }
 
@@ -448,14 +448,24 @@ fn callbacks_invalidate_review_for_inputs_and_keep_it_for_output_choice() {
     i_slint_backend_testing::init_no_event_loop();
     let (window, state) = bound_window(Settings::default(), None);
     make_reviewable(&state, true);
+    state
+        .lock()
+        .unwrap()
+        .session
+        .scan
+        .as_mut()
+        .unwrap()
+        .report
+        .patches[0]
+        .selected = true;
     sync(&window, &state.lock().unwrap());
-    assert!(window.get_can_apply());
+    assert!(window.get_can_build());
     assert!(window.get_can_recommend());
     assert_eq!(window.get_stage(), 2);
 
     window.invoke_output_edited("/tmp/another-output.bin".into());
     assert!(state.lock().unwrap().session.review.is_some());
-    assert!(window.get_can_apply());
+    assert!(window.get_can_build());
     assert_eq!(
         window.get_manifest_path(),
         "/tmp/another-output.bin.manifest.json"
@@ -463,7 +473,7 @@ fn callbacks_invalidate_review_for_inputs_and_keep_it_for_output_choice() {
 
     window.invoke_image_edited("/tmp/other-image.bin".into());
     assert!(state.lock().unwrap().session.review.is_none());
-    assert!(!window.get_can_apply());
+    assert!(!window.get_can_build());
     assert!(!window.get_can_recommend());
     assert_eq!(window.get_stage(), 0);
 
@@ -477,7 +487,7 @@ fn callbacks_invalidate_review_for_inputs_and_keep_it_for_output_choice() {
     let state = state.lock().unwrap();
     assert!(state.session.review.is_none());
     assert!(!state.session.connected);
-    assert!(!window.get_can_apply());
+    assert!(!window.get_can_build());
 }
 
 #[test]
@@ -524,7 +534,7 @@ fn imported_review_is_read_only_and_theme_choice_persists() {
     make_reviewable(&state, false);
     sync(&window, &state.lock().unwrap());
     assert_eq!(window.get_stage(), 2);
-    assert!(!window.get_can_apply());
+    assert!(!window.get_can_build());
     window.invoke_theme_changed(1);
     assert_eq!(Settings::load(&settings_path).unwrap().theme, 1);
     window.invoke_back_to_selection();
@@ -571,12 +581,11 @@ fn window_close_respects_active_read_and_publication() {
     window.hide().unwrap();
     let (publishing_window, publishing_state) = bound_window(Settings::default(), None);
     make_reviewable(&publishing_state, true);
-    publishing_state
-        .lock()
-        .unwrap()
-        .session
-        .prepare(Action::Apply)
-        .unwrap();
+    {
+        let mut state = publishing_state.lock().unwrap();
+        state.session.scan.as_mut().unwrap().report.patches[0].selected = true;
+        state.session.prepare(Action::Build).unwrap();
+    }
     publishing_window.show().unwrap();
     assert_eq!(
         publishing_window
@@ -626,14 +635,22 @@ fn selecting_a_patch_and_picker_paths_update_the_session() {
     sync(&window, &state.lock().unwrap());
     window.invoke_toggle_patch(0);
     assert!(window.get_can_plan());
-    assert!(!window.get_can_apply());
+    assert!(window.get_can_build());
     assert!(state.lock().unwrap().session.review.is_none());
 
     let plan = temp.path().join("saved plan.json");
     std::fs::write(&plan, br#"{"schema":"bme.plan/1"}"#).unwrap();
     let mut state = state.lock().unwrap();
     state.session.import_review(&plan).unwrap();
-    assert!(!state.session.review.as_ref().unwrap().generated);
+    assert!(
+        state
+            .session
+            .review
+            .as_ref()
+            .unwrap()
+            .recipe_path()
+            .is_some()
+    );
     let output = temp.path().join("output image.bin");
     apply_picked(&mut state, PathKind::ExistingOutput, output.clone());
     assert_eq!(state.session.manifest, Some(manifest_path(&output)));
@@ -677,7 +694,7 @@ fn reopening_plan_and_output_in_either_order_allows_verification_after_choosing_
             window.get_can_verify(),
             "plan_first={plan_first}: choosing the original image must retain the imported plan and output"
         );
-        assert!(!window.get_can_apply(), "an imported plan is read-only");
+        assert!(!window.get_can_build(), "an imported plan is read-only");
     }
     let (window, state) = bound_window(Settings::default(), None);
     state.lock().unwrap().session.connected = true;
@@ -694,7 +711,7 @@ fn reopening_plan_and_output_in_either_order_allows_verification_after_choosing_
         sync(&window, &state);
     }
     assert!(window.get_can_verify());
-    assert!(!window.get_can_apply());
+    assert!(!window.get_can_build());
 }
 
 #[test]
@@ -779,11 +796,10 @@ fn review_presentation_shares_the_prepared_snapshot() {
     i_slint_backend_testing::init_no_event_loop();
     let (window, state) = bound_window(Settings::default(), None);
     let document = json!({"source": {"manifest_sha256": "pinned"}, "notes": ["preserved"]});
-    let review = Arc::new(Review::new(
+    let review = Arc::new(Review::imported(
         "/tmp/plan.json".into(),
         b"exact bytes".to_vec(),
         document.clone(),
-        false,
     ));
     state.lock().unwrap().session.review = Some(review.clone());
     sync(&window, &state.lock().unwrap());

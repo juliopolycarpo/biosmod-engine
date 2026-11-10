@@ -64,6 +64,7 @@ fn populate(window: &AppWindow) {
     window.set_stage(1);
     window.set_can_scan(true);
     window.set_can_plan(true);
+    window.set_can_build(true);
     window.set_can_recommend(true);
     window.set_can_inspect(true);
     window.set_engine_status("bme 0.1.0 · offline".into());
@@ -194,15 +195,10 @@ fn gallery_states_build_and_capture() {
     shot("1-selected");
     window.set_stage(2);
     let plan = serde_json::json!({"schema":"bme.plan/1", "firmware":"synthetic", "source":{"alias":"lab"}});
-    let review = biosmod_gui::controller::Review::new(
-        "/tmp/gallery-plan.json".into(),
-        Vec::new(),
-        plan.clone(),
-        true,
-    );
+    let review = biosmod_gui::controller::Review::preview(plan.clone());
     window.set_plan_details(biosmod_gui::desktop::plan_summary(&window, &review));
     window.set_plan_snapshot(serde_json::to_string_pretty(&plan).unwrap().into());
-    shot("10-review");
+    shot("10-selection-details");
     window.set_stage(1);
     window.set_page(4);
     shot("9-settings");
@@ -272,17 +268,17 @@ fn manual_paths_keep_footer_inside_minimum_window() {
     let button = ElementHandle::find_by_accessible_label(
         &window,
         if language == biosmod_gui::i18n::Language::PtBr {
-            "Revisar selecionados"
+            "Gerar cópia com patches"
         } else {
-            "Review selected"
+            "Build patched copy"
         },
     )
     .next()
-    .expect("element: Review selected button | received: none");
+    .expect("element: Build patched copy button | received: none");
     let bottom = button.absolute_position().y + button.size().height;
     assert!(
         bottom <= 600.0 - 44.0,
-        "(footer): expected Review selected bottom <= 556 above the status bar | received: {bottom}"
+        "(footer): expected Build patched copy bottom <= 556 above the status bar | received: {bottom}"
     );
 }
 
@@ -306,18 +302,18 @@ fn wide_window_centers_content_column() {
     let button = ElementHandle::find_by_accessible_label(
         &window,
         if language == biosmod_gui::i18n::Language::PtBr {
-            "Revisar selecionados"
+            "Gerar cópia com patches"
         } else {
-            "Review selected"
+            "Build patched copy"
         },
     )
     .next()
-    .expect("element: Review selected button | received: none");
+    .expect("element: Build patched copy button | received: none");
     let right = button.absolute_position().x + button.size().width;
     let limit = (1600.0 + 1120.0) / 2.0;
     assert!(
         right <= limit + 0.5,
-        "(content column): expected Review selected right edge <= {limit} | received: {right}"
+        "(content column): expected Build patched copy right edge <= {limit} | received: {right}"
     );
 }
 
@@ -383,7 +379,7 @@ fn review_fields_keep_build_control_above_status_at_minimum_size() {
     i_slint_backend_testing::init_no_event_loop();
     for (language, label) in [
         (biosmod_gui::i18n::Language::En, "Build patched copy"),
-        (biosmod_gui::i18n::Language::PtBr, "Gerar cópia modificada"),
+        (biosmod_gui::i18n::Language::PtBr, "Gerar cópia com patches"),
     ] {
         let window = AppWindow::new().unwrap();
         language.select().unwrap();
@@ -449,9 +445,9 @@ fn resizing_open_paths_preserves_the_minimum_window() {
             actual.width,
             actual.height
         );
-        let button = ElementHandle::find_by_accessible_label(&window, "Review selected")
+        let button = ElementHandle::find_by_accessible_label(&window, "Build patched copy")
             .next()
-            .expect("element: Review selected button | received: none");
+            .expect("element: Build patched copy button | received: none");
         let bottom = button.absolute_position().y + button.size().height;
         assert!(
             bottom <= height as f32 - 44.0,

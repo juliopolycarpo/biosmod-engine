@@ -24,8 +24,8 @@ fn imported_jobs_reject_nonregular_files_and_stale_results() {
 
 #[cfg(unix)]
 #[test]
-fn imported_fifo_is_refused_and_publication_keeps_non_utf8_paths() {
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+fn imported_fifo_is_refused() {
+    use std::os::unix::ffi::OsStrExt;
     let directory = tempfile::tempdir().unwrap();
     let fifo = directory.path().join("plan.pipe");
     let c_path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
@@ -38,17 +38,6 @@ fn imported_fifo_is_refused_and_publication_keeps_non_utf8_paths() {
             .unwrap_err()
             .contains("regular file")
     );
-    let output = directory
-        .path()
-        .join(std::ffi::OsString::from_vec(b"output-\xff.bin".to_vec()));
-    session.output = Some(output.clone());
-    session
-        .accept(
-            Action::Apply,
-            reply_payload(serde_json::json!({"manifest_file":"lossy display text"})),
-        )
-        .unwrap();
-    assert_eq!(session.manifest, Some(manifest_path(&output)));
 }
 use serde_json::json;
 
@@ -107,7 +96,7 @@ fn apply_refused_before_launch_does_not_report_unknown_publication() {
     let mut session = Session::new().unwrap();
     let mut error = EngineError::new(ErrorKind::Configuration, "reviewed plan changed");
     error.code = None;
-    session.fail(Action::Apply, error);
+    session.fail(Action::Build, error);
     assert!(
         !session.status.contains("outcome unknown"),
         "pre-launch refusal: expected a definite status | received {}",
@@ -172,7 +161,7 @@ fn imported_review_prepares_its_snapshot_before_presentation() {
     session.import_review(&path).unwrap();
     let review = session.review.as_ref().unwrap();
     assert!(
-        !review.generated && review.snapshot.as_str() == pretty(&review.document),
+        review.recipe_path().is_some() && review.snapshot.as_str() == pretty(&review.document),
         "imported review: expected a read-only review with its pretty snapshot | received {:?}",
         review.snapshot
     );
@@ -286,11 +275,10 @@ fn verification_refuses_a_manifest_other_than_the_engines_default() {
     session.image = Some("/tmp/original.bin".into());
     session.output = Some("/tmp/output.bin".into());
     session.manifest = Some("/tmp/other.manifest.json".into());
-    session.review = Some(Arc::new(Review::new(
+    session.review = Some(Arc::new(Review::imported(
         "/tmp/plan.json".into(),
         b"{}".to_vec(),
         json!({}),
-        false,
     )));
     assert!(
         matches!(
@@ -310,12 +298,11 @@ fn changing_image_retains_only_imported_review_or_opened_output() {
     ] {
         let mut session = Session::new().unwrap();
         session.review = generated.map(|generated| {
-            Arc::new(Review::new(
-                "/tmp/review.json".into(),
-                b"{}".to_vec(),
-                json!({}),
-                generated,
-            ))
+            Arc::new(if generated {
+                Review::preview(json!({}))
+            } else {
+                Review::imported("/tmp/review.json".into(), b"{}".to_vec(), json!({}))
+            })
         });
         session.output = Some("/tmp/output.bin".into());
         session.manifest = Some("/tmp/output.bin.manifest.json".into());

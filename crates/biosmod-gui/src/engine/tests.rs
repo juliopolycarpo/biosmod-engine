@@ -27,30 +27,47 @@ fn fake_contract() -> EngineContract {
 
 #[test]
 fn arguments_keep_paths_and_qualified_selection_as_separate_arguments() {
-    let req = Request::Plan {
-        image: "-firmware with spaces.bin".into(),
+    let selection = ScannedSelection {
         source: "lab".into(),
-        selection: vec!["lab::PA@1.0.0".into(), "lab::DG@1.0.0".into()],
-        output: "new plan.json".into(),
+        ids: vec!["lab::PA@1.0.0".into(), "lab::DG@1.0.0".into()],
+        input_sha256: "0".repeat(64),
+        source_sha256: "1".repeat(64),
     };
-    let args = req.args(Path::new("/tmp/work")).unwrap();
+    let request = Request::Build {
+        image: "-firmware with spaces.bin".into(),
+        selection: PatchSelection::Scanned(selection.clone()),
+        destination: PatchDestination::Publish("new output.bin".into()),
+    };
+    let args = request.args(Path::new("/tmp/work")).unwrap();
     assert_eq!(
-        args,
-        [
-            "plan",
+        &args[..6],
+        &[
+            "patch",
             "/tmp/work/-firmware with spaces.bin",
-            "--catalog=lab",
-            "--select=lab::PA@1.0.0,lab::DG@1.0.0",
-            "--output=/tmp/work/new plan.json",
+            "--output=/tmp/work/new output.bin",
             "--json",
-            "--offline"
+            "--offline",
+            "--catalog=lab",
         ]
         .map(OsString::from)
     );
-    let invalid = Request::Plan {
+    assert_eq!(
+        &args[6..],
+        &[
+            format!("--expect-input-sha256={}", selection.input_sha256),
+            format!("--expect-source-sha256={}", selection.source_sha256),
+            "--".into(),
+            "lab::PA@1.0.0".into(),
+            "lab::DG@1.0.0".into(),
+        ]
+        .map(OsString::from)
+    );
+    let invalid = Request::Export {
         image: "a".into(),
-        source: "lab".into(),
-        selection: vec!["a,b".into()],
+        selection: ScannedSelection {
+            ids: Vec::new(),
+            ..selection
+        },
         output: "b".into(),
     };
     assert_eq!(
@@ -431,10 +448,10 @@ fn subprocess_replies_distinguish_malformed_output_and_incomplete_publication() 
     let incomplete = FakeEngine::new(
         "printf '%s' '{\"product\":\"biosmod-engine\",\"protocol\":\"bme/1\",\"version\":\"0.1.0\",\"command\":\"patch\",\"ok\":false,\"error\":{\"code\":\"PUBLISH_INCOMPLETE\",\"message\":\"image exists without manifest\",\"details\":{\"output\":\"retained.bin\"}}}'; exit 3",
     );
-    let request = Request::Patch {
+    let request = Request::Build {
         image: "image".into(),
-        plan: "plan".into(),
-        output: "output".into(),
+        selection: PatchSelection::Recipe("selection.json".into()),
+        destination: PatchDestination::Publish("output".into()),
     };
     let error = incomplete
         .engine()
@@ -640,13 +657,14 @@ fn duplicate_unadvertised_verification_checks_are_incomplete() {
 
 #[cfg(unix)]
 #[test]
-fn verify_uses_engine_default_manifest_for_raw_output_path() {
+fn verify_preserves_native_output_and_manifest_paths() {
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
     let output = PathBuf::from(OsString::from_vec(b"output-\xff.bin".to_vec()));
-    let request = Request::Verify {
+    let request = Request::VerifyResult {
         input: "/tmp/input.bin".into(),
         output: output.clone(),
-        plan: "/tmp/review.json".into(),
+        manifest: crate::controller::manifest_path(&output),
+        recipe: None,
     };
     let args = request.args(Path::new("/tmp")).unwrap();
     assert!(
@@ -655,10 +673,9 @@ fn verify_uses_engine_default_manifest_for_raw_output_path() {
         "verify output: expected raw bytes | received {args:?}"
     );
     assert!(
-        !args
-            .iter()
-            .any(|arg| arg.as_bytes().starts_with(b"--manifest")),
-        "verify arguments: expected engine default manifest | received {args:?}"
+        args.iter()
+            .any(|arg| arg.as_bytes() == b"--manifest=/tmp/output-\xff.bin.manifest.json"),
+        "verify manifest: expected raw bytes | received {args:?}"
     );
 }
 

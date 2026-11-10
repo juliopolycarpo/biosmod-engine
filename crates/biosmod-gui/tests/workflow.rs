@@ -5,9 +5,7 @@ mod common;
 use biosmod_gui::controller::{Action, Outcome, Session, manifest_path};
 use biosmod_gui::engine::Engine;
 use serde_json::Value;
-use std::ffi::OsString;
 use std::path::PathBuf;
-use std::process::Command;
 
 struct SyntheticEngine {
     directory: tempfile::TempDir,
@@ -36,26 +34,6 @@ impl SyntheticEngine {
             image,
             engine,
         }
-    }
-
-    fn cli(&self, args: &[OsString]) -> Value {
-        let root = self.directory.path();
-        let output = Command::new(&self.binary)
-            .args(args)
-            .env("BME_CONFIG_HOME", root.join("config"))
-            .env("BME_CACHE_HOME", root.join("cache"))
-            .env("BME_DATA_HOME", root.join("data"))
-            .arg("--json")
-            .arg("--offline")
-            .output()
-            .unwrap();
-        let value: Value =
-            serde_json::from_slice(&output.stdout).expect("CLI output: expected bme JSON");
-        assert!(
-            output.status.success() && value["ok"] == true,
-            "CLI command: expected success | received {value}"
-        );
-        value["data"].clone()
     }
 
     fn session(&self) -> Session {
@@ -87,142 +65,32 @@ fn step(session: &mut Session, engine: &Engine, action: Action) {
 }
 
 #[test]
-fn real_engine_controller_workflow_and_plan_safety() {
+fn replay_refuses_a_modified_private_snapshot_before_publication() {
     let fixture = SyntheticEngine::new();
     let mut session = fixture.session();
-    let patches = &session.scan.as_ref().unwrap().report.patches;
-    let index = patches
-        .iter()
-        .position(|p| p.id == "PA" && p.selectable())
-        .expect("synthetic PA: expected selectable correction");
-    session.toggle(index);
-    step(&mut session, &fixture.engine, Action::Plan);
-    let reviewed = session.review.as_ref().unwrap().clone();
-    assert!(reviewed.generated);
-    assert!(reviewed.document["selected"].to_string().contains("PA"));
-
-    let root = fixture.directory.path();
-    let output = root.join("gui output.bin");
-    session.output = Some(output.clone());
-    assert!(session.can_apply());
-    let job = session.prepare(Action::Apply).unwrap();
-    std::fs::write(reviewed.path.as_ref().unwrap(), b"{}").unwrap();
+    session.select_recommended();
+    let recipe = fixture.directory.path().join("selection.json");
+    let job = session.prepare_export(recipe.clone()).unwrap();
+    assert!(session.finish(job.run(&fixture.engine)));
+    session.import_review(&recipe).unwrap();
+    step(&mut session, &fixture.engine, Action::ValidateRecipe);
+    let output = fixture.directory.path().join("output.bin");
+    session.set_output(Some(output.clone()));
+    let job = session.prepare(Action::Build).unwrap();
+    std::fs::write(
+        session.imported_recipe().unwrap().recipe_path().unwrap(),
+        b"{}",
+    )
+    .unwrap();
     assert!(session.finish(job.run(&fixture.engine)));
     assert_eq!(session.outcome, Outcome::Failed);
     assert!(
-        session.status.contains("reviewed plan changed"),
+        session.status.contains("expected exact reviewed bytes"),
         "{}",
         session.status
     );
-    assert!(
-        !session.status.contains("outcome unknown"),
-        "refused before launch: expected a definite status | received {}",
-        session.status
-    );
+    assert!(!session.status.contains("outcome unknown"));
     assert!(!output.exists());
-
-    step(&mut session, &fixture.engine, Action::Plan);
-    let approved = session.review.as_ref().unwrap().clone();
-    let existing = root.join("existing.bin");
-    std::fs::write(&existing, b"keep existing output").unwrap();
-    session.output = Some(existing.clone());
-    let result = session.prepare(Action::Apply).unwrap().run(&fixture.engine);
-    assert!(session.finish(result));
-    assert_eq!(session.outcome, Outcome::Failed);
-    assert!(
-        session.status.contains("OUTPUT_EXISTS"),
-        "{}",
-        session.status
-    );
-    assert_eq!(std::fs::read(existing).unwrap(), b"keep existing output");
-
-    step(&mut session, &fixture.engine, Action::Plan);
-    session.output = Some(output.clone());
-    step(&mut session, &fixture.engine, Action::Apply);
-    assert_eq!(
-        session.manifest.as_deref(),
-        Some(manifest_path(&output).as_path())
-    );
-    let verify = session
-        .prepare(Action::Verify)
-        .unwrap()
-        .run(&fixture.engine);
-    assert!(session.finish(verify));
-    assert_eq!(session.outcome, Outcome::Verified, "{}", session.status);
-    assert!(session.status.contains("Offline verification complete"));
-
-    let cli_plan = root.join("cli-plan.json");
-    let cli_output = root.join("cli-output.bin");
-    let selection = approved.document["requested"][0].as_str().unwrap();
-    fixture.cli(&[
-        "plan".into(),
-        fixture.image.as_os_str().into(),
-        "--catalog".into(),
-        "lab".into(),
-        "--select".into(),
-        selection.into(),
-        "-o".into(),
-        cli_plan.as_os_str().into(),
-    ]);
-    fixture.cli(&[
-        "patch".into(),
-        fixture.image.as_os_str().into(),
-        "--plan".into(),
-        cli_plan.as_os_str().into(),
-        "-o".into(),
-        cli_output.as_os_str().into(),
-    ]);
-    assert_eq!(
-        std::fs::read(&output).unwrap(),
-        std::fs::read(&cli_output).unwrap(),
-        "GUI output: expected byte-identical CLI output"
-    );
-    let gui_manifest: Value =
-        serde_json::from_slice(&std::fs::read(manifest_path(&output)).unwrap()).unwrap();
-    let cli_manifest: Value =
-        serde_json::from_slice(&std::fs::read(manifest_path(&cli_output)).unwrap()).unwrap();
-    assert_eq!(
-        gui_manifest["plan"], cli_manifest["plan"],
-        "manifest plan: expected identical CLI semantics"
-    );
-    assert_eq!(gui_manifest["verification"], cli_manifest["verification"]);
-    assert_eq!(
-        gui_manifest["plan"]["output"]["sha256"],
-        cli_manifest["plan"]["output"]["sha256"]
-    );
-
-    let imported_source = root.join("imported-plan.json");
-    std::fs::write(&imported_source, &approved.bytes).unwrap();
-    let mut imported = fixture.session();
-    imported.import_review(&imported_source).unwrap();
-    imported.open_output(output.clone());
-    assert!(!imported.can_apply());
-    assert!(imported.prepare(Action::Apply).is_err());
-    std::fs::write(&imported_source, b"external edit").unwrap();
-    assert_eq!(
-        std::fs::read(imported.review.as_ref().unwrap().path.as_ref().unwrap()).unwrap(),
-        approved.bytes
-    );
-    let verify = imported
-        .prepare(Action::Verify)
-        .unwrap()
-        .run(&fixture.engine);
-    assert!(imported.finish(verify));
-    assert_eq!(imported.outcome, Outcome::Verified, "{}", imported.status);
-
-    let stale = imported.prepare(Action::Scan).unwrap().run(&fixture.engine);
-    imported.image = Some(root.join("another image.bin"));
-    imported.invalidate();
-    assert!(
-        !imported.finish(stale),
-        "stale scan: expected rejection after image change"
-    );
-    assert!(imported.scan.is_none());
-    assert!(imported.imported_recipe().is_some());
-    assert!(!imported.busy());
-    imported.source = "another-source".into();
-    imported.invalidate();
-    assert!(!imported.can_apply());
 }
 
 #[test]
@@ -253,7 +121,7 @@ fn recommendation_is_resolved_by_engine_and_changes_invalidate_review() {
         .unwrap();
     session.toggle(index);
     assert!(session.review.is_none());
-    step(&mut session, &fixture.engine, Action::Plan);
+    step(&mut session, &fixture.engine, Action::Preview);
     session.source = "official".into();
     session.invalidate();
     assert!(session.review.is_none());
@@ -286,7 +154,7 @@ fn language_switch_preserves_engine_request_and_firmware_result() {
         .position(|patch| patch.id == "PA" && patch.selectable())
         .unwrap();
     session.toggle(index);
-    step(&mut session, &fixture.engine, Action::Plan);
+    step(&mut session, &fixture.engine, Action::Preview);
     let reviewed = session.review.as_ref().unwrap().clone();
     let reviewed_bytes = reviewed.bytes.clone();
 
@@ -310,7 +178,7 @@ fn language_switch_preserves_engine_request_and_firmware_result() {
         .with_env("BME_DATA_HOME", root.join("data"));
     let output = root.join("same-output.bin");
     session.set_output(Some(output.clone()));
-    step(&mut session, &engine, Action::Apply);
+    step(&mut session, &engine, Action::Build);
     let english_output = std::fs::read(&output).unwrap();
     let manifest_path = manifest_path(&output);
     let english_manifest: Value =
@@ -344,12 +212,8 @@ fn language_switch_preserves_engine_request_and_firmware_result() {
         &reviewed,
         state.session.review.as_ref().unwrap()
     ));
-    assert_eq!(
-        std::fs::read(reviewed.path.as_ref().unwrap()).unwrap(),
-        reviewed_bytes
-    );
     state.session.set_output(Some(output.clone()));
-    step(&mut state.session, &engine, Action::Apply);
+    step(&mut state.session, &engine, Action::Build);
     let portuguese_manifest: Value =
         serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
     assert_eq!(
@@ -566,7 +430,7 @@ fn controller_preview_is_read_only_and_export_uses_the_current_selection() {
     session.set_output(Some(output.clone()));
     step(&mut session, &fixture.engine, Action::Preview);
     let preview = session.review.as_ref().unwrap().clone();
-    assert!(preview.path.is_none());
+    assert!(preview.recipe_path().is_none());
     assert_eq!(
         preview.document["selected"],
         serde_json::json!(["PA", "PB"])

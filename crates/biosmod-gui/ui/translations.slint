@@ -29,7 +29,7 @@ export global UiText {
     out property <string> save-copy: @tr("Save a new patched copy");
     out property <string> export-plan: @tr("Export selection to a new file");
     out property <string> export-diagnostics: @tr("Export diagnostics to a new file");
-    out property <string> open-plan: @tr("Open a plan for review");
+    out property <string> open-plan: @tr("Open a selection file");
     out property <string> plan-filter: @tr("Plan");
     out property <string> choose-engine: @tr("Choose bme executable");
     out property <string> open-output: @tr("Open a built image with its paired manifest");
@@ -37,8 +37,8 @@ export global UiText {
     public pure function preferences-error(error: string) -> string { return @tr("Could not save preferences: {}", error); }
     out property <string> preferences-no-location: @tr("Could not save preferences: no writable configuration location is available.");
     public pure function preferences-protected(path: string) -> string { return @tr("Preferences not saved: {} could not be read. Fix or remove that file, then restart.", path); }
-    out property <string> generated-plan: @tr("Generated in this session");
-    out property <string> imported-plan: @tr("Read-only imported plan");
+    out property <string> generated-plan: @tr("Preview of selected changes");
+    out property <string> imported-plan: @tr("Imported selection file");
     out property <string> none: @tr("None");
     out property <string> unknown: @tr("unknown");
     public pure function plan-intro(firmware: string, alias: string, catalog: string, version: string, trust: string, requested: string, selected: string, carried: string, input: string, output: string, engine: string, codec: string) -> string {
@@ -70,7 +70,6 @@ export global UiText {
     out property <string> status-inspected: @tr("Image inspected. Scan a source for matching corrections.");
     out property <string> status-scanned: @tr("Scan complete. Select corrections or choose Recommended.");
     out property <string> status-previewed: @tr("Preview complete.");
-    out property <string> status-planned: @tr("Review the resolved plan, then choose a new output and build a copy.");
     out property <string> status-published: @tr("Patched copy published. Independent verification is next.");
     out property <string> status-verified: @tr("Offline verification complete");
     out property <string> status-incomplete: @tr("Verification incomplete. Review skipped checks and retry after addressing them.");
@@ -79,7 +78,7 @@ export global UiText {
     out property <string> status-recipe-validated: @tr("Selection file validated. Choose an output and build a copy.");
     out property <string> status-imported: @tr("Selection file opened. Choose its original image and catalog.");
     out property <string> status-stopping: @tr("Stopping operation…");
-    out property <string> status-back: @tr("Select corrections and generate a new plan to continue.");
+    out property <string> status-back: @tr("Select corrections to build a patched copy.");
     out property <string> status-closing-export: @tr("Finishing file export before closing…");
     out property <string> status-closing-build: @tr("Building the copy. Close the window after publication finishes.");
     out property <string> status-closing-stop: @tr("Stopping operation before closing…");
@@ -89,7 +88,6 @@ export global UiText {
     out property <string> operation-scan: @tr("Scanning image");
     out property <string> operation-preview: @tr("Previewing changes");
     out property <string> operation-export-selection: @tr("Exporting selection");
-    out property <string> operation-plan: @tr("Generating plan");
     out property <string> operation-apply: @tr("Building patched copy");
     out property <string> operation-verify: @tr("Verifying output");
     out property <string> operation-sources: @tr("Reading sources");
@@ -119,14 +117,14 @@ export global UiText {
     out property <string> precondition-busy: @tr("An operation is already running.");
     out property <string> precondition-engine: @tr("Connect a compatible bme engine first.");
     out property <string> precondition-image: @tr("Choose an original image first.");
-    out property <string> precondition-import: @tr("Plan import requires an explicit path.");
-    out property <string> precondition-scan: @tr("Scan this image and source before planning.");
+    out property <string> precondition-import: @tr("Choose a selection file to open.");
+    out property <string> precondition-scan: @tr("Scan the original image and selected catalog first.");
     out property <string> precondition-selection: @tr("Select an eligible correction first.");
     out property <string> precondition-build: @tr("Choose a new output path for the selected corrections.");
     out property <string> precondition-output: @tr("Choose a built output first.");
-    out property <string> precondition-plan: @tr("Open or generate the matching plan first.");
+    out property <string> precondition-plan: @tr("Open the matching selection file first.");
     out property <string> precondition-manifest: @tr("Choose an output with its paired manifest first.");
     out property <string> precondition-recipe-mismatch: @tr("The selection file must match the scan and use only corrections supported by the desktop.");
-    out property <string> precondition-wait-import: @tr("Wait for the active operation before importing a plan.");
+    out property <string> precondition-wait-import: @tr("Wait for the active operation before opening a selection file.");
     out property <string> tool-paths: @tr("Paths");
 }

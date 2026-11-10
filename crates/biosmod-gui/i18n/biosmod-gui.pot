@@ -26,159 +26,159 @@ msgctxt "AppWindow"
 msgid "Output & verification"
 msgstr ""
 
-#: ui/app-window.slint:136 ui/app-window.slint:506
+#: ui/app-window.slint:135 ui/app-window.slint:506
 msgctxt "AppWindow"
 msgid "BIOS Mod Engine"
 msgstr ""
 
-#: ui/app-window.slint:138
+#: ui/app-window.slint:137
 msgctxt "AppWindow"
 msgid "Workflow"
 msgstr ""
 
-#: ui/app-window.slint:139 ui/app-window.slint:369
+#: ui/app-window.slint:138 ui/app-window.slint:369
 msgctxt "AppWindow"
 msgid "Sources & tools"
 msgstr ""
 
-#: ui/app-window.slint:140 ui/app-window.slint:468
+#: ui/app-window.slint:139 ui/app-window.slint:468
 msgctxt "AppWindow"
 msgid "Diagnostics"
 msgstr ""
 
-#: ui/app-window.slint:146 ui/app-window.slint:158 ui/app-window.slint:401
+#: ui/app-window.slint:145 ui/app-window.slint:157 ui/app-window.slint:401
 msgctxt "AppWindow"
 msgid "Settings"
 msgstr ""
 
-#: ui/app-window.slint:147 ui/app-window.slint:159
+#: ui/app-window.slint:146 ui/app-window.slint:158
 msgctxt "AppWindow"
 msgid "About"
 msgstr ""
 
-#: ui/app-window.slint:178 ui/app-window.slint:187 ui/app-window.slint:203
+#: ui/app-window.slint:177 ui/app-window.slint:186 ui/app-window.slint:202
 msgctxt "AppWindow"
 msgid "Open selection file"
 msgstr ""
 
-#: ui/app-window.slint:179 ui/app-window.slint:188 ui/app-window.slint:208
+#: ui/app-window.slint:178 ui/app-window.slint:187 ui/app-window.slint:207
 msgctxt "AppWindow"
 msgid "Open output"
 msgstr ""
 
-#: ui/app-window.slint:180 ui/app-window.slint:189
+#: ui/app-window.slint:179 ui/app-window.slint:188
 msgctxt "AppWindow"
 msgid "Hide paths"
 msgstr ""
 
-#: ui/app-window.slint:180 ui/app-window.slint:189
+#: ui/app-window.slint:179 ui/app-window.slint:188
 msgctxt "AppWindow"
 msgid "Enter paths"
 msgstr ""
 
-#: ui/app-window.slint:201
+#: ui/app-window.slint:200
 msgctxt "AppWindow"
 msgid "Selection"
 msgstr ""
 
-#: ui/app-window.slint:202
+#: ui/app-window.slint:201
 msgctxt "AppWindow"
 msgid "Selection file path"
 msgstr ""
 
-#: ui/app-window.slint:206 ui/app-window.slint:329
+#: ui/app-window.slint:205 ui/app-window.slint:329
 msgctxt "AppWindow"
 msgid "Output"
 msgstr ""
 
-#: ui/app-window.slint:207
+#: ui/app-window.slint:206
 msgctxt "AppWindow"
 msgid "Existing output image path"
 msgstr ""
 
-#: ui/app-window.slint:211
+#: ui/app-window.slint:210
 msgctxt "AppWindow"
 msgid "Save as"
 msgstr ""
 
-#: ui/app-window.slint:212
+#: ui/app-window.slint:211
 msgctxt "AppWindow"
 msgid "New selection file path"
 msgstr ""
 
-#: ui/app-window.slint:213
+#: ui/app-window.slint:212
 msgctxt "AppWindow"
 msgid "Save selection"
 msgstr ""
 
-#: ui/app-window.slint:227
+#: ui/app-window.slint:226
 msgctxt "AppWindow"
 msgid "Image"
 msgstr ""
 
-#: ui/app-window.slint:229 ui/app-window.slint:230
+#: ui/app-window.slint:228 ui/app-window.slint:229
 msgctxt "AppWindow"
 msgid "Original firmware image path"
 msgstr ""
 
-#: ui/app-window.slint:235 ui/app-window.slint:431
+#: ui/app-window.slint:234 ui/app-window.slint:431
 msgctxt "AppWindow"
 msgid "Browse…"
 msgstr ""
 
-#: ui/app-window.slint:236
+#: ui/app-window.slint:235
 msgctxt "AppWindow"
 msgid "Inspect"
 msgstr ""
 
-#: ui/app-window.slint:239
+#: ui/app-window.slint:238
 msgctxt "AppWindow"
 msgid "Source: {}"
 msgstr ""
 
-#: ui/app-window.slint:243
+#: ui/app-window.slint:242
 msgctxt "AppWindow"
 msgid "Source"
 msgstr ""
 
-#: ui/app-window.slint:245 ui/app-window.slint:246
+#: ui/app-window.slint:244 ui/app-window.slint:245
 msgctxt "AppWindow"
 msgid "Catalog source alias"
 msgstr ""
 
-#: ui/app-window.slint:251
+#: ui/app-window.slint:250
 msgctxt "AppWindow"
 msgid "Scan image"
 msgstr ""
 
-#: ui/app-window.slint:259
+#: ui/app-window.slint:258
 msgctxt "AppWindow"
 msgid "Findings"
 msgstr ""
 
-#: ui/app-window.slint:262
+#: ui/app-window.slint:261
 msgctxt "AppWindow"
 msgid "{n} finding"
 msgid_plural "{n} findings"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app-window.slint:284
+#: ui/app-window.slint:283
 msgctxt "AppWindow"
 msgid "No findings to show"
 msgstr ""
 
-#: ui/app-window.slint:285
+#: ui/app-window.slint:284
 msgctxt "AppWindow"
 msgid "Press Scan image to look for corrections in the catalog."
 msgstr ""
 
-#: ui/app-window.slint:285
+#: ui/app-window.slint:284
 msgctxt "AppWindow"
 msgid "Choose an image and enter a catalog source alias to enable scanning."
 msgstr ""
 
-#: ui/app-window.slint:293
+#: ui/app-window.slint:292
 msgctxt "AppWindow"
 msgid ""
 "Board profiles are catalog information, not physical board identification. "
@@ -186,16 +186,21 @@ msgid ""
 "cannot be applied here yet."
 msgstr ""
 
-#: ui/app-window.slint:293
+#: ui/app-window.slint:292
 msgctxt "AppWindow"
 msgid ""
 "Hardware-dependent findings and corrections that require joint selection "
 "cannot be applied here yet."
 msgstr ""
 
-#: ui/app-window.slint:296
+#: ui/app-window.slint:295
 msgctxt "AppWindow"
 msgid "Recommended"
+msgstr ""
+
+#: ui/app-window.slint:296
+msgctxt "AppWindow"
+msgid "{} selected"
 msgstr ""
 
 #: ui/app-window.slint:298
@@ -436,7 +441,7 @@ msgstr ""
 
 #: ui/stepper.slint:28
 msgctxt "Stepper"
-msgid "Review"
+msgid "Build"
 msgstr ""
 
 #: ui/stepper.slint:28
@@ -593,7 +598,7 @@ msgstr ""
 
 #: ui/translations.slint:32
 msgctxt "UiText"
-msgid "Open a plan for review"
+msgid "Open a selection file"
 msgstr ""
 
 #: ui/translations.slint:33
@@ -636,12 +641,12 @@ msgstr ""
 
 #: ui/translations.slint:40
 msgctxt "UiText"
-msgid "Generated in this session"
+msgid "Preview of selected changes"
 msgstr ""
 
 #: ui/translations.slint:41
 msgctxt "UiText"
-msgid "Read-only imported plan"
+msgid "Imported selection file"
 msgstr ""
 
 #: ui/translations.slint:42
@@ -777,300 +782,290 @@ msgstr ""
 
 #: ui/translations.slint:73
 msgctxt "UiText"
-msgid "Review the resolved plan, then choose a new output and build a copy."
+msgid "Patched copy published. Independent verification is next."
 msgstr ""
 
 #: ui/translations.slint:74
 msgctxt "UiText"
-msgid "Patched copy published. Independent verification is next."
-msgstr ""
-
-#: ui/translations.slint:75
-msgctxt "UiText"
 msgid "Offline verification complete"
 msgstr ""
 
-#: ui/translations.slint:76
+#: ui/translations.slint:75
 msgctxt "UiText"
 msgid ""
 "Verification incomplete. Review skipped checks and retry after addressing "
 "them."
 msgstr ""
 
-#: ui/translations.slint:77
+#: ui/translations.slint:76
 msgctxt "UiText"
 msgid "Registered sources loaded. Firmware operations remain offline."
 msgstr ""
 
-#: ui/translations.slint:78
+#: ui/translations.slint:77
 msgctxt "UiText"
 msgid "Tool diagnostics complete."
 msgstr ""
 
-#: ui/translations.slint:79
+#: ui/translations.slint:78
 msgctxt "UiText"
 msgid "Selection file validated. Choose an output and build a copy."
 msgstr ""
 
-#: ui/translations.slint:80
+#: ui/translations.slint:79
 msgctxt "UiText"
 msgid "Selection file opened. Choose its original image and catalog."
 msgstr ""
 
-#: ui/translations.slint:81
+#: ui/translations.slint:80
 msgctxt "UiText"
 msgid "Stopping operation…"
 msgstr ""
 
-#: ui/translations.slint:82
+#: ui/translations.slint:81
 msgctxt "UiText"
-msgid "Select corrections and generate a new plan to continue."
+msgid "Select corrections to build a patched copy."
 msgstr ""
 
-#: ui/translations.slint:83
+#: ui/translations.slint:82
 msgctxt "UiText"
 msgid "Finishing file export before closing…"
 msgstr ""
 
-#: ui/translations.slint:84
+#: ui/translations.slint:83
 msgctxt "UiText"
 msgid "Building the copy. Close the window after publication finishes."
 msgstr ""
 
-#: ui/translations.slint:85
+#: ui/translations.slint:84
 msgctxt "UiText"
 msgid "Stopping operation before closing…"
 msgstr ""
 
-#: ui/translations.slint:86
+#: ui/translations.slint:85
 msgctxt "UiText"
 msgid "Select corrections or open a selection file to export."
 msgstr ""
 
-#: ui/translations.slint:87
+#: ui/translations.slint:86
 msgctxt "UiText"
 msgid "Checking engine"
 msgstr ""
 
-#: ui/translations.slint:88
+#: ui/translations.slint:87
 msgctxt "UiText"
 msgid "Inspecting image"
 msgstr ""
 
-#: ui/translations.slint:89
+#: ui/translations.slint:88
 msgctxt "UiText"
 msgid "Scanning image"
 msgstr ""
 
-#: ui/translations.slint:90
+#: ui/translations.slint:89
 msgctxt "UiText"
 msgid "Previewing changes"
 msgstr ""
 
-#: ui/translations.slint:91
+#: ui/translations.slint:90
 msgctxt "UiText"
 msgid "Exporting selection"
 msgstr ""
 
-#: ui/translations.slint:92
-msgctxt "UiText"
-msgid "Generating plan"
-msgstr ""
-
-#: ui/translations.slint:93
+#: ui/translations.slint:91
 msgctxt "UiText"
 msgid "Building patched copy"
 msgstr ""
 
-#: ui/translations.slint:94
+#: ui/translations.slint:92
 msgctxt "UiText"
 msgid "Verifying output"
 msgstr ""
 
-#: ui/translations.slint:95
+#: ui/translations.slint:93
 msgctxt "UiText"
 msgid "Reading sources"
 msgstr ""
 
-#: ui/translations.slint:96
+#: ui/translations.slint:94
 msgctxt "UiText"
 msgid "Checking tools"
 msgstr ""
 
-#: ui/translations.slint:97
+#: ui/translations.slint:95
 msgctxt "UiText"
 msgid "Validating selection file"
 msgstr ""
 
-#: ui/translations.slint:98
+#: ui/translations.slint:96
 msgctxt "UiText"
 msgid "Opening selection file"
 msgstr ""
 
-#: ui/translations.slint:99
+#: ui/translations.slint:97
 msgctxt "UiText"
 msgid "Exporting file"
 msgstr ""
 
-#: ui/translations.slint:100
+#: ui/translations.slint:98
 msgctxt "UiText"
 msgid "Choosing file"
 msgstr ""
 
-#: ui/translations.slint:101
+#: ui/translations.slint:99
 msgctxt "UiText"
 msgid "Engine not connected"
 msgstr ""
 
-#: ui/translations.slint:102
+#: ui/translations.slint:100
 msgctxt "UiText"
 msgid "Engine unavailable"
 msgstr ""
 
-#: ui/translations.slint:103
+#: ui/translations.slint:101
 msgctxt "UiText"
 msgid "bme {} · offline"
 msgstr ""
 
-#: ui/translations.slint:104
+#: ui/translations.slint:102
 msgctxt "UiText"
 msgid "Operation failed: {}"
 msgstr ""
 
-#: ui/translations.slint:105
+#: ui/translations.slint:103
 msgctxt "UiText"
 msgid ""
 "Publication outcome unknown. Inspect output artifacts before retrying. {}"
 msgstr ""
 
-#: ui/translations.slint:106
+#: ui/translations.slint:104
 msgctxt "UiText"
 msgid "Verification incomplete"
 msgstr ""
 
-#: ui/translations.slint:107
+#: ui/translations.slint:105
 msgctxt "UiText"
 msgid "Publication incomplete: inspect remaining artifacts"
 msgstr ""
 
-#: ui/translations.slint:108
+#: ui/translations.slint:106
 msgctxt "UiText"
 msgid "Operation interrupted: review the outcome"
 msgstr ""
 
-#: ui/translations.slint:109
+#: ui/translations.slint:107
 msgctxt "UiText"
 msgid "Output & verification"
 msgstr ""
 
-#: ui/translations.slint:110
+#: ui/translations.slint:108
 msgctxt "UiText"
 msgid "File picker unavailable: {}. Enter a path manually."
 msgstr ""
 
-#: ui/translations.slint:111
+#: ui/translations.slint:109
 msgctxt "UiText"
 msgid "Exporting selection…"
 msgstr ""
 
-#: ui/translations.slint:112
+#: ui/translations.slint:110
 msgctxt "UiText"
 msgid "Exporting diagnostics…"
 msgstr ""
 
-#: ui/translations.slint:113
+#: ui/translations.slint:111
 msgctxt "UiText"
 msgid "Selection exported to {}"
 msgstr ""
 
-#: ui/translations.slint:114
+#: ui/translations.slint:112
 msgctxt "UiText"
 msgid "Diagnostics exported to {}"
 msgstr ""
 
-#: ui/translations.slint:115
+#: ui/translations.slint:113
 msgctxt "UiText"
 msgid "Selection export {}: file already exists. Choose a new path."
 msgstr ""
 
-#: ui/translations.slint:116
+#: ui/translations.slint:114
 msgctxt "UiText"
 msgid "Diagnostics export {}: file already exists; choose a new path."
 msgstr ""
 
-#: ui/translations.slint:117
+#: ui/translations.slint:115
 msgctxt "UiText"
 msgid "Selection export {}: {}. A partial file may remain."
 msgstr ""
 
-#: ui/translations.slint:118
+#: ui/translations.slint:116
 msgctxt "UiText"
 msgid "Diagnostics export {}: {}. A partial file may remain."
 msgstr ""
 
-#: ui/translations.slint:119
+#: ui/translations.slint:117
 msgctxt "UiText"
 msgid "An operation is already running."
 msgstr ""
 
-#: ui/translations.slint:120
+#: ui/translations.slint:118
 msgctxt "UiText"
 msgid "Connect a compatible bme engine first."
 msgstr ""
 
-#: ui/translations.slint:121
+#: ui/translations.slint:119
 msgctxt "UiText"
 msgid "Choose an original image first."
 msgstr ""
 
+#: ui/translations.slint:120
+msgctxt "UiText"
+msgid "Choose a selection file to open."
+msgstr ""
+
+#: ui/translations.slint:121
+msgctxt "UiText"
+msgid "Scan the original image and selected catalog first."
+msgstr ""
+
 #: ui/translations.slint:122
-msgctxt "UiText"
-msgid "Plan import requires an explicit path."
-msgstr ""
-
-#: ui/translations.slint:123
-msgctxt "UiText"
-msgid "Scan this image and source before planning."
-msgstr ""
-
-#: ui/translations.slint:124
 msgctxt "UiText"
 msgid "Select an eligible correction first."
 msgstr ""
 
-#: ui/translations.slint:125
+#: ui/translations.slint:123
 msgctxt "UiText"
 msgid "Choose a new output path for the selected corrections."
 msgstr ""
 
-#: ui/translations.slint:126
+#: ui/translations.slint:124
 msgctxt "UiText"
 msgid "Choose a built output first."
 msgstr ""
 
-#: ui/translations.slint:127
+#: ui/translations.slint:125
 msgctxt "UiText"
-msgid "Open or generate the matching plan first."
+msgid "Open the matching selection file first."
 msgstr ""
 
-#: ui/translations.slint:128
+#: ui/translations.slint:126
 msgctxt "UiText"
 msgid "Choose an output with its paired manifest first."
 msgstr ""
 
-#: ui/translations.slint:129
+#: ui/translations.slint:127
 msgctxt "UiText"
 msgid ""
 "The selection file must match the scan and use only corrections supported by "
 "the desktop."
 msgstr ""
 
-#: ui/translations.slint:130
+#: ui/translations.slint:128
 msgctxt "UiText"
-msgid "Wait for the active operation before importing a plan."
+msgid "Wait for the active operation before opening a selection file."
 msgstr ""
 
-#: ui/translations.slint:131
+#: ui/translations.slint:129
 msgctxt "UiText"
 msgid "Paths"
 msgstr ""

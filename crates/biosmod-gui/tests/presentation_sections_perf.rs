@@ -64,7 +64,7 @@ fn presentation_sections_callback_cost() {
         .position(|patch| patch.id == "PA" && patch.selectable())
         .unwrap();
     desktop.session.toggle(index);
-    run_action(&mut desktop.session, &engine, Action::Plan);
+    run_action(&mut desktop.session, &engine, Action::Preview);
     run_action(&mut desktop.session, &engine, Action::Tools);
     let source_bytes = desktop.session.source_details.len();
     let tool_bytes = serde_json::to_string(&desktop.session.tool_report.as_deref())

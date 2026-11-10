@@ -191,6 +191,11 @@ msgctxt "AppWindow"
 msgid "Recommended"
 msgstr "Recomendados"
 
+#: ui/app-window.slint:296
+msgctxt "AppWindow"
+msgid "{} selected"
+msgstr "Seleção: {}"
+
 #: ui/app-window.slint:321
 msgctxt "AppWindow"
 msgid "Preview changes"
@@ -204,7 +209,7 @@ msgstr "Exportar seleção…"
 #: ui/app-window.slint:306
 msgctxt "AppWindow"
 msgid "Build patched copy"
-msgstr "Gerar cópia modificada"
+msgstr "Gerar cópia com patches"
 
 #: ui/app-window.slint:330 ui/app-window.slint:348
 msgctxt "AppWindow"
@@ -429,8 +434,8 @@ msgstr "Selecionar"
 
 #: ui/stepper.slint:28
 msgctxt "Stepper"
-msgid "Review"
-msgstr "Revisar"
+msgid "Build"
+msgstr "Gerar"
 
 #: ui/stepper.slint:28
 msgctxt "Stepper"
@@ -586,8 +591,8 @@ msgstr "Exportar diagnósticos para um novo arquivo"
 
 #: ui/translations.slint:32
 msgctxt "UiText"
-msgid "Open a plan for review"
-msgstr "Abrir um plano para revisão"
+msgid "Open a selection file"
+msgstr "Abrir um arquivo de seleção"
 
 #: ui/translations.slint:33
 msgctxt "UiText"
@@ -631,13 +636,13 @@ msgstr ""
 
 #: ui/translations.slint:39
 msgctxt "UiText"
-msgid "Generated in this session"
-msgstr "Gerado nesta sessão"
+msgid "Preview of selected changes"
+msgstr "Visualização das alterações selecionadas"
 
 #: ui/translations.slint:40
 msgctxt "UiText"
-msgid "Read-only imported plan"
-msgstr "Plano importado somente para leitura"
+msgid "Imported selection file"
+msgstr "Arquivo de seleção importado"
 
 #: ui/translations.slint:41
 msgctxt "UiText"
@@ -770,11 +775,6 @@ msgctxt "UiText"
 msgid "Preview complete."
 msgstr "Visualização concluída."
 
-#: ui/translations.slint:71
-msgctxt "UiText"
-msgid "Review the resolved plan, then choose a new output and build a copy."
-msgstr "Revise o plano resolvido, escolha uma nova saída e gere uma cópia."
-
 #: ui/translations.slint:72
 msgctxt "UiText"
 msgid "Patched copy published. Independent verification is next."
@@ -819,8 +819,8 @@ msgstr "Interrompendo operação…"
 
 #: ui/translations.slint:79
 msgctxt "UiText"
-msgid "Select corrections and generate a new plan to continue."
-msgstr "Selecione correções e gere um novo plano para continuar."
+msgid "Select corrections to build a patched copy."
+msgstr "Selecione correções para gerar uma cópia com patches."
 
 #: ui/translations.slint:80
 msgctxt "UiText"
@@ -866,11 +866,6 @@ msgstr "Visualizando alterações"
 msgctxt "UiText"
 msgid "Exporting selection"
 msgstr "Exportando seleção"
-
-#: ui/translations.slint:87
-msgctxt "UiText"
-msgid "Generating plan"
-msgstr "Gerando plano"
 
 #: ui/translations.slint:88
 msgctxt "UiText"
@@ -1020,13 +1015,13 @@ msgstr "Escolha primeiro uma imagem original."
 
 #: ui/translations.slint:116
 msgctxt "UiText"
-msgid "Plan import requires an explicit path."
-msgstr "A importação do plano exige um caminho explícito."
+msgid "Choose a selection file to open."
+msgstr "Escolha um arquivo de seleção para abrir."
 
 #: ui/translations.slint:117
 msgctxt "UiText"
-msgid "Scan this image and source before planning."
-msgstr "Examine esta imagem e fonte antes de planejar."
+msgid "Scan the original image and selected catalog first."
+msgstr "Examine primeiro a imagem original e o catálogo selecionado."
 
 #: ui/translations.slint:118
 msgctxt "UiText"
@@ -1045,8 +1040,8 @@ msgstr "Escolha primeiro uma saída gerada."
 
 #: ui/translations.slint:121
 msgctxt "UiText"
-msgid "Open or generate the matching plan first."
-msgstr "Abra ou gere primeiro o plano correspondente."
+msgid "Open the matching selection file first."
+msgstr "Abra primeiro o arquivo de seleção correspondente."
 
 #: ui/translations.slint:122
 msgctxt "UiText"
@@ -1062,8 +1057,8 @@ msgstr "O arquivo de seleção precisa corresponder ao exame e usar apenas corre
 
 #: ui/translations.slint:123
 msgctxt "UiText"
-msgid "Wait for the active operation before importing a plan."
-msgstr "Aguarde a operação em andamento antes de importar um plano."
+msgid "Wait for the active operation before opening a selection file."
+msgstr "Aguarde a operação atual antes de abrir um arquivo de seleção."
 
 #: ui/translations.slint:124
 msgctxt "UiText"
@@ -1189,3 +1184,18 @@ msgstr "Selecionar tudo"
 #~ "Imported plan: review and verification only. Choose its original image and "
 #~ "output."
 #~ msgstr "Plano importado: apenas revisão e verificação. Escolha sua imagem original e saída."
+
+#~ #: ui/stepper.slint:28
+#~ msgctxt "Stepper"
+#~ msgid "Review"
+#~ msgstr "Revisar"
+
+#~ #: ui/translations.slint:71
+#~ msgctxt "UiText"
+#~ msgid "Review the resolved plan, then choose a new output and build a copy."
+#~ msgstr "Revise o plano resolvido, escolha uma nova saída e gere uma cópia."
+
+#~ #: ui/translations.slint:87
+#~ msgctxt "UiText"
+#~ msgid "Generating plan"
+#~ msgstr "Gerando plano"
