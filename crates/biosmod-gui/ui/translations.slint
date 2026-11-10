@@ -65,10 +65,10 @@ export global UiText {
     out property <string> status-start: @tr("Choose a firmware image to get started.");
     out property <string> status-inputs: @tr("Inputs changed. Inspect and scan to continue.");
     out property <string> status-imported-input: @tr("Imported plan remains read-only. Verify against the chosen original image and output.");
-    out property <string> status-selection: @tr("Selection changed. Generate a new plan to review.");
+    out property <string> status-selection: @tr("Selection changed.");
     out property <string> status-ready: @tr("Engine ready. Choose an image to inspect.");
     out property <string> status-inspected: @tr("Image inspected. Scan a source for matching corrections.");
-    out property <string> status-scanned: @tr("Scan complete. Select corrections or review the engine's recommendation.");
+    out property <string> status-scanned: @tr("Scan complete. Select corrections or choose Recommended.");
     out property <string> status-planned: @tr("Review the resolved plan, then choose a new output and build a copy.");
     out property <string> status-published: @tr("Patched copy published. Independent verification is next.");
     out property <string> status-verified: @tr("Offline verification complete");
@@ -117,7 +117,7 @@ export global UiText {
     out property <string> precondition-import: @tr("Plan import requires an explicit path.");
     out property <string> precondition-scan: @tr("Scan this image and source before planning.");
     out property <string> precondition-selection: @tr("Select an eligible correction first.");
-    out property <string> precondition-build: @tr("Build requires a current generated plan and a new output path.");
+    out property <string> precondition-build: @tr("Choose a new output path for the selected corrections.");
     out property <string> precondition-output: @tr("Choose a built output first.");
     out property <string> precondition-plan: @tr("Open or generate the matching plan first.");
     out property <string> precondition-manifest: @tr("Choose an output with its paired manifest first.");

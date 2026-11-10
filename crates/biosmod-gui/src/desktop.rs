@@ -117,6 +117,7 @@ fn bind_with_language_selector(
     });
     action!(on_generate_plan, Action::Plan);
     action!(on_apply_plan, Action::Apply);
+    action!(on_build, Action::Build);
     action!(on_verify, Action::Verify);
     action!(on_refresh_sources, Action::Sources);
     action!(on_show_tools, Action::Tools);
@@ -379,7 +380,7 @@ fn start(ui: &AppWindow, shared: &Shared, action: Action) {
                 return;
             }
             let verify = accepted
-                && action == Action::Apply
+                && matches!(action, Action::Apply | Action::Build)
                 && state.session.manifest.is_some()
                 && state.session.outcome == Outcome::Idle;
             sync(&ui, &state);
@@ -459,7 +460,7 @@ fn change(ui: &AppWindow, shared: &Shared, kind: PathKind, value: &str) {
         PathKind::Source => {
             state.session.invalidate();
             state.session.source = value.into();
-            ui.set_output_path("".into());
+            ui.set_output_path(display_path(state.session.output.as_ref()));
         }
         PathKind::Engine => {
             preview_engine(&mut state, path);
@@ -862,12 +863,12 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             .unwrap_or_default(),
     );
     ui.set_can_apply(session.can_apply());
+    ui.set_can_build(session.can_build());
     ui.set_can_verify(
         session.connected
             && session.image.is_some()
             && session.output.is_some()
-            && session.manifest.is_some()
-            && session.review.is_some(),
+            && session.manifest.is_some(),
     );
     let operation = if state.exporting {
         t.get_operation_export()
@@ -1002,7 +1003,7 @@ pub fn localized_activity(ui: &AppWindow, action: Action) -> SharedString {
         Action::Inspect => t.get_operation_inspect(),
         Action::Scan => t.get_operation_scan(),
         Action::Plan => t.get_operation_plan(),
-        Action::Apply => t.get_operation_apply(),
+        Action::Apply | Action::Build => t.get_operation_apply(),
         Action::Verify => t.get_operation_verify(),
         Action::Sources => t.get_operation_sources(),
         Action::Tools => t.get_operation_tools(),

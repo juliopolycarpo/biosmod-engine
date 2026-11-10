@@ -47,6 +47,7 @@ export component AppWindow inherits Window {
     in property <bool> can-plan;
     in property <bool> can-recommend;
     in property <bool> can-apply;
+    in property <bool> can-build;
     in property <bool> can-verify;
     in property <int> stage;
     in-out property <int> theme-choice: 0;
@@ -89,6 +90,7 @@ export component AppWindow inherits Window {
     callback recommended();
     callback generate-plan();
     callback apply-plan();
+    callback build();
     callback verify();
     callback cancel-operation();
     callback import-plan();
@@ -287,26 +289,6 @@ export component AppWindow inherits Window {
                     for patch[i] in root.patches: PatchCard { patch: patch; enabled: !root.busy; toggled => { root.toggle-patch(i); } }
                 }
                 Caption { text: root.scan-facts.length > 0 ? @tr("Board profiles are catalog information, not physical board identification. Hardware-dependent findings and corrections that require joint selection cannot be applied here yet.") : @tr("Hardware-dependent findings and corrections that require joint selection cannot be applied here yet."); }
-                HorizontalLayout {
-                    spacing: Theme.space-sm;
-                    Button { text: @tr("Recommended"); enabled: root.can-recommend && !root.busy; clicked => { root.recommended(); } }
-                    Rectangle { horizontal-stretch: 1; }
-                    Button { text: @tr("Review selected"); primary: true; enabled: root.can-plan && !root.busy; clicked => { root.generate-plan(); } }
-                }
-            }
-            if root.reviewing: VerticalLayout {
-                spacing: Theme.space-md;
-                HorizontalLayout {
-                    spacing: Theme.space-sm;
-                    SectionTitle { text: @tr("Review plan"); vertical-alignment: center; }
-                    Rectangle { horizontal-stretch: 1; }
-                    Button { text: @tr("Export plan…"); enabled: !root.busy && root.plan-details != ""; clicked => { root.export-plan(); } }
-                    if root.stage >= 3: Button { text: @tr("Show output"); clicked => { root.show-review = false; } }
-                    Button { text: @tr("Back to findings"); enabled: !root.busy; clicked => { root.show-review = false; root.back-to-selection(); } }
-                }
-                Caption { text: @tr("Confirm the source, changes, and expected output before building."); }
-                TextEdit { text: root.plan-details; read-only: true; min-height: 50px; accessible-label: @tr("Plan details"); }
-                TextEdit { text: root.plan-snapshot; read-only: true; min-height: 50px; accessible-label: @tr("Complete plan and source snapshot"); }
                 Rectangle {
                     background: Theme.surface;
                     border-color: Theme.border;
@@ -328,14 +310,30 @@ export component AppWindow inherits Window {
                             Button { text: @tr("Choose…"); enabled: !root.busy; clicked => { root.browse-output(); } }
                         }
                         if root.output-path != "": Caption { text: @tr("Manifest: {}", root.manifest-path); }
-                        HorizontalLayout {
-                            spacing: Theme.space-sm;
-                            Caption { text: @tr("The original image will not be overwritten."); vertical-alignment: center; }
-                            Rectangle { horizontal-stretch: 1; }
-                            Button { text: @tr("Build patched copy"); primary: true; enabled: root.can-apply && !root.busy; clicked => { root.apply-plan(); } }
-                        }
                     }
                 }
+                HorizontalLayout {
+                    spacing: Theme.space-sm;
+                    Button { text: @tr("Recommended"); enabled: root.can-recommend && !root.busy; clicked => { root.recommended(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button { text: @tr("Review selected"); enabled: root.can-plan && !root.busy; clicked => { root.generate-plan(); } }
+                    Button { text: @tr("Build patched copy"); primary: true; enabled: root.can-build && !root.busy; clicked => { root.build(); } }
+                }
+            }
+            if root.reviewing: VerticalLayout {
+                spacing: Theme.space-md;
+                HorizontalLayout {
+                    spacing: Theme.space-sm;
+                    SectionTitle { text: @tr("Review plan"); vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button { text: @tr("Export plan…"); enabled: !root.busy && root.plan-details != ""; clicked => { root.export-plan(); } }
+                    if root.stage >= 3: Button { text: @tr("Show output"); clicked => { root.show-review = false; } }
+                    Button { text: @tr("Back to findings"); enabled: !root.busy; clicked => { root.show-review = false; root.back-to-selection(); } }
+                }
+                Caption { text: @tr("Confirm the source, changes, and expected output before building."); }
+                TextEdit { text: root.plan-details; read-only: true; min-height: 50px; accessible-label: @tr("Plan details"); }
+                TextEdit { text: root.plan-snapshot; read-only: true; min-height: 50px; accessible-label: @tr("Complete plan and source snapshot"); }
+
             }
             if root.stage >= 3 && !root.show-review: VerticalLayout {
                 spacing: Theme.space-md;

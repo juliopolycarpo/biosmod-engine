@@ -326,9 +326,13 @@ fn changing_image_retains_only_imported_review_or_opened_output() {
             "review {generated:?}: expected retained={keep_review}"
         );
         assert_eq!(
-            session.output.is_some(),
-            keep_output,
-            "review {generated:?}: expected output retained={keep_output}"
+            session.output.as_deref(),
+            Some(Path::new(if keep_output {
+                "/tmp/output.bin"
+            } else {
+                "/tmp/new-image.patched.bin"
+            })),
+            "review {generated:?}: expected retained or default output"
         );
         assert_eq!(
             session.manifest.is_some(),

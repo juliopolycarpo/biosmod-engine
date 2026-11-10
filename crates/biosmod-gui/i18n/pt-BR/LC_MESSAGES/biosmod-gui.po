@@ -186,6 +186,21 @@ msgid ""
 "cannot be applied here yet."
 msgstr "Resultados dependentes do hardware e correções que exigem seleção conjunta ainda não podem ser aplicados aqui."
 
+#: ui/app-window.slint:293 ui/app-window.slint:294
+msgctxt "AppWindow"
+msgid "New output image path"
+msgstr "Caminho da nova imagem de saída"
+
+#: ui/app-window.slint:299
+msgctxt "AppWindow"
+msgid "Choose…"
+msgstr "Escolher…"
+
+#: ui/app-window.slint:301 ui/app-window.slint:321
+msgctxt "AppWindow"
+msgid "Manifest: {}"
+msgstr "Manifesto: {}"
+
 #: ui/app-window.slint:264
 msgctxt "AppWindow"
 msgid "Recommended"
@@ -195,6 +210,11 @@ msgstr "Recomendados"
 msgctxt "AppWindow"
 msgid "Review selected"
 msgstr "Revisar selecionados"
+
+#: ui/app-window.slint:306
+msgctxt "AppWindow"
+msgid "Build patched copy"
+msgstr "Gerar cópia modificada"
 
 #: ui/app-window.slint:273 ui/app-window.slint:317
 msgctxt "AppWindow"
@@ -230,31 +250,6 @@ msgstr "Detalhes do plano"
 msgctxt "AppWindow"
 msgid "Complete plan and source snapshot"
 msgstr "Plano completo e instantâneo da origem"
-
-#: ui/app-window.slint:293 ui/app-window.slint:294
-msgctxt "AppWindow"
-msgid "New output image path"
-msgstr "Caminho da nova imagem de saída"
-
-#: ui/app-window.slint:299
-msgctxt "AppWindow"
-msgid "Choose…"
-msgstr "Escolher…"
-
-#: ui/app-window.slint:301 ui/app-window.slint:321
-msgctxt "AppWindow"
-msgid "Manifest: {}"
-msgstr "Manifesto: {}"
-
-#: ui/app-window.slint:304
-msgctxt "AppWindow"
-msgid "The original image will not be overwritten."
-msgstr "A imagem original não será sobrescrita."
-
-#: ui/app-window.slint:306
-msgctxt "AppWindow"
-msgid "Build patched copy"
-msgstr "Gerar cópia modificada"
 
 #: ui/app-window.slint:320
 msgctxt "AppWindow"
@@ -758,8 +753,8 @@ msgstr "O plano importado permanece somente para leitura. Verifique com a imagem
 
 #: ui/translations.slint:67
 msgctxt "UiText"
-msgid "Selection changed. Generate a new plan to review."
-msgstr "A seleção mudou. Gere um novo plano para revisão."
+msgid "Selection changed."
+msgstr "Seleção atualizada."
 
 #: ui/translations.slint:68
 msgctxt "UiText"
@@ -773,8 +768,8 @@ msgstr "Imagem inspecionada. Examine uma fonte em busca de correções correspon
 
 #: ui/translations.slint:70
 msgctxt "UiText"
-msgid "Scan complete. Select corrections or review the engine's recommendation."
-msgstr "Exame concluído. Selecione correções ou revise a recomendação do mecanismo."
+msgid "Scan complete. Select corrections or choose Recommended."
+msgstr "Exame concluído. Selecione correções ou escolha Recomendados."
 
 #: ui/translations.slint:71
 msgctxt "UiText"
@@ -1023,8 +1018,8 @@ msgstr "Selecione primeiro uma correção elegível."
 
 #: ui/translations.slint:119
 msgctxt "UiText"
-msgid "Build requires a current generated plan and a new output path."
-msgstr "A geração exige um plano gerado atual e um novo caminho de saída."
+msgid "Choose a new output path for the selected corrections."
+msgstr "Escolha um novo caminho de saída para as correções selecionadas."
 
 #: ui/translations.slint:120
 msgctxt "UiText"
@@ -1106,3 +1101,8 @@ msgstr "Selecionar tudo"
 #~ msgid ""
 #~ "Board profiles are catalog information, not physical board identification."
 #~ msgstr "Os perfis de placa são informações do catálogo, não uma identificação da placa física."
+
+#~ #: ui/app-window.slint:304
+#~ msgctxt "AppWindow"
+#~ msgid "The original image will not be overwritten."
+#~ msgstr "A imagem original não será sobrescrita."

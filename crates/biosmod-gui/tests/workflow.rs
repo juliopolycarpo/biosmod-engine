@@ -481,3 +481,74 @@ fn guarded_engine_requests_preview_export_build_and_verify() {
         assert_eq!(verification["manifest_sha256"], build["manifest_sha256"]);
     }
 }
+
+#[test]
+fn controller_builds_without_preview_and_binds_verification_to_its_receipt() {
+    let fixture = SyntheticEngine::new();
+    let mut session = fixture.session();
+    session.select_recommended();
+    let output = fixture.directory.path().join("direct.bin");
+    session.set_output(Some(output.clone()));
+    assert!(session.can_build());
+    assert!(session.review.is_none());
+    step(&mut session, &fixture.engine, Action::Build);
+    let manifest = manifest_path(&output);
+    assert_eq!(session.manifest.as_deref(), Some(manifest.as_path()));
+    assert!(session.review.is_none());
+    let verify = |session: &mut Session| {
+        let job = session.prepare(Action::Verify).unwrap();
+        assert!(session.finish(job.run(&fixture.engine)));
+    };
+    verify(&mut session);
+    assert_eq!(session.outcome, Outcome::Verified, "{}", session.status);
+
+    // Keep the independently verifiable ROM and replace only the manifest bytes.
+    // A verifier with no session receipt can still verify the reopened artifacts.
+    let mut bytes = std::fs::read(&manifest).unwrap();
+    bytes.push(b'\n');
+    std::fs::write(&manifest, bytes).unwrap();
+    verify(&mut session);
+    assert_eq!(session.outcome, Outcome::Failed, "{}", session.status);
+    assert!(
+        session.status.contains("expected manifest SHA-256"),
+        "{}",
+        session.status
+    );
+    assert_eq!(session.manifest.as_deref(), Some(manifest.as_path()));
+    assert!(output.exists());
+
+    session.change_image(Some(fixture.image.with_file_name("other.backup.rom")));
+    assert!(session.manifest.is_none());
+    assert_eq!(
+        session.output,
+        Some(fixture.image.with_file_name("other.backup.patched.rom"))
+    );
+
+    let mut reopened = fixture.session();
+    reopened.open_output(output);
+    verify(&mut reopened);
+    assert_eq!(reopened.outcome, Outcome::Verified, "{}", reopened.status);
+}
+
+#[test]
+fn controller_requires_a_fresh_scan_after_a_build_guard_refuses_drift() {
+    let fixture = SyntheticEngine::new();
+    let mut session = fixture.session();
+    session.select_recommended();
+    let output = fixture.directory.path().join("drift.bin");
+    session.set_output(Some(output.clone()));
+    let job = session.prepare(Action::Build).unwrap();
+    assert!(session.publishing());
+    std::fs::write(&fixture.image, b"changed since scan").unwrap();
+    assert!(session.finish(job.run(&fixture.engine)));
+    assert_eq!(session.outcome, Outcome::Failed);
+    assert!(
+        session.status.contains("PLAN_INPUT_CHANGED"),
+        "{}",
+        session.status
+    );
+    assert!(session.scan.is_none());
+    assert!(!session.can_build());
+    assert!(!output.exists());
+    assert!(!manifest_path(&output).exists());
+}

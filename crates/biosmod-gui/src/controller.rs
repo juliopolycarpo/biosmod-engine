@@ -1,8 +1,8 @@
 //! Session transitions and reviewed-plan ownership, independent of the windowing backend.
 
 use crate::engine::{
-    Engine, EngineContract, EngineError, ErrorKind, Reply, Request, append_diagnostics, run_pair,
-    verification_complete,
+    Engine, EngineContract, EngineError, ErrorKind, PatchDestination, PatchSelection, Reply,
+    Request, ScannedSelection, append_diagnostics, run_pair, verification_complete,
 };
 use crate::model::{Scan, SourceReport, pretty};
 use serde_json::Value;
@@ -25,6 +25,7 @@ pub enum Action {
     Scan,
     Plan,
     Apply,
+    Build,
     Verify,
     Sources,
     Tools,
@@ -40,7 +41,7 @@ impl Action {
             Self::Inspect => "Inspecting image",
             Self::Scan => "Scanning image",
             Self::Plan => "Generating plan",
-            Self::Apply => "Building patched copy",
+            Self::Apply | Self::Build => "Building patched copy",
             Self::Verify => "Verifying output",
             Self::Sources => "Reading sources",
             Self::Tools => "Checking tools",
@@ -84,7 +85,7 @@ impl std::fmt::Display for PreparationError {
             Self::ImportPath => "Plan import requires an explicit path.",
             Self::Scan => "Scan this image and source before planning.",
             Self::Selection => "Select an eligible correction first.",
-            Self::Build => "Build requires a current generated plan and a new output path.",
+            Self::Build => "Choose a new output path for the selected corrections.",
             Self::Output => "Choose a built output first.",
             Self::Plan => "Open or generate the matching plan first.",
             Self::Manifest => "Choose an output with its paired manifest first.",
@@ -146,12 +147,10 @@ impl Status {
             Self::ImportedInput => {
                 "Imported plan remains read-only. Verify against the chosen original image and output."
             }
-            Self::Selection => "Selection changed. Generate a new plan to review.",
+            Self::Selection => "Selection changed.",
             Self::Ready => "Engine ready. Choose an image to inspect.",
             Self::Inspected => "Image inspected. Scan a source for matching corrections.",
-            Self::Scanned => {
-                "Scan complete. Select corrections or review the engine's recommendation."
-            }
+            Self::Scanned => "Scan complete. Select corrections or choose Recommended.",
             Self::Planned => "Review the resolved plan, then choose a new output and build a copy.",
             Self::Published => "Patched copy published. Independent verification is next.",
             Self::Verified => "Offline verification complete",
@@ -237,6 +236,7 @@ pub struct Session {
     pub source: String,
     pub output: Option<PathBuf>,
     pub manifest: Option<PathBuf>,
+    manifest_receipt: Option<String>,
     pub connected: bool,
     pub engine_version: Option<String>,
     pub(crate) engine_contract: Option<Arc<EngineContract>>,
@@ -274,6 +274,7 @@ impl Session {
             source: "official".into(),
             output: None,
             manifest: None,
+            manifest_receipt: None,
             connected: false,
             engine_version: None,
             engine_contract: None,
@@ -382,8 +383,9 @@ impl Session {
         self.scan = None;
         self.scan_input = None;
         self.review = None;
-        self.output = None;
+        self.output = self.image.as_deref().and_then(default_patch_output);
         self.manifest = None;
+        self.manifest_receipt = None;
         self.result_details.clear();
         self.verification_report = None;
         self.outcome = Outcome::Idle;
@@ -396,9 +398,13 @@ impl Session {
         let keep = self.review.as_ref().is_none_or(|review| !review.generated);
         let imported = self.review.take().filter(|_| keep);
         let output = self.output.clone();
-        let manifest = self.manifest.clone();
+        let manifest = self
+            .manifest
+            .clone()
+            .filter(|_| self.manifest_receipt.is_none());
         self.invalidate();
         self.image = image;
+        self.output = self.image.as_deref().and_then(default_patch_output);
         if keep && (imported.is_some() || manifest.is_some()) {
             self.output = output;
             self.manifest = manifest;
@@ -418,7 +424,8 @@ impl Session {
     /// Publication must finish before ordinary window closure.
     /// Example: ignore a close request while `session.publishing()`.
     pub fn publishing(&self) -> bool {
-        self.active.is_some_and(|a| a.2 == Action::Apply)
+        self.active
+            .is_some_and(|a| matches!(a.2, Action::Apply | Action::Build))
     }
 
     /// Report the current operation for an indeterminate activity indicator.
@@ -483,6 +490,7 @@ impl Session {
     pub fn clear_results(&mut self) {
         self.review = None;
         self.manifest = None;
+        self.manifest_receipt = None;
         self.result_details.clear();
         self.verification_report = None;
         self.outcome = Outcome::Idle;
@@ -497,6 +505,47 @@ impl Session {
             && self.output.is_some()
             && self.image.is_some()
             && self.manifest.is_none()
+    }
+
+    /// Check whether the displayed selection can build directly to a new output.
+    /// Example: selecting an eligible scan row enables Build for the default output.
+    pub fn can_build(&self) -> bool {
+        self.connected
+            && !self.busy()
+            && self.image.is_some()
+            && self.output.is_some()
+            && self.manifest.is_none()
+            && self.scan.as_ref().is_some_and(|scan| {
+                scan.report
+                    .patches
+                    .iter()
+                    .any(|patch| patch.selected && patch.selectable())
+            })
+    }
+
+    fn scanned_selection(&self) -> Result<ScannedSelection, PreparationError> {
+        let scan = self.scan.as_ref().ok_or(PreparationError::Scan)?;
+        let input_sha256 = self
+            .scan_input
+            .as_ref()
+            .and_then(|input| sha256_string(&input["sha256"]))
+            .ok_or(PreparationError::Scan)?;
+        let ids: Vec<_> = scan
+            .report
+            .patches
+            .iter()
+            .filter(|patch| patch.selected && patch.selectable())
+            .map(|patch| patch.qualified(&scan.alias))
+            .collect();
+        if ids.is_empty() {
+            return Err(PreparationError::Selection);
+        }
+        Ok(ScannedSelection {
+            source: self.source.clone(),
+            ids,
+            input_sha256: input_sha256.into(),
+            source_sha256: scan.snapshot_sha256.clone(),
+        })
     }
 
     /// Prepare one operation with immutable paths and generation tags.
@@ -549,20 +598,33 @@ impl Session {
                     output: self.output.clone().unwrap(),
                 }
             }
+            Action::Build => {
+                let selection = self.scanned_selection()?;
+                if !self.can_build() {
+                    return Err(PreparationError::Build);
+                }
+                Request::Build {
+                    image: image()?,
+                    selection: PatchSelection::Scanned(selection),
+                    destination: PatchDestination::Publish(
+                        self.output.clone().expect("new output"),
+                    ),
+                }
+            }
             Action::Verify => {
                 let output = self.output.clone().ok_or(PreparationError::Output)?;
                 if self.manifest.as_ref() != Some(&manifest_path(&output)) {
                     return Err(PreparationError::Manifest);
                 }
-                Request::Verify {
+                Request::VerifyResult {
                     input: image()?,
+                    manifest: manifest_path(&output),
                     output,
-                    plan: self
+                    recipe: self
                         .review
                         .as_ref()
-                        .ok_or(PreparationError::Plan)?
-                        .path
-                        .clone(),
+                        .filter(|_| self.manifest_receipt.is_none())
+                        .map(|review| review.path.clone()),
                 }
             }
             Action::Sources => Request::CatalogList,
@@ -639,10 +701,18 @@ impl Session {
                 if scan.sources.len() != 1 {
                     return Err(local_error("scan: expected exactly one source"));
                 }
+                if sha256_string(&scan.input["sha256"]).is_none()
+                    || !valid_sha256(&scan.sources[0].snapshot_sha256)
+                {
+                    return Err(local_error(
+                        "scan: expected lowercase SHA-256 digests for the input and source",
+                    ));
+                }
                 self.scan_input = Some(scan.input);
                 self.scan = scan.sources.pop();
                 self.review = None;
                 self.manifest = None;
+                self.manifest_receipt = None;
                 self.source_details = payload.extra.map(|v| pretty(&v)).unwrap_or_default();
                 self.set_status(Status::Scanned);
             }
@@ -653,6 +723,7 @@ impl Session {
                 self.validate_generated(&review.document)?;
                 self.review = Some(review);
                 self.manifest = None;
+                self.manifest_receipt = None;
                 self.set_status(Status::Planned);
             }
             Action::Apply => {
@@ -664,12 +735,54 @@ impl Session {
                 self.verification_report = None;
                 self.set_status(Status::Published);
             }
+            Action::Build => {
+                let plan = &data["manifest"]["plan"];
+                self.validate_generated(plan)?;
+                let selection = self
+                    .scanned_selection()
+                    .map_err(|error| local_error(error.to_string()))?;
+                let output = self
+                    .output
+                    .as_deref()
+                    .ok_or_else(|| local_error("patch: expected output path"))?;
+                let manifest = manifest_path(output);
+                if payload.reply.version.as_str()
+                    != self.engine_version.as_deref().unwrap_or_default()
+                    || data["manifest"]["schema"] != "bme.manifest/1"
+                    || plan["engine"]["version"] != payload.reply.version
+                    || data["source_snapshot_sha256"] != selection.source_sha256
+                    || plan["requested"] != serde_json::json!(selection.ids)
+                    || data["output"] != output.to_string_lossy().as_ref()
+                    || data["manifest_file"] != manifest.to_string_lossy().as_ref()
+                {
+                    return Err(local_error(
+                        "patch receipt: expected the connected engine, scanned selection and requested output paths",
+                    ));
+                }
+                let digest = sha256_string(&data["manifest_sha256"]).ok_or_else(|| {
+                    local_error("patch receipt: expected a lowercase manifest SHA-256")
+                })?;
+                self.manifest_receipt = Some(digest.into());
+                self.manifest = Some(manifest);
+                self.result_details = pretty(&data);
+                self.verification_report = None;
+                self.set_status(Status::Published);
+            }
             Action::Verify => {
                 let contract = self.engine_contract.as_deref().ok_or_else(|| {
                     local_error(
                         "verification: expected an engine contract from the active connection",
                     )
                 })?;
+                if let Some(expected) = &self.manifest_receipt
+                    && (data["manifest_sha256"] != *expected
+                        || self.engine_version.as_deref() != Some(payload.reply.version.as_str()))
+                {
+                    return Err(local_error(format!(
+                        "verification receipt: expected manifest SHA-256 {expected} from the connected engine | received {} from version {}",
+                        data["manifest_sha256"], payload.reply.version
+                    )));
+                }
                 let complete = verification_complete(&data, contract)?;
                 self.outcome = if complete {
                     Outcome::Verified
@@ -772,12 +885,18 @@ impl Session {
         if matches!(action, Action::Apply | Action::Plan) {
             self.review = None;
         }
+        if action == Action::Build && error.code.as_deref() == Some("PLAN_INPUT_CHANGED") {
+            self.scan = None;
+            self.scan_input = None;
+            self.clear_results();
+            self.outcome = Outcome::Failed;
+        }
         let message = error.to_string();
         let definite = matches!(
             error.kind,
             ErrorKind::Engine | ErrorKind::Configuration | ErrorKind::Launch
         );
-        if action == Action::Apply && !definite {
+        if matches!(action, Action::Apply | Action::Build) && !definite {
             let fallback = format!(
                 "Publication outcome unknown. Inspect output artifacts before retrying. {message}"
             );
@@ -849,6 +968,7 @@ impl Session {
     pub fn set_output(&mut self, output: Option<PathBuf>) {
         self.output = output;
         self.manifest = None;
+        self.manifest_receipt = None;
         self.result_details.clear();
         self.verification_report = None;
         self.outcome = Outcome::Idle;
@@ -857,6 +977,7 @@ impl Session {
     /// Select a saved output and its conventional paired manifest for independent verification.
     /// Example: `session.open_output(PathBuf::from("/tmp/out.bin"))` uses `out.bin.manifest.json`.
     pub fn open_output(&mut self, output: PathBuf) {
+        self.manifest_receipt = None;
         self.manifest = Some(manifest_path(&output));
         self.output = Some(output);
         self.outcome = Outcome::Idle;
@@ -946,7 +1067,15 @@ impl Job {
     }
 
     fn execute(&self, engine: &Engine) -> Result<Payload, EngineError> {
-        if matches!(self.token.2, Action::Apply | Action::Verify) {
+        if self.token.2 == Action::Apply
+            || matches!(
+                &self.request,
+                Request::VerifyResult {
+                    recipe: Some(_),
+                    ..
+                }
+            )
+        {
             // These checks run before the engine starts, so a refusal is definite.
             let refuse = |error: EngineError| EngineError {
                 kind: ErrorKind::Configuration,
@@ -1089,6 +1218,27 @@ fn run_doctor(
         }
         Err(error) => Err(error),
     }
+}
+
+fn sha256_string(value: &Value) -> Option<&str> {
+    value.as_str().filter(|digest| valid_sha256(digest))
+}
+
+fn valid_sha256(digest: &str) -> bool {
+    digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn default_patch_output(input: &Path) -> Option<PathBuf> {
+    let mut name = input.file_stem()?.to_os_string();
+    name.push(".patched");
+    if let Some(extension) = input.extension() {
+        name.push(".");
+        name.push(extension);
+    }
+    Some(input.with_file_name(name))
 }
 
 fn read_plan(path: &Path) -> Result<Vec<u8>, EngineError> {

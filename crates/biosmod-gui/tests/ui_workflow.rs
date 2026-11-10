@@ -122,7 +122,7 @@ fn real_desktop_synthetic_workflow() {
     let root = PathBuf::from(std::env::var_os("BME_GUI_UI_TEST_ROOT").unwrap());
     let engine = common::test_engine();
     let image = common::setup_fixture(&engine, &root);
-    let output = root.join("desktop result.bin");
+    let output = image.with_file_name("synthetic.patched.bin");
     if std::env::var_os("BME_GUI_NATIVE_SMOKE").is_none() {
         i_slint_backend_testing::init_integration_test_with_system_time();
     } else {
@@ -162,7 +162,7 @@ fn real_desktop_synthetic_workflow() {
         "startup accessibility: expected {settings_label}"
     );
     let mut desktop = Desktop::new(engine, settings, PreferencesStore::Unavailable).unwrap();
-    desktop.session.image = Some(image);
+    desktop.session.change_image(Some(image));
     desktop.session.source = "lab".into();
     let state = bind(&window, desktop);
     if let Some(size) = std::env::var("BME_GUI_SIZE").ok().filter(|s| !s.is_empty()) {
@@ -181,7 +181,6 @@ fn real_desktop_synthetic_workflow() {
     let tick_state = state.clone();
     let weak = window.as_weak();
     let tick_output = output.clone();
-    let tick_export = root.join("reviewed plan.json");
     let screenshot = std::env::var_os("BME_GUI_SCREENSHOT").map(PathBuf::from);
     let timer = Timer::default();
     timer.start(TimerMode::Repeated, Duration::from_millis(25), move || {
@@ -264,9 +263,12 @@ fn real_desktop_synthetic_workflow() {
                     return;
                 }
                 window.invoke_toggle_patch(index as i32);
-                if !window.get_can_plan() {
-                    *tick_result.borrow_mut() =
-                        Some(Err("selection: review action was not enabled".into()));
+                if !window.get_can_build()
+                    || window.get_output_path().as_str() != tick_output.to_string_lossy()
+                {
+                    *tick_result.borrow_mut() = Some(Err(
+                        "selection: expected Build enabled with the default output".into(),
+                    ));
                     let _ = slint::quit_event_loop();
                     return;
                 }
@@ -287,61 +289,7 @@ fn real_desktop_synthetic_workflow() {
                     return;
                 }
                 tick_phase.set(4);
-                window.invoke_generate_plan();
-            }
-            4 => {
-                if !state
-                    .session
-                    .review
-                    .as_ref()
-                    .is_some_and(|review| review.generated)
-                {
-                    *tick_result.borrow_mut() =
-                        Some(Err(format!("plan missing: {}", state.session.status)));
-                    drop(state);
-                    let _ = slint::quit_event_loop();
-                    return;
-                }
-                drop(state);
-                let text = tick_output.to_string_lossy().to_string();
-                window.set_output_path(text.as_str().into());
-                window.invoke_output_edited(text.into());
-                if !window.get_can_apply() {
-                    *tick_result.borrow_mut() =
-                        Some(Err("review: build action was not enabled".into()));
-                    let _ = slint::quit_event_loop();
-                    return;
-                }
-                tick_settle.set(Some(Instant::now() + Duration::from_millis(150)));
-                tick_phase.set(5);
-                window.invoke_export_plan_path(tick_export.to_string_lossy().as_ref().into());
-            }
-            5 => {
-                let reviewed = state.session.review.as_ref().map(|review| &review.bytes);
-                let exported = std::fs::read(&tick_export).ok();
-                if reviewed != exported.as_ref() || !window.get_can_apply() {
-                    *tick_result.borrow_mut() = Some(Err(format!(
-                        "plan export: expected exact reviewed bytes and retained approval | {}",
-                        state.session.status
-                    )));
-                    drop(state);
-                    let _ = slint::quit_event_loop();
-                    return;
-                }
-                if tick_settle
-                    .get()
-                    .is_some_and(|deadline| Instant::now() < deadline)
-                {
-                    return;
-                }
-                drop(state);
-                if let Err(error) = save_stage(&window, screenshot.as_deref(), "review") {
-                    *tick_result.borrow_mut() = Some(Err(error));
-                    let _ = slint::quit_event_loop();
-                    return;
-                }
-                tick_phase.set(6);
-                window.invoke_apply_plan();
+                window.invoke_build();
             }
             _ => {
                 if state.session.outcome != Outcome::Verified {

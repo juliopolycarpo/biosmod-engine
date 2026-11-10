@@ -246,7 +246,7 @@ fn language_switch_refreshes_review_rows_and_verification_without_changing_sessi
     assert!(window.get_plan_details().starts_with("Gerado nesta sessão"));
     assert_eq!(
         window.get_status(),
-        "Exame concluído. Selecione correções ou revise a recomendação do mecanismo."
+        "Exame concluído. Selecione correções ou escolha Recomendados."
     );
     assert!(
         window
