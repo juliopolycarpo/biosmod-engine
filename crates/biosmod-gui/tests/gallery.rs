@@ -145,11 +145,28 @@ fn gallery_states_build_and_capture() {
         window.set_theme_choice(theme);
         window.invoke_apply_theme();
     }
-    window.show().unwrap();
-    // Showing initializes the native scale factor. Resizing before that would
-    // interpret logical dimensions using the initial, unscaled factor.
+    // Keep the initial window within the desktop while the backend initializes;
+    // otherwise its larger preferred size can trigger compositor maximization.
     if let Some(size) = requested_size {
         window.window().set_size(size);
+    }
+    window.show().unwrap();
+    // Wayland delivers its initial scale asynchronously. Process the first
+    // configure event before interpreting the requested logical dimensions.
+    if native {
+        slint::Timer::single_shot(std::time::Duration::from_millis(100), || {
+            let _ = slint::quit_event_loop();
+        });
+        slint::run_event_loop().unwrap();
+    }
+    if let Some(size) = requested_size {
+        // Slint's override can differ from the compositor's scale. Use physical
+        // pixels explicitly instead of letting winit convert logical dimensions.
+        let scale = window.window().scale_factor();
+        window.window().set_size(slint::PhysicalSize::new(
+            (size.width * scale).round() as u32,
+            (size.height * scale).round() as u32,
+        ));
     }
     populate(&window);
     let dir = std::env::var_os("BME_GUI_GALLERY").map(std::path::PathBuf::from);

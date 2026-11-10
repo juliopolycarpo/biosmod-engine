@@ -106,7 +106,7 @@ jobs:
           set -euo pipefail
           export XDG_RUNTIME_DIR="$RUNNER_TEMP/bme-wayland"
           mkdir -m 700 "$XDG_RUNTIME_DIR"
-          weston --backend=headless-backend.so --socket=bme-ci --idle-time=0 --log="$RUNNER_TEMP/weston.log" &
+          weston --backend=headless-backend.so --width=1920 --height=1440 --socket=bme-ci --idle-time=0 --log="$RUNNER_TEMP/weston.log" &
           weston_pid=$!
           trap 'kill "$weston_pid" 2>/dev/null || true' EXIT
           for attempt in {1..100}; do
@@ -119,6 +119,9 @@ jobs:
           for language in en pt-BR; do
             env -u DISPLAY WAYLAND_DISPLAY=bme-ci SLINT_BACKEND=winit-software BME_GUI_NATIVE_SMOKE=1 BME_GUI_LANGUAGE="$language" BME_GUI_SCREENSHOT="$RUNNER_TEMP/gui-wayland-$language.png" cargo nextest run --locked --profile ci --test-threads 1 -p biosmod-gui --test ui_workflow --test keyboard
           done
+          out="$RUNNER_TEMP/gui-gallery/wayland/pt-BR/760x600/theme-2-scale-1.5"
+          mkdir -p "$out"
+          env -u DISPLAY WAYLAND_DISPLAY=bme-ci SLINT_BACKEND=winit-software SLINT_SCALE_FACTOR=1.5 BME_GUI_NATIVE_SMOKE=1 BME_GUI_LANGUAGE=pt-BR BME_GUI_SIZE=760x600 BME_GUI_THEME=2 BME_GUI_GALLERY="$out" cargo nextest run --locked --profile ci --test-threads 1 -p biosmod-gui --test gallery gallery_states_build_and_capture
       - name: State gallery on X11
         shell: bash
         run: |
