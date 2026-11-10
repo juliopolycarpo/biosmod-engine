@@ -10,7 +10,8 @@
 | Seções | decodificadas: imagem FV, LZMA definido por GUID, CRC32 definido por GUID (verificado); folhas: PE32, TE, raw, UI e demais. Seções de compressão (tipo 01) e outras codificações definidas por GUID permanecem opacas; módulos nelas são informados como `unsupported` |
 | LZMA | decodificação limitada a 64 MiB por seção e 512 MiB por imagem; a recodificação reproduz as propriedades originais e é conferida por decodificação |
 | ACPI | DSDT em uma seção raw (`leaf: acpi-table`), checksum da tabela mantido pelo próprio hunk |
-| PE32/TE | seções, base da imagem, relocações de base e campos de desvio direto (para mascaramento de assinaturas) |
+| PE32/PE32+ | tabelas de seções, base da imagem, relocações de base e campos de desvio direto (para mascaramento de assinaturas) |
+| TE | correspondência de folhas executáveis e verificações da base da imagem; a cobertura de relocações retorna `FORMAT_UNSUPPORTED` |
 
 Limites: imagens de até 64 MiB, profundidade de aninhamento 16, arquivos de catálogo de até 8 MiB e 4096 arquivos por catálogo.
 
