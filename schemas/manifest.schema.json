@@ -84,6 +84,11 @@
     "EngineId": {
       "additionalProperties": false,
       "properties": {
+        "build_fingerprint": {
+          "default": "",
+          "description": "SHA-256 of the recorded source and build inputs; empty for legacy plans.",
+          "type": "string"
+        },
         "codec": {
           "type": "string"
         },
