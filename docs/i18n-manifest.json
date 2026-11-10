@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "2d11d9eb00c4ee65de367513b917ed73097dd1178bc79a9e11fec3e7d2abc5ba"
+      "sha256": "e332c40433dea4b490bb83b93c344e0f05db8decf32e70d3ded96b93690a3ef5"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -54,7 +54,7 @@
     {
       "source": "docs/guide/gui.md",
       "translation": "docs/pt-BR/guide/gui.md",
-      "sha256": "2dcb0331fe92766f71f159f210a6380350de68984b76243db73cd5c05b91e38a"
+      "sha256": "d4052299b1e9e9d4dbcf131705c3893e2e660ef9775dd96f8b273fe9c01b7314"
     },
     {
       "source": "docs/guide/porting.md",
@@ -75,6 +75,11 @@
       "source": "docs/guide/workflow.md",
       "translation": "docs/pt-BR/guide/workflow.md",
       "sha256": "f8e80745c8cf8a4590a89801754a3bb83a39a9013e387f180feb83ea73ddec2f"
+    },
+    {
+      "source": "docs/linux-desktop-qualification.md",
+      "translation": "docs/pt-BR/linux-desktop-qualification.md",
+      "sha256": "3a7339d1c17ef092c003cf114080da499e3f33b024fe3c1df9d251eb621c4aa8"
     }
   ]
 }

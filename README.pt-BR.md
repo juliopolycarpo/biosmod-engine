@@ -92,6 +92,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 - [Arquitetura](docs/pt-BR/architecture.md): crates, fluxo de dados e verificações de segurança
 - [Formatos](docs/pt-BR/formats.md): estruturas de firmware suportadas e limites
 - [Protocolo](docs/pt-BR/guide/agents.md), [confiança](docs/pt-BR/guide/trust.md), [catálogos](docs/pt-BR/guide/catalogs.md), [recuperação](docs/pt-BR/guide/recovery.md)
+- [Qualificação da interface no Linux](docs/pt-BR/linux-desktop-qualification.md): ambientes testados e limites
 - [Interface gráfica](docs/pt-BR/guide/gui.md): configuração Linux e fluxo de geração revisada
 - [Como contribuir](CONTRIBUTING.pt-BR.md), incluindo envio de placas e patches
 - [Medições de referência](docs/pt-BR/baseline.md)

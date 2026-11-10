@@ -92,6 +92,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 - [Architecture](docs/architecture.md): crates, data flow and safety checks
 - [Formats](docs/formats.md): supported firmware structures and limits
 - [Protocol](docs/guide/agents.md), [trust](docs/guide/trust.md), [catalogs](docs/guide/catalogs.md), [recovery](docs/guide/recovery.md)
+- [Linux desktop qualification](docs/linux-desktop-qualification.md): tested environments and limits
 - [Desktop guide](docs/guide/gui.md): Linux setup and reviewed build workflow
 - [Contributing](CONTRIBUTING.md), including board and patch submissions
 - [Baseline measurements](docs/baseline.md)
