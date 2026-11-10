@@ -44,6 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     slint::BackendSelector::new().select()?;
     slint::set_xdg_app_id("dev.polycarpo.biosmod-engine")?;
     let ui = AppWindow::new()?;
+    #[cfg(target_os = "linux")]
+    biosmod_gui::software_scale::install(ui.window());
     settings.language.select()?;
     if smoke {
         ui.show()?;
