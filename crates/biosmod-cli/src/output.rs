@@ -4,8 +4,27 @@
 //! for successes and failures alike. Diagnostics always go to stderr.
 
 use biosmod_core::{Code, Error};
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use serde_json::{Value, json};
+use std::borrow::Cow;
+use std::path::Path;
+
+/// Return a displayable path for a JSON reply.
+///
+/// Example: `display_path(Path::new("out.bin"))` yields `"out.bin"`.
+pub fn display_path(path: &Path) -> Cow<'_, str> {
+    path.to_string_lossy()
+}
+
+/// Serialize a path using the same display format as JSON reply fields.
+///
+/// Example: annotate a `PathBuf` field with `#[serde(serialize_with = "serialize_display_path")]`.
+pub fn serialize_display_path<S: Serializer>(
+    path: &Path,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&display_path(path))
+}
 
 /// Protocol identifier, versioned independently of catalog schemas.
 pub const PROTOCOL: &str = "bme/1";
@@ -121,4 +140,22 @@ pub fn table(rows: &[Vec<String>]) -> String {
         out.push('\n');
     }
     out
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn display_path_preserves_utf8() {
+        assert_eq!(display_path(Path::new("folder/out.bin")), "folder/out.bin");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn display_path_replaces_invalid_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+        let path = Path::new(std::ffi::OsStr::from_bytes(b"out-\xff.bin"));
+        assert_eq!(display_path(path), "out-\u{fffd}.bin");
+    }
 }

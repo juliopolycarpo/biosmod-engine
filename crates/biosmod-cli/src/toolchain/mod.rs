@@ -16,7 +16,7 @@ pub use runner::{Finished, Invocation, Runner, System};
 
 use crate::commands::Ctx;
 use crate::config::{Config, io_error, write_atomic};
-use crate::output::Reply;
+use crate::output::{Reply, display_path};
 use crate::transport::{Https, Offline, Transport};
 use biosmod_core::{Code, Error, Result};
 use serde::{Deserialize, Serialize};
@@ -130,6 +130,7 @@ pub struct Env<'a> {
 /// Where a Ghidra installation came from.
 #[derive(Debug, Clone, Serialize)]
 pub struct GhidraHome {
+    #[serde(serialize_with = "crate::output::serialize_display_path")]
     pub path: PathBuf,
     pub origin: &'static str,
 }
@@ -380,7 +381,7 @@ pub fn doctor(ctx: &Ctx, deep: bool) -> Result<Reply> {
 pub fn paths(ctx: &Ctx) -> Result<Reply> {
     let profile = Profile::pinned();
     let home = ghidra_home(&ctx.config, &ctx.paths.data, &profile);
-    let data = json!({"config": ctx.paths.config_file(), "cache": ctx.paths.cache, "data": ctx.paths.data, "ghidra_home": home, "profile": profile});
+    let data = json!({"config": display_path(&ctx.paths.config_file()), "cache": display_path(&ctx.paths.cache), "data": display_path(&ctx.paths.data), "ghidra_home": home, "profile": profile});
     let text = format!(
         "config   {}\ncache    {}\ndata     {}\nghidra   {} ({})\n",
         ctx.paths.config_file().display(),
@@ -420,7 +421,9 @@ pub fn setup(ctx: &Ctx, args: &SetupArgs) -> Result<Reply> {
 /// Result of a successful setup.
 #[derive(Debug, Clone, Serialize)]
 pub struct Installed {
+    #[serde(serialize_with = "crate::output::serialize_display_path")]
     pub ghidra: PathBuf,
+    #[serde(serialize_with = "crate::output::serialize_display_path")]
     pub extension: PathBuf,
     pub profile: Profile,
     pub startup_check: Option<bool>,
@@ -993,7 +996,7 @@ pub fn run_analysis(
         output.display()
     );
     Ok(Reply::new(
-        json!({"output": output, "files": produced, "log": log}),
+        json!({"output": display_path(output), "files": produced, "log": display_path(&log)}),
         text,
     ))
 }

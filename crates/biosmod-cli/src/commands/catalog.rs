@@ -3,6 +3,7 @@
 use super::{Ctx, load_sources};
 use crate::CatalogCommand;
 use crate::config::{SourceKind, io_error, write_atomic, write_new};
+use crate::output::display_path;
 use crate::output::{Reply, table};
 use crate::sources::{self, DirSource, LoadPolicy, Store};
 use crate::transport::{Https, Offline, Transport};
@@ -406,7 +407,10 @@ fn import(
         output.display(),
         ids.join(" ")
     );
-    Ok(Reply::new(json!({"output": output, "patches": ids}), text))
+    Ok(Reply::new(
+        json!({"output": display_path(output), "patches": ids}),
+        text,
+    ))
 }
 
 #[cfg(test)]
@@ -455,5 +459,21 @@ mod tests {
             !output.join("same.json").exists(),
             "a record was written before the duplicate was rejected"
         );
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn import_reports_non_utf8_output_path() {
+        use std::os::unix::ffi::OsStringExt;
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("input");
+        let output = dir
+            .path()
+            .join(std::ffi::OsString::from_vec(b"output-\xff".to_vec()));
+        fs::create_dir(&input).unwrap();
+        let record = json!({"schema": 1, "id": "valid", "title": "test", "findings": [], "finding_confidence": {}, "local_fix_confidence": "", "physical_fix_confidence": "", "hardware_tested": false, "tier": 1, "supersedes": [], "conflicts": [], "limits": "", "boards": {}});
+        fs::write(input.join("record.json"), record.to_string()).unwrap();
+        let reply = import(&input, &[], &"a".repeat(40), "repo", &output).unwrap();
+        assert_eq!(reply.data["output"], output.to_string_lossy().as_ref());
+        assert!(output.join("valid.json").exists());
     }
 }
