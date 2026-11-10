@@ -88,7 +88,8 @@ fn tools(ctx: &Ctx, command: ToolsCommand) -> Result<Reply> {
     }
 }
 
-/// Read a file with a size bound.
+/// Read a regular file, enforcing the bound even if its metadata underreports the size.
+/// Example: `read_bounded(Path::new("plan.json"), 16 * 1024 * 1024)?`.
 pub fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
@@ -116,9 +117,19 @@ pub fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
         ));
     }
     let mut bytes = Vec::with_capacity(meta.len() as usize);
-    file.take(limit + 1)
+    file.take(limit.saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(|e| io_error(path, e))?;
+    if bytes.len() as u64 > limit {
+        return Err(Error::new(
+            Code::FormatUnsupported,
+            format!(
+                "{}: {} bytes exceed the limit of {limit}",
+                path.display(),
+                bytes.len()
+            ),
+        ));
+    }
     Ok(bytes)
 }
 
@@ -197,4 +208,46 @@ pub fn parse_token(text: &str) -> Result<Token> {
         id: id.to_string(),
         version,
     })
+}
+
+#[cfg(test)]
+mod bounded_read_tests {
+    use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn actual_read_length_is_bounded_when_metadata_underreports() {
+        let path = Path::new("/proc/self/cmdline");
+        let metadata = fs::metadata(path).unwrap();
+        assert!(metadata.is_file());
+        assert_eq!(
+            metadata.len(),
+            0,
+            "procfs fixture must underreport its length"
+        );
+        let error = read_bounded(path, 1).expect_err(
+            "/proc/self/cmdline: expected actual read length <= 1 despite metadata length 0",
+        );
+        assert_eq!(error.code, Code::FormatUnsupported);
+        assert!(error.message.contains("/proc/self/cmdline"), "{error}");
+        assert!(
+            error.message.contains("2 bytes exceed the limit of 1"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn bounded_read_accepts_exact_limit_and_unlimited_u64() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("exact.bin");
+        fs::write(&path, b"exact").unwrap();
+        assert_eq!(read_bounded(&path, 5).unwrap(), b"exact");
+        assert_eq!(read_bounded(&path, u64::MAX).unwrap(), b"exact");
+        let error = read_bounded(&path, 4).unwrap_err();
+        assert_eq!(error.code, Code::FormatUnsupported);
+        assert!(
+            error.message.contains("5 bytes exceed the limit of 4"),
+            "{error}"
+        );
+    }
 }
