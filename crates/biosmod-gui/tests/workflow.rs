@@ -375,7 +375,12 @@ fn controller_builds_without_preview_and_binds_verification_to_its_receipt() {
     bytes.push(b'\n');
     std::fs::write(&manifest, bytes).unwrap();
     verify(&mut session);
-    assert_eq!(session.outcome, Outcome::Failed, "{}", session.status);
+    assert_eq!(
+        session.outcome,
+        Outcome::VerificationFailed,
+        "{}",
+        session.status
+    );
     assert!(
         session.status.contains("expected manifest SHA-256"),
         "{}",
@@ -395,6 +400,7 @@ fn controller_builds_without_preview_and_binds_verification_to_its_receipt() {
     reopened.open_output(output);
     verify(&mut reopened);
     assert_eq!(reopened.outcome, Outcome::Verified, "{}", reopened.status);
+    assert_eq!(reopened.status, "Verified against the opened manifest");
 }
 
 #[test]

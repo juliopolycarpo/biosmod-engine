@@ -59,7 +59,9 @@ pub enum Outcome {
     Failed,
     Interrupted,
     PublicationIncomplete,
+    PublicationUnknown,
     VerificationIncomplete,
+    VerificationFailed,
     Verified,
 }
 
@@ -113,6 +115,7 @@ pub enum Status {
     Previewed,
     Published,
     Verified,
+    VerifiedOpened,
     Incomplete,
     Sources,
     Tools,
@@ -160,6 +163,7 @@ impl Status {
             Self::Previewed => "Preview complete.",
             Self::Published => "Patched copy published. Independent verification is next.",
             Self::Verified => "Offline verification complete",
+            Self::VerifiedOpened => "Verified against the opened manifest",
             Self::Incomplete => {
                 "Verification incomplete. Review skipped checks and retry after addressing them."
             }
@@ -874,10 +878,12 @@ impl Session {
                 } else {
                     Outcome::VerificationIncomplete
                 };
-                self.set_status(if complete {
-                    Status::Verified
-                } else {
+                self.set_status(if !complete {
                     Status::Incomplete
+                } else if self.manifest_receipt.is_none() && self.manifest.is_some() {
+                    Status::VerifiedOpened
+                } else {
+                    Status::Verified
                 });
                 self.log(&pretty(&data));
                 // The window renders the report itself in the selected language.
@@ -1018,6 +1024,7 @@ impl Session {
         self.outcome = match error.code.as_deref() {
             Some("PUBLISH_INCOMPLETE") => Outcome::PublicationIncomplete,
             Some("VERIFICATION_INCOMPLETE") => Outcome::VerificationIncomplete,
+            _ if action == Action::Verify && self.manifest.is_some() => Outcome::VerificationFailed,
             _ if matches!(
                 error.kind,
                 ErrorKind::Interrupted | ErrorKind::Cancelled | ErrorKind::Timeout
@@ -1043,6 +1050,7 @@ impl Session {
             ErrorKind::Engine | ErrorKind::Configuration | ErrorKind::Launch
         );
         if action == Action::Build && !definite {
+            self.outcome = Outcome::PublicationUnknown;
             let fallback = format!(
                 "Publication outcome unknown. Inspect output artifacts before retrying. {message}"
             );

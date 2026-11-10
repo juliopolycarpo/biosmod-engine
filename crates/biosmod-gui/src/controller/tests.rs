@@ -105,6 +105,21 @@ fn apply_refused_before_launch_does_not_report_unknown_publication() {
 }
 
 #[test]
+fn build_transport_failure_keeps_the_destination_and_reports_unknown_publication() {
+    let mut session = Session::new().unwrap();
+    let output = PathBuf::from("/tmp/output.bin");
+    session.set_output(Some(output.clone()));
+    session.fail(
+        Action::Build,
+        EngineError::new(ErrorKind::Protocol, "invalid response"),
+    );
+    assert_eq!(session.outcome, Outcome::PublicationUnknown);
+    assert_eq!(session.status_kind, Status::PublicationUnknown);
+    assert_eq!(session.output.as_ref(), Some(&output));
+    assert!(session.manifest.is_none());
+}
+
+#[test]
 fn engine_reported_incomplete_verification_is_summarized_not_dumped() {
     let mut session = Session::new().unwrap();
     let mut error = EngineError::new(ErrorKind::Engine, "verification: expected all checks");

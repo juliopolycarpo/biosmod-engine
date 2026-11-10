@@ -780,6 +780,11 @@ msgctxt "UiText"
 msgid "Patched copy published. Independent verification is next."
 msgstr "Cópia modificada publicada. A próxima etapa é a verificação independente."
 
+#: ui/translations.slint:74
+msgctxt "UiText"
+msgid "Verified against the opened manifest"
+msgstr "Verificado com o manifesto aberto"
+
 #: ui/translations.slint:73
 msgctxt "UiText"
 msgid "Offline verification complete"
@@ -932,6 +937,16 @@ msgctxt "UiText"
 msgid ""
 "Publication outcome unknown. Inspect output artifacts before retrying. {}"
 msgstr "Resultado da publicação desconhecido. Inspecione os arquivos de saída antes de tentar novamente. {}"
+
+#: ui/translations.slint:105
+msgctxt "UiText"
+msgid "Verification failed for this output"
+msgstr "Falha na verificação desta saída"
+
+#: ui/translations.slint:106
+msgctxt "UiText"
+msgid "Publication outcome unknown"
+msgstr "Resultado da publicação desconhecido"
 
 #: ui/translations.slint:100
 msgctxt "UiText"

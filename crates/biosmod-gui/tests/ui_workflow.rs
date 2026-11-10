@@ -206,6 +206,8 @@ fn real_desktop_synthetic_workflow() {
             Outcome::Failed
                 | Outcome::Interrupted
                 | Outcome::PublicationIncomplete
+                | Outcome::PublicationUnknown
+                | Outcome::VerificationFailed
                 | Outcome::VerificationIncomplete
         ) {
             *tick_result.borrow_mut() = Some(Err(format!(

@@ -970,7 +970,19 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             .unwrap_or_else(|| session.result_details.as_str().into()),
     );
     ui.set_result_title(match session.outcome {
+        Outcome::Verified if session.status_kind == Status::VerifiedOpened => {
+            t.get_status_verified_opened()
+        }
         Outcome::Verified => t.get_status_verified(),
+        Outcome::Idle
+            if session.built_plan.is_some()
+                && (session.status_kind == Status::Published
+                    || session.activity() == Some(Action::Verify)) =>
+        {
+            t.get_status_published()
+        }
+        Outcome::VerificationFailed => t.get_title_verification_failed(),
+        Outcome::PublicationUnknown => t.get_title_publication_unknown(),
         Outcome::VerificationIncomplete => t.get_title_incomplete(),
         Outcome::PublicationIncomplete => t.get_title_publication(),
         Outcome::Interrupted => t.get_title_interrupted(),
@@ -989,6 +1001,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
                 session.outcome,
                 Outcome::Verified
                     | Outcome::PublicationIncomplete
+                    | Outcome::PublicationUnknown
                     | Outcome::VerificationIncomplete
             )
         {
@@ -1086,6 +1099,7 @@ fn localized_status_with_extra(
         Status::Previewed => t.get_status_previewed(),
         Status::Published => t.get_status_published(),
         Status::Verified => t.get_status_verified(),
+        Status::VerifiedOpened => t.get_status_verified_opened(),
         Status::Incomplete => t.get_status_incomplete(),
         Status::Sources => t.get_status_sources(),
         Status::Tools => t.get_status_tools(),
@@ -1287,8 +1301,12 @@ pub fn verification_summary(ui: &AppWindow, report: &serde_json::Value) -> Share
 pub fn status_tone(outcome: Outcome) -> Tone {
     match outcome {
         Outcome::Verified => Tone::Good,
-        Outcome::Failed | Outcome::PublicationIncomplete => Tone::Danger,
-        Outcome::Interrupted | Outcome::VerificationIncomplete => Tone::Attention,
+        Outcome::Failed | Outcome::PublicationIncomplete | Outcome::VerificationFailed => {
+            Tone::Danger
+        }
+        Outcome::Interrupted | Outcome::VerificationIncomplete | Outcome::PublicationUnknown => {
+            Tone::Attention
+        }
         Outcome::Idle => Tone::Quiet,
     }
 }

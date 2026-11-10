@@ -71,6 +71,7 @@ export global UiText {
     out property <string> status-scanned: @tr("Scan complete. Select corrections or choose Recommended.");
     out property <string> status-previewed: @tr("Preview complete.");
     out property <string> status-published: @tr("Patched copy published. Independent verification is next.");
+    out property <string> status-verified-opened: @tr("Verified against the opened manifest");
     out property <string> status-verified: @tr("Offline verification complete");
     out property <string> status-incomplete: @tr("Verification incomplete. Review skipped checks and retry after addressing them.");
     out property <string> status-sources: @tr("Registered sources loaded. Firmware operations remain offline.");
@@ -101,6 +102,8 @@ export global UiText {
     public pure function engine-ready(version: string) -> string { return @tr("bme {} · offline", version); }
     public pure function status-failed(detail: string) -> string { return @tr("Operation failed: {}", detail); }
     public pure function status-publication-unknown(detail: string) -> string { return @tr("Publication outcome unknown. Inspect output artifacts before retrying. {}", detail); }
+    out property <string> title-verification-failed: @tr("Verification failed for this output");
+    out property <string> title-publication-unknown: @tr("Publication outcome unknown");
     out property <string> title-incomplete: @tr("Verification incomplete");
     out property <string> title-publication: @tr("Publication incomplete: inspect remaining artifacts");
     out property <string> title-interrupted: @tr("Operation interrupted: review the outcome");
