@@ -1130,8 +1130,12 @@ fn localized_verification(ui: &AppWindow, report: &serde_json::Value) -> SharedS
         for check in checks {
             lines.push(
                 t.invoke_check_skipped(
-                    check["check"].as_str().unwrap_or("unknown").into(),
-                    check["reason"].as_str().unwrap_or("unknown").into(),
+                    check["check"]
+                        .as_str()
+                        .map_or_else(|| t.get_unknown(), Into::into),
+                    check["reason"]
+                        .as_str()
+                        .map_or_else(|| t.get_unknown(), Into::into),
                 )
                 .to_string(),
             );
@@ -1139,7 +1143,9 @@ fn localized_verification(ui: &AppWindow, report: &serde_json::Value) -> SharedS
     }
     lines.push(format!(
         "\n{}",
-        report["notice"].as_str().unwrap_or("unknown")
+        report["notice"]
+            .as_str()
+            .map_or_else(|| t.get_unknown(), Into::into)
     ));
     lines.join("\n").into()
 }

@@ -69,6 +69,19 @@ fn bound_window(settings: Settings, settings_path: Option<PathBuf>) -> (AppWindo
 }
 
 #[test]
+fn portuguese_verification_translates_missing_skip_and_notice_fields() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _state) = bound_window(Settings::default(), None);
+    Language::PtBr.select().unwrap();
+    let text = localized_verification(&window, &json!({"skipped": [{}]}));
+    Language::En.select().unwrap();
+    assert!(
+        !text.contains("unknown") && text.matches("desconhecido").count() == 3,
+        "verification placeholders: expected three \"desconhecido\" | received {text:?}"
+    );
+}
+
+#[test]
 fn language_switch_refreshes_review_rows_and_verification_without_changing_session() {
     i_slint_backend_testing::init_no_event_loop();
     let dir = tempfile::tempdir().unwrap();
