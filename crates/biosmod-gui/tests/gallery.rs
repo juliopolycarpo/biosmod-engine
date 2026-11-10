@@ -193,8 +193,15 @@ fn gallery_states_build_and_capture() {
     };
     shot("1-selected");
     window.set_stage(2);
-    window.set_plan_details("Generated in this session\n\nFirmware: synthetic\nSource: lab\n\nComplete plan and source snapshot".into());
-    window.set_plan_snapshot("{\n  \"schema\": \"bme.plan/1\",\n  \"source\": \"lab\"\n}".into());
+    let plan = serde_json::json!({"schema":"bme.plan/1", "firmware":"synthetic", "source":{"alias":"lab"}});
+    let review = biosmod_gui::controller::Review::new(
+        "/tmp/gallery-plan.json".into(),
+        Vec::new(),
+        plan.clone(),
+        true,
+    );
+    window.set_plan_details(biosmod_gui::desktop::plan_summary(&window, &review));
+    window.set_plan_snapshot(serde_json::to_string_pretty(&plan).unwrap().into());
     shot("10-review");
     window.set_stage(1);
     window.set_page(4);
