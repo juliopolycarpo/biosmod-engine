@@ -8,7 +8,7 @@ O `bme` trabalha em uma cópia do firmware. Ele nunca abre um chip flash e toda 
 bme scan dump.bin                                   # which build is this, which defects are present
 bme plan dump.bin --select recommended -o plan.json # resolve and dry-build in memory
 bme patch dump.bin --plan plan.json -o fixed.bin    # rebuild, verify, publish fixed.bin + manifest
-bme verify dump.bin fixed.bin                       # independent check, any time later
+bme verify dump.bin fixed.bin                       # independent check with the same engine build
 ```
 
 ## Análise
@@ -40,6 +40,12 @@ Substituições e conflitos são resolvidos automaticamente; `plan` lista todas 
 ## Plano e patch
 
 `plan` grava um plano JSON com o hash de entrada, a cópia fixada do catálogo (hash do manifesto e cada arquivo consumido), a seleção, fatos, flags, cada alteração de componente, a lista de bytes permitidos e o hash esperado da saída.
+
+Planos e manifestos de saída também registram uma impressão digital dos insumos de compilação do mecanismo. Ela abrange os fontes do núcleo e da CLI, scripts de compilação, manifestos, lockfile, catálogo incluído e outros recursos incorporados, além da versão do compilador, do alvo e de configurações selecionadas de compilação. Os nomes dos arquivos são relativos ao workspace; a localização do checkout e os horários não entram no cálculo. Alterar esses insumos, inclusive o alvo ou o perfil de compilação, pode exigir um novo plano mesmo sem mudança na versão do pacote.
+
+`bme version --json` informa a impressão digital em `data.build_fingerprint`. A compilação recusa caminhos de workspace e valores de configurações capturadas que não sejam UTF-8, em vez de reduzir caminhos diferentes ao mesmo texto.
+
+`patch --plan` e `verify` recusam uma impressão digital ausente ou diferente com `PLAN_INVALID`. Planos e manifestos criados antes da introdução da impressão digital precisam ser gerados novamente com a compilação atual. Guarde a compilação correspondente do mecanismo se precisar verificar uma saída antiga. Essa impressão identifica os insumos registrados; não é uma assinatura nem uma atestação do executável. Ela não calcula hashes dos binários do compilador, fontes das dependências, ferramentas nativas ou de todas as variáveis de ambiente, portanto não prova que compilações com a mesma impressão sejam idênticas em bytes.
 
 `patch --plan` trata o plano como entrada não confiável: relê a entrada, recarrega o catálogo fixado offline, reconstrói do início e exige o mesmo plano e hash de saída. Qualquer divergência resulta em `PLAN_INPUT_CHANGED` ou `OUTPUT_VERIFICATION_FAILED`, sem gravar nada.
 

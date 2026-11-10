@@ -781,13 +781,20 @@ pub mod document {
     pub struct EngineId {
         pub version: String,
         pub codec: String,
+        /// SHA-256 of the recorded source and build inputs; empty for legacy plans.
+        #[serde(default)]
+        pub build_fingerprint: String,
     }
 
     impl EngineId {
+        /// Return the engine identity embedded at build time.
+        ///
+        /// Example: `let identity = biosmod_core::plan::document::EngineId::current();`
         pub fn current() -> EngineId {
             EngineId {
                 version: crate::VERSION.into(),
                 codec: crate::codec::identity(),
+                build_fingerprint: env!("BME_BUILD_FINGERPRINT").into(),
             }
         }
     }

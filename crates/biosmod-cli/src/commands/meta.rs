@@ -58,7 +58,7 @@ pub const ENVELOPE_SCHEMA: &str = include_str!("../../../../schemas/envelope.sch
 
 pub fn version() -> Reply {
     let codec = biosmod_core::codec::identity();
-    let data = json!({"engine": biosmod_core::VERSION, "protocol": PROTOCOL, "codec": codec, "target": std::env::consts::OS, "arch": std::env::consts::ARCH});
+    let data = json!({"engine": biosmod_core::VERSION, "protocol": PROTOCOL, "codec": codec, "build_fingerprint": biosmod_core::plan::document::EngineId::current().build_fingerprint, "target": std::env::consts::OS, "arch": std::env::consts::ARCH});
     Reply::new(
         data,
         format!(

@@ -30,6 +30,21 @@ fn json_envelope_on_success_failure_and_usage_errors() {
     let version = sandbox.run(["version", "--json"]);
     assert_eq!(version.code, 0);
     assert_envelope(&version.json());
+    let fingerprint = version.json()["data"]["build_fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        fingerprint.len(),
+        64,
+        "build fingerprint: expected 64 lowercase hexadecimal digits | received {fingerprint:?}"
+    );
+    assert!(
+        fingerprint
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)),
+        "build fingerprint: expected lowercase hexadecimal | received {fingerprint:?}"
+    );
     assert!(
         version.json()["data"]["codec"]
             .as_str()
@@ -877,6 +892,152 @@ fn verification_reports_selected_and_carried_patch_states() {
             {"id": "PB", "state": "fixed"}, {"id": "PA", "state": "fixed"}
         ])
     );
+}
+
+#[test]
+fn changed_or_missing_engine_build_fingerprint_requires_a_new_plan() {
+    let sandbox = Sandbox::new();
+    let (image, catalog) = sandbox.synthetic();
+    let plan = sandbox.path("build-id-plan.json");
+    let made = sandbox.run([
+        "plan",
+        s(&image),
+        "--catalog",
+        s(&catalog),
+        "--allow-unsigned-local",
+        "--select",
+        "PA",
+        "-o",
+        s(&plan),
+        "--json",
+    ]);
+    assert_eq!(made.code, 0, "plan: {} {}", made.stdout, made.stderr);
+    let original: Value = serde_json::from_slice(&fs::read(&plan).unwrap()).unwrap();
+    let version = sandbox.run(["version", "--json"]).json();
+    assert_eq!(
+        original["engine"]["build_fingerprint"], version["data"]["build_fingerprint"],
+        "plan and version must report the same build fingerprint"
+    );
+    let mut mismatched = original.clone();
+    mismatched["engine"]["build_fingerprint"] = Value::String("0".repeat(64));
+    let mut legacy = original.clone();
+    legacy["engine"]
+        .as_object_mut()
+        .unwrap()
+        .remove("build_fingerprint");
+    for (name, document) in [("mismatch", mismatched), ("legacy", legacy)] {
+        let path = sandbox.path(&format!("{name}.json"));
+        let output = sandbox.path(&format!("{name}.bin"));
+        fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        let run = sandbox.run([
+            "patch",
+            s(&image),
+            "--plan",
+            s(&path),
+            "--allow-unsigned-local",
+            "-o",
+            s(&output),
+            "--json",
+        ]);
+        assert_eq!(run.error_code(), "PLAN_INVALID", "{name}: {}", run.stdout);
+        let result = run.json();
+        let message = result["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("build fingerprint") && message.contains("regenerate the plan"),
+            "{name}: expected build fingerprint regeneration diagnostic | received {message}"
+        );
+        if name == "mismatch" {
+            assert!(message.contains(&"0".repeat(64)), "{message}");
+            assert!(
+                message.contains(original["engine"]["build_fingerprint"].as_str().unwrap()),
+                "{message}"
+            );
+        }
+        assert!(!output.exists());
+    }
+    for field in ["version", "codec"] {
+        let mut changed = original.clone();
+        changed["engine"][field] = Value::String("unexpected-engine-value".into());
+        let path = sandbox.path(&format!("{field}.json"));
+        let output = sandbox.path(&format!("{field}.bin"));
+        fs::write(&path, serde_json::to_vec(&changed).unwrap()).unwrap();
+        let run = sandbox.run([
+            "patch",
+            s(&image),
+            "--plan",
+            s(&path),
+            "--allow-unsigned-local",
+            "-o",
+            s(&output),
+            "--json",
+        ]);
+        assert_eq!(run.error_code(), "PLAN_INVALID");
+        let doc = run.json();
+        let message = doc["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("unexpected-engine-value") && message.contains("regenerate the plan"),
+            "{field}: {message}"
+        );
+        assert!(!output.exists());
+    }
+}
+
+#[test]
+fn verification_refuses_manifest_from_another_engine_build() {
+    let sandbox = Sandbox::new();
+    let (image, catalog) = sandbox.synthetic();
+    let plan = sandbox.path("identity-plan.json");
+    let output = sandbox.path("identity-output.bin");
+    let made = sandbox.run([
+        "plan",
+        s(&image),
+        "--catalog",
+        s(&catalog),
+        "--allow-unsigned-local",
+        "--select",
+        "PA",
+        "-o",
+        s(&plan),
+        "--json",
+    ]);
+    assert_eq!(made.code, 0, "{} {}", made.stdout, made.stderr);
+    let built = sandbox.run([
+        "patch",
+        s(&image),
+        "--plan",
+        s(&plan),
+        "--allow-unsigned-local",
+        "-o",
+        s(&output),
+        "--json",
+    ]);
+    assert_eq!(built.code, 0, "{} {}", built.stdout, built.stderr);
+    let manifest_path = sandbox.path("identity-output.bin.manifest.json");
+    let original: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    for missing in [false, true] {
+        let mut manifest = original.clone();
+        if missing {
+            manifest["plan"]["engine"]
+                .as_object_mut()
+                .unwrap()
+                .remove("build_fingerprint");
+        } else {
+            manifest["plan"]["engine"]["build_fingerprint"] = Value::String("f".repeat(64));
+        }
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let run = sandbox.run(["verify", s(&image), s(&output), "--json"]);
+        assert_eq!(run.error_code(), "PLAN_INVALID", "{}", run.stdout);
+        let document = run.json();
+        let message = document["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("build fingerprint") && message.contains("regenerate the plan"),
+            "{message}"
+        );
+        assert!(
+            message.contains(if missing { "<missing>" } else { "ffffffff" }),
+            "{message}"
+        );
+    }
 }
 
 #[test]

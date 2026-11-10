@@ -19,5 +19,9 @@ crc32fast.workspace = true
 schemars.workspace = true
 liblzma-sys = { version = "0.4.9", default-features = false, features = ["static"] }
 
+[build-dependencies]
+sha2.workspace = true
+
 [dev-dependencies]
+tempfile = "3.27"
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }

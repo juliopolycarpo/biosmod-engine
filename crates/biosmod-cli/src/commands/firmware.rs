@@ -558,21 +558,45 @@ fn read_plan(path: &Path) -> Result<PlanDocument> {
             ),
         ));
     }
+    check_engine(&plan.engine, path)?;
+    Ok(plan)
+}
+
+/// Refuse a plan or embedded manifest whose build identity differs from this engine.
+///
+/// Example: a legacy plan without a fingerprint requests regeneration.
+fn check_engine(identity: &biosmod_core::plan::document::EngineId, path: &Path) -> Result<()> {
     let engine = biosmod_core::plan::document::EngineId::current();
-    if plan.engine != engine {
+    if identity.build_fingerprint != engine.build_fingerprint {
+        let received = if identity.build_fingerprint.is_empty() {
+            "<missing>"
+        } else {
+            &identity.build_fingerprint
+        };
+        return Err(Error::new(
+            Code::PlanInvalid,
+            format!(
+                "{}: expected build fingerprint {} | received {}; regenerate the plan",
+                path.display(),
+                engine.build_fingerprint,
+                received
+            ),
+        ));
+    }
+    if *identity != engine {
         return Err(Error::new(
             Code::PlanInvalid,
             format!(
                 "{}: made by engine {} with {} | this is {} with {}; regenerate the plan",
                 path.display(),
-                plan.engine.version,
-                plan.engine.codec,
+                identity.version,
+                identity.codec,
                 engine.version,
                 engine.codec
             ),
         ));
     }
-    Ok(plan)
+    Ok(())
 }
 
 /// Rebuild a plan from scratch and confirm every pinned digest.
@@ -722,6 +746,7 @@ pub fn verify(ctx: &Ctx, args: &VerifyArgs) -> Result<Reply> {
             ),
         ));
     }
+    check_engine(&manifest.plan.engine, &manifest_file)?;
     if let Some(path) = &args.plan
         && read_plan(path)? != manifest.plan
     {
