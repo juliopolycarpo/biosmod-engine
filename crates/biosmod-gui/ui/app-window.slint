@@ -120,7 +120,7 @@ export component AppWindow inherits Window {
                             Text { text: "B"; font-size: Theme.font-heading; font-weight: 700; color: Theme.accent-text; horizontal-alignment: center; vertical-alignment: center; }
                         }
                     }
-                    if root.width >= 1080px: Text { text: @tr("BIOS Mod Engine"); font-size: Theme.font-heading; font-weight: 700; color: Theme.text; vertical-alignment: center; }
+                    if root.width >= 1200px: Text { text: @tr("BIOS Mod Engine"); font-size: Theme.font-heading; font-weight: 700; color: Theme.text; vertical-alignment: center; }
                     Rectangle { width: Theme.space-md; }
                     NavTab { text: @tr("Workflow"); selected: root.page == 0; activated => { root.page = 0; } }
                     NavTab { text: @tr("Sources & tools"); selected: root.page == 1; activated => { root.page = 1; } }

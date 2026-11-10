@@ -300,7 +300,7 @@ fn minimum_width_keeps_navigation_and_path_controls_visible() {
             ],
         ),
     ] {
-        for width in [760.0, 1000.0, 1080.0] {
+        for width in [760.0, 1000.0, 1080.0, 1200.0, 1600.0] {
             let window = AppWindow::new().unwrap();
             language.select().unwrap();
             window
