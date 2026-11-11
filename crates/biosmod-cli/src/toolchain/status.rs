@@ -190,10 +190,11 @@ pub struct Probe<'a> {
 pub fn status(probe: &Probe) -> Vec<ToolRow> {
     let java = java_rows(probe);
     let git = git_row(probe);
+    // Exactly the rows `install` checks before downloading: javac and git, not the runtime.
     let unready: Vec<&str> = java
         .iter()
         .chain([&git])
-        .filter(|row| row.health != Health::Ready)
+        .filter(|row| matches!(row.id, "jdk" | "git") && row.health != Health::Ready)
         .map(|row| row.name)
         .collect();
     let mut rows = ghidra_rows(probe, &unready);

@@ -547,6 +547,22 @@ fn setup_waits_for_java_and_git_because_it_checks_them_first() {
 }
 
 #[test]
+fn an_unreadable_java_runtime_does_not_block_setup_that_checks_only_the_jdk_and_git() {
+    let scene = Scene::new(FakeInstalledTools::complete().answering("java", "unrecognized"));
+    let rows = scene.rows(&GhidraHome {
+        path: scene.root.path().join("not-installed"),
+        origin: "managed",
+    });
+    assert_ne!(row(&rows, "java").health, Health::Ready, "(java row)");
+    let install = &row(&rows, "ghidra").install;
+    assert_eq!(
+        install.blocked.as_deref(),
+        None,
+        "(ghidra install, java runtime unreadable, javac 21 and git ready): expected not blocked"
+    );
+}
+
+#[test]
 fn a_missing_nasm_is_optional_and_does_not_make_the_report_not_ready() {
     let mut scene = Scene::new(FakeInstalledTools::complete().without("nasm"));
     scene.configured_flashrom = Some("/opt/fr/flashrom".into());
