@@ -2,7 +2,7 @@
 
 [English](../../guide/gui.md) | Português (Brasil)
 
-`bme-gui` é um cliente gráfico para `bme`. Ele lê imagens de firmware e cria novos arquivos de saída. Somente a página **Gravar chip** acessa um chip flash, por meio de `bme flash` e do flashrom. A verificação examina a imagem offline e não comprova segurança de inicialização, compatibilidade física com a placa ou aceitação pela verificação de assinatura da plataforma.
+`bme-gui` é um cliente gráfico para `bme`. Ele lê imagens de firmware e cria novos arquivos de saída. Somente a página **Gravar chip** acessa um chip flash, por meio de `bme flash` e do flashrom. A interface executa todas as requisições offline, exceto **Baixar e instalar** na página Fontes e ferramentas, que baixa o Ghidra fixado. A verificação examina a imagem offline e não comprova segurança de inicialização, compatibilidade física com a placa ou aceitação pela verificação de assinatura da plataforma.
 
 ## Compilar e executar
 
@@ -48,7 +48,7 @@ O código do projeto é MIT. A distribuição gráfica usa a Slint Royalty-free 
 
 **Abrir arquivo de seleção** carrega uma receita exata para reprodução após validação com a imagem, o catálogo e o mecanismo atuais. A interface mantém uma cópia privada e não permite que a receita conceda permissões não suportadas ou troque o catálogo selecionado. Uma receita exige o catálogo fixado e a compilação correspondente do mecanismo. Para reabrir uma saída, escolha a imagem original e a saída; o manifesto deve estar ao lado dela em `<output>.manifest.json`. Um arquivo de seleção opcional também pode ser usado para comparação.
 
-**Fontes e ferramentas** lista as fontes de catálogo (somente leitura; use a CLI para registrá-las ou atualizá-las) e um cartão por ferramenta externa: Ghidra, ghidra-firmware-utils, Java, JDK, git e flashrom. O cartão mostra estado, versão e local. **Baixar e instalar** obtém o Ghidra fixado com as mesmas verificações de `bme tools setup ghidra`; leva minutos e pode ser cancelado. **Escolher local…** grava uma pasta do Ghidra ou um programa flashrom existente, e **Restaurar** o esquece. Para Java, git e flashrom o cartão mostra o comando do gerenciador de pacotes para você executar. A interface nunca executa `sudo`.
+**Fontes e ferramentas** lista as fontes de catálogo (somente leitura; use a CLI para registrá-las ou atualizá-las) e um cartão por ferramenta externa: Ghidra, ghidra-firmware-utils, Java, JDK, git, flashrom e o NASM opcional. O cartão mostra estado, versão e local. **Baixar e instalar** só aparece quando nada o bloqueia (um local salvo ou a falta do JDK ou do git bloqueiam; o cartão diz o que fazer antes) e obtém o Ghidra fixado com as mesmas verificações de `bme tools setup ghidra`; leva minutos e pode ser cancelado. **Escolher local…** grava uma pasta do Ghidra ou um programa flashrom existente, e **Restaurar** o esquece. Para Java, git e flashrom o cartão mostra o comando do gerenciador de pacotes para você executar. A interface nunca executa `sudo`.
 
 ## Gravar chip
 

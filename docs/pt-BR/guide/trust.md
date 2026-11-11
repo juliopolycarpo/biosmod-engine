@@ -21,7 +21,7 @@ A chave é configurada localmente. Chaves dentro de um catálogo nunca são cons
 
 ## Atualizações
 
-`catalog update` é o único comando que usa a rede. Ele baixa `catalog.json` e `catalog.json.minisig`, verifica a assinatura dos bytes exatos, baixa cada arquivo indexado e confere seu tamanho e hash. A nova cópia é validada por completo em um diretório temporário e ativada com uma única renomeação. Em caso de falha, a cópia anterior permanece ativa.
+Somente `catalog update` e `tools setup ghidra` usam a rede. `tools setup ghidra` confere cada arquivo contra um hash SHA-256 fixado (veja [as ferramentas de análise](ghidra.md)). `catalog update` baixa `catalog.json` e `catalog.json.minisig`, verifica a assinatura dos bytes exatos, baixa cada arquivo indexado e confere seu tamanho e hash. A nova cópia é validada por completo em um diretório temporário e ativada com uma única renomeação. Em caso de falha, a cópia anterior permanece ativa.
 
 Atualizações são recusadas se o ID do catálogo mudar, se a versão for anterior a uma já aceita (rollback) ou se uma versão aceita reaparecer com conteúdo diferente. Somente HTTPS; redirecionamentos apenas na mesma origem; corpos têm tamanho limitado.
 

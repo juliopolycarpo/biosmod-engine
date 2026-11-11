@@ -2,7 +2,7 @@
 
 English | [Brazilian Portuguese](../pt-BR/guide/gui.md)
 
-`bme-gui` is a desktop client for `bme`. It reads firmware images and creates new output files. Only its **Flash chip** page accesses a flash chip, through `bme flash` and flashrom. Verification checks the image offline and does not establish boot safety, physical board compatibility or acceptance by platform signature enforcement.
+`bme-gui` is a desktop client for `bme`. It reads firmware images and creates new output files. Only its **Flash chip** page accesses a flash chip, through `bme flash` and flashrom. The GUI runs every request offline except **Download and install** on the Sources & tools page, which fetches the pinned Ghidra. Verification checks the image offline and does not establish boot safety, physical board compatibility or acceptance by platform signature enforcement.
 
 ## Build and run
 
@@ -48,7 +48,7 @@ The project's code is MIT. The desktop distribution uses the Slint Royalty-free 
 
 **Open selection file** loads an exact recipe for replay after validation against the current image, catalog and engine. The GUI retains a private copy and does not let the recipe grant unsupported permissions or switch the selected catalog. A recipe requires its pinned catalog and matching engine build. To reopen an output, choose the original image and output; its manifest must be beside it at `<output>.manifest.json`. An optional selection file can also be used for matching.
 
-**Sources & tools** lists the catalog sources (read-only; use the CLI to register or update them) and one card per external tool: Ghidra, ghidra-firmware-utils, Java, the JDK, git and flashrom. A card shows the state, version and location. **Download and install** fetches the pinned Ghidra with the checks `bme tools setup ghidra` makes; it takes minutes and can be cancelled. **Choose location…** saves an existing Ghidra folder or flashrom program, and **Reset** forgets it. For Java, git and flashrom the card shows the package-manager command to run yourself. The GUI never runs `sudo`.
+**Sources & tools** lists the catalog sources (read-only; use the CLI to register or update them) and one card per external tool: Ghidra, ghidra-firmware-utils, Java, the JDK, git, flashrom and the optional NASM. A card shows the state, version and location. **Download and install** appears only when nothing blocks it (a saved location or a missing JDK or git does; the card says what to do first) and fetches the pinned Ghidra with the checks `bme tools setup ghidra` makes; it takes minutes and can be cancelled. **Choose location…** saves an existing Ghidra folder or flashrom program, and **Reset** forgets it. For Java, git and flashrom the card shows the package-manager command to run yourself. The GUI never runs `sudo`.
 
 ## Flash chip
 

@@ -44,17 +44,17 @@
     {
       "source": "docs/guide/flashing.md",
       "translation": "docs/pt-BR/guide/flashing.md",
-      "sha256": "a1b8b5c75d23056b0aeb61b2903a0ca70e52e02c97b6b138e0c99ee5c92c75e3"
+      "sha256": "b6177b3110978e10116193457a20d5c162c2c97d9913044f2e0853d539701130"
     },
     {
       "source": "docs/guide/ghidra.md",
       "translation": "docs/pt-BR/guide/ghidra.md",
-      "sha256": "f8486e22e0a61aec3e2be381ac8e4db2c9dd079e30de509f0355c0c7b3035990"
+      "sha256": "9a5f0b4d651d8e7172640ba1cbe31eb3a9716a9409366b30b52869b826e297c7"
     },
     {
       "source": "docs/guide/gui.md",
       "translation": "docs/pt-BR/guide/gui.md",
-      "sha256": "a6832a267b2a14301643e445e76cb01be2902e854367184df90b79e797161207"
+      "sha256": "075a1792493729c09ea552db8d5d9c369a74e860c7dca08de4f30a873b48b527"
     },
     {
       "source": "docs/guide/porting.md",
@@ -69,7 +69,7 @@
     {
       "source": "docs/guide/trust.md",
       "translation": "docs/pt-BR/guide/trust.md",
-      "sha256": "6097662047d5bf6b2ce161c4a74337cd0cde0a2e1aed95d5be29c4fc29e8e01c"
+      "sha256": "9ac412e8257f1686f064f8d0dd1472aae6d2fe9084601237723c134a126de2a2"
     },
     {
       "source": "docs/guide/workflow.md",

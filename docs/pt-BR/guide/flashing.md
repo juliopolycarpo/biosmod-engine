@@ -25,7 +25,7 @@ O comando mostra a placa e o firmware informados pelo sistema, o perfil de placa
 | `mtd` | dispositivos flash do kernel utilizáveis como `-p linux_mtd:dev=N` |
 | `usb-programmer` | gravadores CH341A, FT2232H, FT232H ou Dediprog conectados |
 
-Root não lê a sua configuração: com `sudo`, passe `--flashrom <caminho>` ou `BME_FLASHROM` para usar um local salvo; o aplicativo desktop faz isso por você. `bme tools status` mostra onde o flashrom foi encontrado e como instalá-lo.
+Root não lê a sua configuração e só executa um caminho absoluto para um arquivo regular que nem o grupo nem outros usuários possam escrever: um `--flashrom` ou `BME_FLASHROM` mais permissivo é recusado antes de qualquer coisa começar. O aplicativo desktop pergunta a `bme tools paths` qual é o flashrom salvo antes de cada comando de chip e para se essa consulta falhar, em vez de recorrer ao `PATH`. Com `sudo`, passe `--flashrom <caminho>` ou `BME_FLASHROM` para usar um local salvo; o aplicativo desktop faz isso por você. `bme tools status` mostra onde o flashrom foi encontrado e como instalá-lo.
 
 `FAIL` impede qualquer operação no chip até ser corrigido. `WARN` indica o que tentar se uma operação for recusada. O diagnóstico nunca aciona um gravador.
 
