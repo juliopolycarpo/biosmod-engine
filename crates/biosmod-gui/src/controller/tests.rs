@@ -139,6 +139,58 @@ fn engine_reported_incomplete_verification_is_summarized_not_dumped() {
 }
 
 #[test]
+fn incomplete_verification_must_match_the_build_receipt() {
+    let expected_digest = "a".repeat(64);
+    let changed_digest = "b".repeat(64);
+    for (digest, version, expected_outcome) in [
+        (
+            expected_digest.as_str(),
+            "1.0.0",
+            Outcome::VerificationIncomplete,
+        ),
+        (
+            changed_digest.as_str(),
+            "1.0.0",
+            Outcome::VerificationFailed,
+        ),
+        (
+            expected_digest.as_str(),
+            "1.0.1",
+            Outcome::VerificationFailed,
+        ),
+    ] {
+        let mut session = Session::new().unwrap();
+        session.open_output(PathBuf::from("/tmp/output.bin"));
+        session.manifest_receipt = Some(expected_digest.clone());
+        session.engine_version = Some("1.0.0".into());
+        let mut error = EngineError::new(ErrorKind::Engine, "catalog unavailable");
+        error.code = Some("VERIFICATION_INCOMPLETE".into());
+        error.version = Some(Box::new(version.into()));
+        error.details = Some(json!({"manifest_sha256": digest, "complete": false}));
+
+        session.fail(Action::Verify, error);
+
+        assert_eq!(
+            session.outcome, expected_outcome,
+            "verification of manifest {digest} with engine {version}: {}",
+            session.status
+        );
+        if expected_outcome == Outcome::VerificationFailed {
+            assert!(session.verification_report.is_none());
+            assert!(
+                session
+                    .status
+                    .contains(&format!("received \"{digest}\" from version {version}")),
+                "{}",
+                session.status
+            );
+        } else {
+            assert!(session.verification_report.is_some());
+        }
+    }
+}
+
+#[test]
 fn verification_does_not_trust_complete_without_required_checks() {
     let mut session = Session::new().unwrap();
     session.engine_contract = Some(fake_engine_contract());

@@ -863,15 +863,10 @@ impl Session {
                         "verification: expected an engine contract from the active connection",
                     )
                 })?;
-                if let Some(expected) = &self.manifest_receipt
-                    && (data["manifest_sha256"] != *expected
-                        || self.engine_version.as_deref() != Some(payload.reply.version.as_str()))
-                {
-                    return Err(local_error(format!(
-                        "verification receipt: expected manifest SHA-256 {expected} from the connected engine | received {} from version {}",
-                        data["manifest_sha256"], payload.reply.version
-                    )));
-                }
+                self.validate_verification_receipt(
+                    &data["manifest_sha256"],
+                    Some(payload.reply.version.as_str()),
+                )?;
                 let complete = verification_complete(&data, contract)?;
                 self.outcome = if complete {
                     Outcome::Verified
@@ -1014,7 +1009,34 @@ impl Session {
         Ok(())
     }
 
-    fn fail(&mut self, action: Action, error: EngineError) {
+    fn validate_verification_receipt(
+        &self,
+        digest: &Value,
+        version: Option<&str>,
+    ) -> Result<(), EngineError> {
+        if let Some(expected) = &self.manifest_receipt
+            && (digest.as_str() != Some(expected.as_str())
+                || version.is_none()
+                || version != self.engine_version.as_deref())
+        {
+            return Err(local_error(format!(
+                "verification receipt: expected manifest SHA-256 {expected} from the connected engine | received {digest} from version {}",
+                version.unwrap_or("<missing>")
+            )));
+        }
+        Ok(())
+    }
+
+    fn fail(&mut self, action: Action, mut error: EngineError) {
+        if action == Action::Verify
+            && error.code.as_deref() == Some("VERIFICATION_INCOMPLETE")
+            && let Err(receipt_error) = self.validate_verification_receipt(
+                &error.details.as_ref().unwrap_or(&Value::Null)["manifest_sha256"],
+                error.version.as_deref().map(String::as_str),
+            )
+        {
+            error = receipt_error;
+        }
         if action == Action::Connect {
             self.connected = false;
             self.engine_attempted = true;
