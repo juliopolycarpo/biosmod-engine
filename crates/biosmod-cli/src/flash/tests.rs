@@ -1186,3 +1186,50 @@ fn the_doctor_next_step_repeats_the_flashrom_path_for_a_root_rerun() {
         reply.text
     );
 }
+
+/// A configuration file that does not parse, as `Config::load` reports it.
+fn broken_configuration() -> Result<Config> {
+    Err(Error::new(
+        Code::Usage,
+        "config.toml: expected `=` at line 3",
+    ))
+}
+
+#[test]
+fn a_broken_configuration_stops_a_flash_command_that_would_read_tools_flashrom() {
+    let result = configured_flashrom(false, None, &no_variables, broken_configuration);
+    let error = result.expect_err(
+        "(flash, broken config.toml, no override): expected an error | received a PATH fallback",
+    );
+    assert!(
+        error
+            .message
+            .contains("config.toml: expected `=` at line 3")
+            && error.message.contains("--flashrom"),
+        "(flash, broken config.toml): expected the load error and the --flashrom way out | received {}",
+        error.message
+    );
+}
+
+#[test]
+fn a_broken_configuration_is_not_read_when_an_override_or_root_chooses_flashrom() {
+    let typed = PathBuf::from("/opt/fr/flashrom");
+    let from_environment = |key: &str| (key == "BME_FLASHROM").then(|| "/opt/env/flashrom".into());
+    let unread = || -> Result<Config> { panic!("(flash): expected config.toml left unread") };
+    for (case, root, flag, variable) in [
+        (
+            "--flashrom",
+            false,
+            Some(&typed),
+            &no_variables as &dyn Fn(&str) -> Option<OsString>,
+        ),
+        ("BME_FLASHROM", false, None, &from_environment),
+        ("root", true, None, &no_variables),
+    ] {
+        let configured = configured_flashrom(root, flag, variable, unread);
+        assert!(
+            matches!(configured, Ok(None)),
+            "(flash, {case}): expected no configured flashrom | received {configured:?}"
+        );
+    }
+}

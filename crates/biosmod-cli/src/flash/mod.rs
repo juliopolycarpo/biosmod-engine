@@ -61,11 +61,12 @@ pub struct Env<'a> {
 pub fn run(out: Out, command: FlashCommand) -> Result<Reply> {
     let variable = |key: &str| std::env::var_os(key);
     let host = Host::current();
-    let configured = if host.euid == Some(0) {
-        None
-    } else {
-        configured_flashrom(&out)
-    };
+    let configured = configured_flashrom(
+        host.euid == Some(0),
+        command.flashrom_override(),
+        &variable,
+        || crate::config::Paths::from_env().and_then(|paths| Config::load(&paths)),
+    )?;
     let (flashrom, flashrom_flag) = choose_flashrom(
         host.euid == Some(0),
         command.flashrom_override(),
@@ -130,16 +131,33 @@ fn flashrom_flag(env: &Env) -> String {
         .unwrap_or_default()
 }
 
-/// `tools.flashrom` from the per-user configuration; a broken file only costs a warning here.
-fn configured_flashrom(out: &Out) -> Option<PathBuf> {
-    let loaded = crate::config::Paths::from_env().and_then(|paths| Config::load(&paths));
-    match loaded {
-        Ok(config) => config.tools.flashrom,
-        Err(error) => {
-            out.note(format!("ignoring tools.flashrom: {error}"));
-            None
-        }
+/// `tools.flashrom` from the per-user configuration, read only when nothing else chose flashrom.
+///
+/// A typed `--flashrom`, a non-empty `BME_FLASHROM` or a root process never reads the file, so a
+/// broken one cannot block them. Otherwise a file that does not load is an error: falling back
+/// to `PATH` would run a different flashrom than the one the user saved.
+///
+/// Example: with a saved `/opt/fr/flashrom` and no override it is `Ok(Some("/opt/fr/flashrom"))`.
+fn configured_flashrom(
+    root: bool,
+    flag: Option<&PathBuf>,
+    variable: &dyn Fn(&str) -> Option<OsString>,
+    load: impl FnOnce() -> Result<Config>,
+) -> Result<Option<PathBuf>> {
+    let overridden = variable(FLASHROM_OVERRIDE).is_some_and(|value| !value.is_empty());
+    if root || flag.is_some() || overridden {
+        return Ok(None);
     }
+    let config = load().map_err(|error| {
+        Error::new(
+            error.code,
+            format!(
+                "tools.flashrom: {}; fix the file or pass --flashrom <path>",
+                error.message
+            ),
+        )
+    })?;
+    Ok(config.tools.flashrom)
 }
 
 /// Route a parsed subcommand; chip access is refused outside Linux.
