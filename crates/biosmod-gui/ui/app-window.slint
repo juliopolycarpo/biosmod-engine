@@ -75,6 +75,8 @@ export component AppWindow inherits Window {
     changed width => { root.viewport-width = root.width; }
     changed height => { root.viewport-height = root.height; }
     private property <length> gutter: max(Theme.space-xl, (root.viewport-width - Theme.content-max) / 2);
+    // Six tabs and the engine chip share one header row only when Portuguese labels fit.
+    private property <bool> wide-header: root.viewport-width >= 1100px;
     private property <bool> show-review;
     private property <bool> reviewing: root.stage >= 2 && (root.stage == 2 || root.show-review);
     private property <bool> engine-dirty;
@@ -158,21 +160,21 @@ export component AppWindow inherits Window {
                             Text { text: "B"; font-size: Theme.font-heading; font-weight: 700; color: Theme.accent-text; horizontal-alignment: center; vertical-alignment: center; }
                         }
                     }
-                    if root.viewport-width >= 1200px: Text { text: @tr("BIOS Mod Engine"); font-size: Theme.font-heading; font-weight: 700; color: Theme.text; vertical-alignment: center; }
+                    if root.viewport-width >= 1300px: Text { text: @tr("BIOS Mod Engine"); font-size: Theme.font-heading; font-weight: 700; color: Theme.text; vertical-alignment: center; }
                     Rectangle { width: Theme.space-md; }
                     NavTab { text: @tr("Workflow"); selected: root.page == 0; activated => { root.page = 0; } }
                     NavTab { text: @tr("Flash chip"); selected: root.page == 5; activated => { root.page = 5; } }
                     NavTab { text: @tr("Sources & tools"); selected: root.page == 1; activated => { root.page = 1; } }
                     NavTab { text: @tr("Diagnostics"); selected: root.page == 2; activated => { root.page = 2; } }
                     Rectangle { horizontal-stretch: 1; }
-                    if root.viewport-width >= 1000px: VerticalLayout {
+                    if root.wide-header: VerticalLayout {
                         alignment: center;
                         Chip { text: root.engine-status; tone: root.engine-tone; }
                     }
-                    if root.viewport-width >= 1000px: NavTab { text: @tr("Settings"); selected: root.page == 4; activated => { root.page = 4; } }
-                    if root.viewport-width >= 1000px: NavTab { text: @tr("About"); selected: root.page == 3; activated => { root.page = 3; } }
+                    if root.wide-header: NavTab { text: @tr("Settings"); selected: root.page == 4; activated => { root.page = 4; } }
+                    if root.wide-header: NavTab { text: @tr("About"); selected: root.page == 3; activated => { root.page = 3; } }
                 }
-                if root.viewport-width < 1000px: HorizontalLayout {
+                if !root.wide-header: HorizontalLayout {
                     padding-left: root.gutter;
                     padding-right: root.gutter;
                     spacing: Theme.space-sm;
