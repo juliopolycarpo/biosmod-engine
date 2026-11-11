@@ -182,6 +182,8 @@ pub struct Probe<'a> {
     pub sbin: &'a [&'a str],
     /// Contents of `/etc/os-release`, when the system has one.
     pub os_release: Option<&'a str>,
+    /// Whether `bme tools setup ghidra` can run here; it is Linux only for now.
+    pub linux: bool,
 }
 
 /// Inspect every tool. Never fails: problems become rows.
@@ -221,8 +223,11 @@ fn system_install(probe: &Probe, package: Package) -> Install {
 /// `setup` writes only to bme's own directory and checks Java and git before it downloads, so
 /// a saved or environment location and a missing prerequisite each block it.
 ///
+/// Outside Linux setup refuses to run, so there is no command to offer; the row then asks for
+/// a copy installed by hand.
+///
 /// Example: with `origin` `config` the install is blocked by `bme tools unset ghidra`.
-fn ghidra_install(origin: &str, unready: &[&str]) -> Install {
+fn ghidra_install(origin: &str, unready: &[&str], linux: bool) -> Install {
     let blocked = match origin {
         "config" => Some(
             "a saved location is in use and bme installs only into its own directory: run `bme tools unset ghidra`, then `bme tools setup ghidra`"
@@ -237,12 +242,11 @@ fn ghidra_install(origin: &str, unready: &[&str]) -> Install {
             "{other} points elsewhere and bme installs only into its own directory: unset it, then run `bme tools setup ghidra`"
         )),
     };
+    let available = linux && blocked.is_none();
     Install {
         method: "bme",
-        command: blocked
-            .is_none()
-            .then(|| "bme tools setup ghidra".to_string()),
-        automatic: cfg!(target_os = "linux") && blocked.is_none(),
+        command: available.then(|| "bme tools setup ghidra".to_string()),
+        automatic: available,
         blocked,
     }
 }
@@ -280,7 +284,7 @@ fn ghidra_rows(probe: &Probe, unready: &[&str]) -> Vec<ToolRow> {
         path: Some(lossy(&home.path)),
         origin: home.origin,
         detail,
-        install: ghidra_install(home.origin, unready),
+        install: ghidra_install(home.origin, unready, probe.linux),
         custom_location: true,
         optional: false,
     };
@@ -310,7 +314,7 @@ fn ghidra_rows(probe: &Probe, unready: &[&str]) -> Vec<ToolRow> {
             (true, Some(c)) => c.detail.clone(),
             (true, None) => String::new(),
         },
-        install: ghidra_install(home.origin, unready),
+        install: ghidra_install(home.origin, unready, probe.linux),
         custom_location: false,
         optional: false,
     };
@@ -550,6 +554,8 @@ pub fn render(rows: &[ToolRow]) -> String {
             text += &format!("    blocked:  {reason}\n");
         } else if let Some(command) = &row.install.command {
             text += &format!("    install:  {command}\n");
+        } else if row.install.method == "bme" {
+            text += "    install:  by hand; bme installs Ghidra itself on Linux only\n";
         } else {
             text += "    install:  use your package manager\n";
         }
@@ -578,6 +584,7 @@ pub fn run_status(ctx: &Ctx) -> Result<Reply> {
         flashrom: ctx.config.tools.flashrom.as_deref(),
         sbin: &SBIN_DIRECTORIES,
         os_release: os_release.as_deref(),
+        linux: cfg!(target_os = "linux"),
     });
     let ready = rows.iter().all(|r| r.optional || r.health == Health::Ready);
     let text = render(&rows);

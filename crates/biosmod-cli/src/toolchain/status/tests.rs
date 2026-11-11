@@ -109,6 +109,7 @@ struct Scene {
     variables: BTreeMap<&'static str, OsString>,
     configured_flashrom: Option<PathBuf>,
     os_release: &'static str,
+    linux: bool,
 }
 
 impl Scene {
@@ -119,6 +120,7 @@ impl Scene {
             variables: BTreeMap::new(),
             configured_flashrom: None,
             os_release: UBUNTU,
+            linux: true,
         }
     }
 
@@ -139,6 +141,7 @@ impl Scene {
             flashrom: self.configured_flashrom.as_deref(),
             sbin: &[],
             os_release: Some(self.os_release),
+            linux: self.linux,
         })
     }
 }
@@ -541,7 +544,7 @@ fn setup_waits_for_java_and_git_because_it_checks_them_first() {
     let install = &row(&rows, "ghidra").install;
     assert_eq!(
         (install.automatic, install.blocked.as_deref()),
-        (cfg!(target_os = "linux"), None),
+        (true, None),
         "(ghidra install, prerequisites ready)"
     );
 }
@@ -559,6 +562,27 @@ fn an_unreadable_java_runtime_does_not_block_setup_that_checks_only_the_jdk_and_
         install.blocked.as_deref(),
         None,
         "(ghidra install, java runtime unreadable, javac 21 and git ready): expected not blocked"
+    );
+}
+
+#[test]
+fn outside_linux_the_ghidra_row_offers_no_setup_command_that_would_refuse() {
+    let mut scene = Scene::new(FakeInstalledTools::complete());
+    scene.linux = false;
+    let rows = scene.rows(&GhidraHome {
+        path: scene.root.path().join("not-installed"),
+        origin: "managed",
+    });
+    let install = &row(&rows, "ghidra").install;
+    assert_eq!(
+        (install.automatic, install.command.as_deref()),
+        (false, None),
+        "(ghidra install, not Linux): expected no automatic install and no setup command"
+    );
+    let text = render(&rows);
+    assert!(
+        !text.contains("bme tools setup ghidra") && text.contains("Linux only"),
+        "(tools status text, not Linux): expected a by-hand hint | received {text}"
     );
 }
 
