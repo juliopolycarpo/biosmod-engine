@@ -28,6 +28,6 @@ Requisitos: JDK 21 ou posterior e git. Para uso offline, passe `--offline` com `
 
 `bme tools paths` mostra os caminhos. Para usar uma instalação existente, execute `bme tools set ghidra /caminho/para/ghidra_12.2_PUBLIC`; o comando confere `support/analyzeHeadless` e grava `tools.ghidra_home`. `GHIDRA_INSTALL_DIR` tem precedência sobre o valor gravado. `bme tools unset ghidra` volta à instalação gerenciada. `doctor` informa uma versão divergente porque os scripts foram testados apenas com a 12.2.
 
-O mesmo vale para o flashrom: `bme tools set flashrom /caminho/para/flashrom` executa `--version` para confirmar o programa e grava `tools.flashrom`.
+O mesmo vale para o flashrom: `bme tools set flashrom /caminho/para/flashrom` executa `--version` para confirmar o programa e grava `tools.flashrom`. Se o grupo ou outros usuários puderem escrever no arquivo (um flashrom compilado por você com umask 002), `set` avisa e `status` mostra `attention`, porque o root o recusa nos comandos de chip; `chmod go-w <caminho>` resolve.
 
 `analyze` grava, para cada módulo, `NAME.c` (descompilação aproximada), `NAME.asm` (instruções com bytes exatos) e `NAME.json` (funções, chamadas e intervalos), além de `ghidra.log`. Confira os bytes no `.asm` antes de escrever um hunk; a saída C serve como auxílio de leitura.
