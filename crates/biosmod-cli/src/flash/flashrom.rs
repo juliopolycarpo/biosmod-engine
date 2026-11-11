@@ -204,6 +204,10 @@ impl Target {
             for region in selection.regions {
                 command = command.arg("-i").arg(region);
             }
+            if matches!(operation, Operation::Write(_)) {
+                // Keep selected-region verification without reading locked regions (ME).
+                command = command.arg("--noverify-all");
+            }
         }
         match operation {
             Operation::Version | Operation::Probe => command.timeout(PROBE_TIMEOUT),

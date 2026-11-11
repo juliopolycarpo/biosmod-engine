@@ -383,6 +383,14 @@ fn command_lines_name_programmer_chip_and_regions() {
             "/tmp/d.bin"
         ]
     );
+    let selected_write = target
+        .invocation(Some(selection), Operation::Write(Path::new("/tmp/i.bin")))
+        .words();
+    assert!(
+        selected_write.iter().any(|word| word == "--noverify-all")
+            && !selected_write.iter().any(|word| word == "--noverify"),
+        "(region write): expected --noverify-all with selected-region verification | received {selected_write:?}"
+    );
     assert_eq!(
         target
             .invocation(None, Operation::Write(Path::new("/tmp/i.bin")))
@@ -767,7 +775,7 @@ fn confirmed_write_changes_only_the_bios_region_and_reads_back() {
     let calls = chip.calls.borrow();
     assert_eq!(calls.len(), 3, "{calls:?}");
     assert!(
-        calls[1].contains("-i bios -w") && !calls[1].contains("descriptor"),
+        calls[1].contains("-i bios --noverify-all -w") && !calls[1].contains("descriptor"),
         "(write): expected only the bios region | received {}",
         calls[1]
     );
