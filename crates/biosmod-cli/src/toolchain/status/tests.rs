@@ -777,3 +777,37 @@ fn set_warns_that_root_will_refuse_a_group_writable_flashrom() {
     .unwrap();
     assert!(reply.data["root_refusal"].is_null(), "{}", reply.data);
 }
+
+#[test]
+fn a_retained_setup_backup_blocks_the_managed_install_and_names_the_backup() {
+    let scene = Scene::new(FakeInstalledTools::complete());
+    let home = pinned_ghidra(&scene);
+    mark_installed(&home.path);
+    fs::remove_dir_all(home.path.join("Ghidra/Extensions/ghidra-firmware-utils")).unwrap();
+    // What a cancelled `tools setup ghidra` leaves next to the managed directory.
+    let backup = scene.root.path().join(".bme-backup-ghidra");
+    fs::create_dir_all(&backup).unwrap();
+    let rows = scene.rows(&home);
+    let install = &row(&rows, "firmware-utils").install;
+    let reason = install.blocked.as_deref().unwrap_or_default();
+    assert!(
+        !install.automatic && reason.contains(&backup.display().to_string()),
+        "(firmware-utils install, retained backup): expected no install button and the backup named | received automatic {} and blocked {reason:?}",
+        install.automatic
+    );
+
+    fs::remove_dir_all(&backup).unwrap();
+    let gradle = scene.root.path().join("cache").join(format!(
+        ".bme-backup-gradle-{}",
+        Profile::pinned().gradle_version
+    ));
+    fs::create_dir_all(&gradle).unwrap();
+    let rows = scene.rows(&home);
+    let reason = row(&rows, "firmware-utils").install.blocked.clone();
+    assert!(
+        reason
+            .as_deref()
+            .is_some_and(|text| text.contains(&gradle.display().to_string())),
+        "(firmware-utils install, retained Gradle backup): expected the backup named | received {reason:?}"
+    );
+}

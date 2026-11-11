@@ -231,11 +231,20 @@ fn system_install(probe: &Probe, package: Package) -> Install {
 /// [`leftover_directory`]. Setup refuses it without `--force`, and `--force` deletes it, so the
 /// row names the directory and leaves that command to the user instead of offering a button.
 ///
+/// `recovery` is setup's own refusal of a backup an interrupted run kept (`.bme-backup-*` or
+/// `.bme-old-*`); `--force` does not get past it either.
+///
 /// Outside Linux setup refuses to run, so no reason or command applies; the row then asks for a
 /// copy installed by hand.
 ///
 /// Example: with `origin` `config` the install is blocked by `bme tools unset ghidra`.
-fn ghidra_install(origin: &str, unready: &[&str], leftover: Option<&Path>, linux: bool) -> Install {
+fn ghidra_install(
+    origin: &str,
+    unready: &[&str],
+    leftover: Option<&Path>,
+    recovery: Option<&str>,
+    linux: bool,
+) -> Install {
     if !linux {
         return Install {
             method: "bme",
@@ -245,6 +254,9 @@ fn ghidra_install(origin: &str, unready: &[&str], leftover: Option<&Path>, linux
         };
     }
     let blocked = match (origin, leftover) {
+        ("managed", _) if recovery.is_some() => recovery.map(|reason| {
+            format!("{reason}; see the recovery section of `docs/guide/ghidra.md`")
+        }),
         ("config", _) => Some(
             "a saved location is in use and bme installs only into its own directory: run `bme tools unset ghidra`, then `bme tools setup ghidra`"
                 .to_string(),
@@ -289,9 +301,30 @@ fn leftover_directory(home: &Path, profile: &super::Profile) -> Option<PathBuf> 
 
 fn ghidra_rows(probe: &Probe, unready: &[&str]) -> Vec<ToolRow> {
     let home = probe.ghidra;
-    let leftover = (home.origin == "managed")
+    let managed = home.origin == "managed";
+    let leftover = managed
         .then(|| leftover_directory(&home.path, &probe.env.profile))
         .flatten();
+    // The backup checks setup runs, in its order: the cached Gradle, Ghidra, then the extension.
+    let gradle = probe
+        .env
+        .cache
+        .join(format!("gradle-{}", probe.env.profile.gradle_version));
+    let recovery = managed
+        .then(|| {
+            [gradle, home.path.clone(), super::extension_dir(&home.path)]
+                .iter()
+                .find_map(|target| super::check_recovery(target).err())
+                .map(|error| error.message)
+        })
+        .flatten();
+    let install = ghidra_install(
+        home.origin,
+        unready,
+        leftover.as_deref(),
+        recovery.as_deref(),
+        probe.linux,
+    );
     let checks = ghidra_checks(probe.env, home);
     let by_name = |name: &str| checks.iter().find(|c| c.check == name);
     let found = by_name("ghidra").is_some_and(|c| c.ok);
@@ -323,7 +356,7 @@ fn ghidra_rows(probe: &Probe, unready: &[&str]) -> Vec<ToolRow> {
         path: Some(lossy(&home.path)),
         origin: home.origin,
         detail,
-        install: ghidra_install(home.origin, unready, leftover.as_deref(), probe.linux),
+        install: install.clone(),
         custom_location: true,
         optional: false,
     };
@@ -359,7 +392,7 @@ fn ghidra_rows(probe: &Probe, unready: &[&str]) -> Vec<ToolRow> {
                 .to_string(),
             (true, None) => String::new(),
         },
-        install: ghidra_install(home.origin, unready, leftover.as_deref(), probe.linux),
+        install,
         custom_location: false,
         optional: false,
     };
