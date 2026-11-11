@@ -811,3 +811,41 @@ fn a_retained_setup_backup_blocks_the_managed_install_and_names_the_backup() {
         "(firmware-utils install, retained Gradle backup): expected the backup named | received {reason:?}"
     );
 }
+
+/// `path` written relative to the current directory, as a user might export `BME_FLASHROM`.
+fn relative_to_current_directory(path: &Path) -> PathBuf {
+    let current = std::env::current_dir().unwrap();
+    let up: PathBuf = current.components().skip(1).map(|_| "..").collect();
+    up.join(path.strip_prefix("/").unwrap())
+}
+
+#[test]
+fn a_relative_flashrom_override_is_judged_by_the_file_root_would_run() {
+    let mut scene = Scene::new(FakeInstalledTools::complete());
+    let program = scene.root.path().join("flashrom");
+    executable(&program);
+    with_mode(&program, 0o755);
+    let relative = relative_to_current_directory(&program);
+    scene
+        .variables
+        .insert(FLASHROM_OVERRIDE, relative.clone().into_os_string());
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    let flashrom = row(&rows, "flashrom");
+    assert_eq!(
+        flashrom.health,
+        Health::Ready,
+        "(flashrom from relative BME_FLASHROM {}, mode 755): expected ready, because flash repeats it as an absolute path | received {}",
+        relative.display(),
+        flashrom.detail
+    );
+}
+
+#[test]
+fn a_root_refusal_suggests_chmod_only_for_a_loose_mode() {
+    let root = tempfile::tempdir().unwrap();
+    let reason = root_refusal(root.path()).unwrap_or_default();
+    assert!(
+        !reason.is_empty() && !reason.contains("chmod"),
+        "(root refusal, directory): expected a refusal without the chmod fix | received {reason:?}"
+    );
+}

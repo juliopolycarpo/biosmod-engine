@@ -542,9 +542,34 @@ fn root_refusal(path: &Path) -> Option<String> {
     if !path.exists() {
         return None;
     }
-    validate_privileged_flashrom(path)
-        .err()
-        .map(|error| format!("{}; fix: chmod go-w {}", error.message, shell_word(path)))
+    // `flash` and the desktop app hand root the absolute form of a relative path.
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let error = validate_privileged_flashrom(&absolute).err()?;
+    Some(if writable_by_others(&absolute) {
+        format!(
+            "{}; fix: chmod go-w {}",
+            error.message,
+            shell_word(&absolute)
+        )
+    } else {
+        error.message
+    })
+}
+
+/// Whether the group or other users can write `path`, the one refusal `chmod go-w` fixes.
+///
+/// Example: `writable_by_others(Path::new("/usr/sbin/flashrom"))` is `false` on a stock system.
+fn writable_by_others(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o022 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 /// NASM assembles `catalog/provenance` sources when a maintainer rebuilds a patch's hunks.
