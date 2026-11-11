@@ -27,6 +27,8 @@ struct FakeFlashChip {
     failing_write: Cell<bool>,
     /// Report success for the write but store a wrong byte.
     lossy_write: Cell<bool>,
+    /// Replace the layout file with a directory after writing to inject an I/O failure.
+    blocked_read_back_layout: Cell<bool>,
 }
 
 impl FakeFlashChip {
@@ -43,6 +45,7 @@ impl FakeFlashChip {
             reads: Cell::new(0),
             failing_write: Cell::new(false),
             lossy_write: Cell::new(false),
+            blocked_read_back_layout: Cell::new(false),
         }
     }
 
@@ -139,6 +142,11 @@ impl Runner for FakeFlashChip {
             if self.lossy_write.get() {
                 let at = ranges[0].0 + 9;
                 contents[at] ^= 0x80;
+            }
+            if self.blocked_read_back_layout.get() {
+                let layout = file_after("-l").expect("(fault injection): expected a region layout");
+                fs::remove_file(&layout).unwrap();
+                fs::create_dir(&layout).unwrap();
             }
             return finish(0, format!("{}Verifying flash... VERIFIED.\n", self.found));
         }
@@ -947,6 +955,36 @@ fn failed_and_unverified_writes_report_flash_failed_with_recovery() {
             .contains("read-back after writing: chip at 0x3009 (bios): expected the image byte"),
         "{error}"
     );
+}
+
+#[test]
+fn layout_io_failure_after_writing_reports_flash_failed_with_recovery() {
+    let (dump, patched) = (dump_with_descriptor(0x07), dump_with_descriptor(0x06));
+    let chip = FakeFlashChip::holding(&dump);
+    chip.blocked_read_back_layout.set(true);
+    let files = Files::new();
+    let image = files.put("patched.bin", &patched);
+    let saved = files.put("dump.bin", &dump);
+    let digest = sha256_hex(&patched);
+
+    let error = write(&root_env(&chip), &write_args(&image, &saved, Some(&digest))).unwrap_err();
+    assert_eq!(
+        *chip.contents.borrow(),
+        patched,
+        "(chip): expected the completed write before layout failure"
+    );
+    assert_eq!(chip.writes(), 1);
+    assert_eq!(
+        error.code,
+        Code::FlashFailed,
+        "(post-write layout failure): expected FLASH_FAILED | received {error}"
+    );
+    assert!(
+        error.message.contains("read-back layout after writing")
+            && error.message.contains("write the backup back"),
+        "{error}"
+    );
+    assert_eq!(error.details.unwrap()["step"], "read-back layout");
 }
 
 #[test]

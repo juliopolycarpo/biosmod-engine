@@ -849,7 +849,16 @@ pub fn write(env: &Env, args: &FlashWriteArgs) -> Result<Reply> {
         )
         .with_details(json!({"step": "write", "log": log_tail(&finished)})));
     }
-    let read_back_layout = plan_layout(work.path(), &plan, &plan.write)?;
+    let read_back_layout = plan_layout(work.path(), &plan, &plan.write).map_err(|error| {
+        Error::new(
+            Code::FlashFailed,
+            format!(
+                "read-back layout after writing: {}; {recovery}",
+                error.message
+            ),
+        )
+        .with_details(json!({"step": "read-back layout"}))
+    })?;
     let after = read_chip(
         env,
         &target,
