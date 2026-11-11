@@ -334,7 +334,8 @@ fn java_rows(probe: &Probe) -> Vec<ToolRow> {
         let path = first_on_path(probe.get, program).map(|p| lossy(&p));
         let health = if check.ok {
             Health::Ready
-        } else if version.is_none() && check.detail.contains("received") {
+        } else if check.detail.contains("received") {
+            // Found, but older than the profile needs: `expected version >= N | received M`.
             Health::Attention
         } else {
             Health::Missing
