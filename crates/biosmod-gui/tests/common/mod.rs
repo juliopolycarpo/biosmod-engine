@@ -20,6 +20,7 @@ pub fn test_engine() -> PathBuf {
 
 /// Create a synthetic image and register its catalog in the isolated root.
 /// Example: `let image = common::setup_fixture(&binary, root.path());`.
+#[allow(dead_code)]
 pub fn setup_fixture(binary: &Path, root: &Path) -> PathBuf {
     let fixture = root.join("synthetic fixture ü");
     for args in [

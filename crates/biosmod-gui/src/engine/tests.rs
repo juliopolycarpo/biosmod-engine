@@ -207,7 +207,8 @@ fn handshake_requires_matching_identity_and_advertised_contract() {
         "verify",
         "catalog validate|index|show|import-x99fix",
         "catalog add|list|remove",
-        "tools doctor|paths",
+        "tools doctor|paths|status",
+        "tools set|unset",
     ]
     .map(|name| json!({"name": name}));
     let docs = [
@@ -1004,7 +1005,7 @@ impl HandshakeWarningsEngine {
         capabilities.as_object_mut().unwrap().extend(json!({
             "engine": capability_version, "protocol":"bme/1", "desktop_workflow":1, "direct_patch_workflow":1,
             "commands":[{"name":"inspect"},{"name":"scan"},{"name":"export"},{"name":"patch"},{"name":"patch --dry-run"},{"name":"verify"},
-                {"name":"catalog validate|index|show|import-x99fix"},{"name":"catalog add|list|remove"},{"name":"tools doctor|paths"}],
+                {"name":"catalog validate|index|show|import-x99fix"},{"name":"catalog add|list|remove"},{"name":"tools doctor|paths|status"},{"name":"tools set|unset"}],
             "documents":[{"name":"plan","schema":"bme.plan/1"},{"name":"manifest","schema":"bme.manifest/1"},{"name":"catalog","schema":"bme.catalog/1"},{"name":"patch","schema":"bme.patch/1"}]
         }).as_object().unwrap().clone());
         for (name, version, data) in [
@@ -1236,4 +1237,47 @@ fn dismissed_authorization_is_a_definite_refusal() {
             .contains("expected /missing/pkexec (polkit) to start the engine"),
         "{missing}"
     );
+}
+
+#[test]
+fn tool_requests_name_the_tool_and_only_the_install_goes_online() {
+    let cwd = Path::new("/tmp");
+    let words = |request: &Request| -> Vec<String> {
+        request
+            .args(cwd)
+            .unwrap()
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    };
+    assert_eq!(
+        words(&Request::ToolsStatus),
+        ["tools", "status", "--json", "--offline"]
+    );
+    assert_eq!(
+        words(&Request::ToolsSet {
+            tool: LocatableTool::Flashrom,
+            path: "/opt/fr/flashrom".into()
+        }),
+        [
+            "tools",
+            "set",
+            "flashrom",
+            "/opt/fr/flashrom",
+            "--json",
+            "--offline"
+        ]
+    );
+    assert_eq!(
+        words(&Request::ToolsUnset {
+            tool: LocatableTool::Ghidra
+        }),
+        ["tools", "unset", "ghidra", "--json", "--offline"]
+    );
+    let install = Request::ToolsSetupGhidra;
+    assert_eq!(words(&install), ["tools", "setup", "ghidra", "--json"]);
+    assert!(!install.uninterruptible(), "a download must be cancellable");
+    let default = Duration::from_secs(120);
+    assert_eq!(install.timeout(default), Duration::from_secs(2 * 60 * 60));
+    assert_eq!(Request::ToolsStatus.timeout(default), default);
 }

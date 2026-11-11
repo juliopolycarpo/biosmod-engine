@@ -192,11 +192,11 @@ fn system_install(probe: &Probe, package: Package) -> Install {
     }
 }
 
-fn ghidra_install(probe: &Probe) -> Install {
+fn ghidra_install() -> Install {
     Install {
         method: "bme",
         command: Some("bme tools setup ghidra".into()),
-        automatic: cfg!(target_os = "linux") && !probe.env.offline,
+        automatic: cfg!(target_os = "linux"),
     }
 }
 
@@ -221,7 +221,7 @@ fn ghidra_rows(probe: &Probe) -> Vec<ToolRow> {
         ),
         (false, _) => (
             Health::Missing,
-            format!("{}: analyzeHeadless not found", home.path.display()),
+            "support/analyzeHeadless not found in this directory".into(),
         ),
     };
     let ghidra = ToolRow {
@@ -233,7 +233,7 @@ fn ghidra_rows(probe: &Probe) -> Vec<ToolRow> {
         path: Some(lossy(&home.path)),
         origin: home.origin,
         detail,
-        install: ghidra_install(probe),
+        install: ghidra_install(),
         custom_location: true,
     };
     let extension_ok = found && extension.is_some_and(|c| c.ok);
@@ -262,7 +262,7 @@ fn ghidra_rows(probe: &Probe) -> Vec<ToolRow> {
             (true, Some(c)) => c.detail.clone(),
             (true, None) => String::new(),
         },
-        install: ghidra_install(probe),
+        install: ghidra_install(),
         custom_location: false,
     };
     vec![ghidra, firmware_utils]

@@ -1,0 +1,116 @@
+import { Button, LineEdit } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Caption, Chip, Tone } from "widgets.slint";
+
+/// One external tool as the Tools page shows it.
+export struct ToolRowData {
+    id: string,
+    name: string,
+    purpose: string,
+    state: string,
+    tone: Tone,
+    version: string,
+    location: string,
+    detail: string,
+    /// The command that installs a missing tool, when the system has one.
+    install-command: string,
+    /// bme downloads and installs this tool itself.
+    can-install: bool,
+    /// bme installs this tool itself, but not on this platform.
+    install-unavailable: bool,
+    can-choose: bool,
+    can-reset: bool,
+    /// The tool is usable, so nothing needs fixing.
+    ready: bool,
+}
+
+/// A tool with its status and the actions that fix or change it.
+/// Example: `ToolCard { tool: row; install => { root.tool-install(row.id); } }`
+export component ToolCard inherits Rectangle {
+    in property <ToolRowData> tool;
+    in property <bool> enabled: true;
+    in property <string> install-label;
+    in property <string> choose-label;
+    in property <string> reset-label;
+    in property <string> install-unavailable-label;
+    in property <string> install-with-label;
+    in property <string> install-note-label;
+    callback install();
+    callback choose();
+    callback reset();
+    height: spacer.preferred-height;
+
+    // Transparent outer frame: the bottom padding is the gap between stacked cards.
+    spacer := VerticalLayout {
+        padding-bottom: Theme.space-sm;
+        padding-right: Theme.space-md;  // gutter for the list's overlay scrollbar
+        Rectangle {
+            background: Theme.surface;
+            border-color: Theme.border;
+            border-width: 1px;
+            border-radius: Theme.radius;
+
+            VerticalLayout {
+                padding: Theme.space-md;
+                spacing: Theme.space-sm;
+                HorizontalLayout {
+                    spacing: Theme.space-md;
+                    Text {
+                        text: root.tool.name;
+                        color: Theme.text;
+                        font-size: Theme.font-body;
+                        font-weight: 600;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                    Chip { text: root.tool.state; tone: root.tool.tone; y: (parent.height - self.height) / 2; }
+                    if root.tool.version != "": Caption {
+                        text: root.tool.version;
+                        wrap: no-wrap;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    if root.tool.can-install: Button {
+                        text: root.install-label;
+                        primary: !root.tool.ready;
+                        enabled: root.enabled;
+                        clicked => { root.install(); }
+                    }
+                    if root.tool.can-choose: Button {
+                        text: root.choose-label;
+                        enabled: root.enabled;
+                        clicked => { root.choose(); }
+                    }
+                    if root.tool.can-reset: Button {
+                        text: root.reset-label;
+                        enabled: root.enabled;
+                        clicked => { root.reset(); }
+                    }
+                }
+                Caption { text: root.tool.purpose; }
+                if root.tool.location != "": Caption {
+                    text: root.tool.location;
+                    color: Theme.text;
+                    wrap: no-wrap;
+                    overflow: elide;
+                }
+                if !root.tool.ready && root.tool.detail != "": Caption {
+                    text: root.tool.detail;
+                    color: Theme.warning;
+                }
+                if root.tool.install-unavailable: Caption { text: root.install-unavailable-label; }
+                if root.tool.can-install: Caption { text: root.install-note-label; }
+                if !root.tool.ready && root.tool.install-command != "": HorizontalLayout {
+                    spacing: Theme.space-sm;
+                    Caption { text: root.install-with-label; vertical-alignment: center; }
+                    LineEdit {
+                        text: root.tool.install-command;
+                        read-only: true;
+                        accessible-label: root.install-with-label;
+                        horizontal-stretch: 1;
+                    }
+                }
+            }
+        }
+    }
+}

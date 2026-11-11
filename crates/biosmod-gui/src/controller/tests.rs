@@ -415,42 +415,73 @@ fn starting_operation_clears_previous_outcome_and_sets_busy() {
     assert!(session.busy(), "starting import: expected active worker");
 }
 
+/// Pretends to be `bme tools ...`: answers from a script and logs every argument list.
 #[cfg(unix)]
-struct MissingToolsEngine {
+struct FakeToolsEngine {
     directory: tempfile::TempDir,
 }
 
 #[cfg(unix)]
-impl MissingToolsEngine {
+const TOOL_ROWS: &str = r#"{"ready":false,"platform":"linux","tools":[{"id":"flashrom","name":"flashrom","purpose":"reads and writes the SPI flash chip","health":"missing","version":null,"path":null,"origin":"none","detail":"not found in PATH or the sbin directories","install":{"method":"package-manager","command":"sudo apt install flashrom","automatic":false},"custom_location":true}]}"#;
+
+#[cfg(unix)]
+impl FakeToolsEngine {
     fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
-        std::fs::write(directory.path().join("tools"), r#"
+        let script = format!(
+            r#"echo "$@" >> "$(dirname "$0")/calls.log"
+reply() {{ printf '%s' "{{\"product\":\"biosmod-engine\",\"protocol\":\"bme/1\",\"version\":\"$3\",\"command\":\"tools $1\",\"ok\":true,\"data\":$2}}"; }}
 case "$1" in
-  doctor)
-    printf '%s' 'doctor warning' >&2
-    printf '%s' '{"product":"biosmod-engine","protocol":"bme/1","version":"0.1.0","command":"tools doctor","ok":false,"error":{"code":"TOOL_UNAVAILABLE","message":"missing optional tools","details":{"ghidra_home":{"path":"/missing/ghidra","origin":"fixture"},"checks":[{"check":"java","ok":false,"detail":"not installed"}]}}}'
-    exit 1 ;;
-  paths)
-    printf '%s' 'paths warning' >&2
-    printf '%s' '{"product":"biosmod-engine","protocol":"bme/1","version":"0.1.0","command":"tools paths","ok":true,"data":{"config":"fixture-config"}}' ;;
+  status)
+    printf '%s' 'status warning' >&2
+    reply status '{rows}' 0.1.0 ;;
+  set) reply set '{{"tool":"flashrom"}}' 0.1.0 ;;
+  unset) reply unset '{{"tool":"flashrom"}}' 0.1.0 ;;
+  setup) printf '%s' 'install note' >&2; reply "setup ghidra" '{{"startup_check":true}}' 0.1.0 ;;
   *) exit 99 ;;
 esac
-"#).unwrap();
+"#,
+            rows = TOOL_ROWS
+        );
+        std::fs::write(directory.path().join("tools"), script).unwrap();
         Self { directory }
     }
 
     fn engine(&self) -> Engine {
         Engine::new("/bin/sh", self.directory.path()).unwrap()
     }
+
+    /// The argument lists the fake engine received, one per call.
+    fn calls(&self) -> Vec<String> {
+        std::fs::read_to_string(self.directory.path().join("calls.log"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Replace `original` in the script, failing if the fixture changed.
+    fn alter(&self, original: &str, replacement: &str) {
+        let path = self.directory.path().join("tools");
+        let script = std::fs::read_to_string(&path).unwrap();
+        assert!(script.contains(original), "fixture: expected {original}");
+        std::fs::write(path, script.replacen(original, replacement, 1)).unwrap();
+    }
+}
+
+#[cfg(unix)]
+fn connected_session() -> Session {
+    let mut session = Session::new().unwrap();
+    session.connected = true;
+    session.engine_contract = Some(fake_engine_contract());
+    session
 }
 
 #[cfg(unix)]
 #[test]
-fn missing_optional_tools_show_doctor_checks_and_paths() {
-    let fake = MissingToolsEngine::new();
-    let mut session = Session::new().unwrap();
-    session.connected = true;
-    session.engine_contract = Some(fake_engine_contract());
+fn tools_report_keeps_rows_and_diagnostics() {
+    let fake = FakeToolsEngine::new();
+    let mut session = connected_session();
     let completion = session.prepare(Action::Tools).unwrap().run(&fake.engine());
     assert!(session.finish(completion));
     assert_eq!(
@@ -459,55 +490,37 @@ fn missing_optional_tools_show_doctor_checks_and_paths() {
         "tools: expected report | received {}",
         session.status
     );
-    let (doctor, paths) = session
+    let report = session
         .tool_report
         .as_deref()
-        .expect("tools: expected doctor report");
-    assert_eq!(doctor["error"]["code"], "TOOL_UNAVAILABLE");
-    assert_eq!(doctor["error"]["message"], "missing optional tools");
-    assert_eq!(doctor["checks"][0]["check"], "java");
-    assert_eq!(doctor["checks"][0]["ok"], false);
-    assert_eq!(paths.as_ref().unwrap()["config"], "fixture-config");
-    assert!(session.diagnostics.contains("doctor warning"));
-    assert!(session.diagnostics.contains("paths warning"));
+        .expect("tools: expected a report");
+    assert_eq!(report["tools"][0]["id"], "flashrom");
+    assert_eq!(report["tools"][0]["health"], "missing");
+    assert_eq!(
+        report["tools"][0]["install"]["command"],
+        "sudo apt install flashrom"
+    );
+    assert!(session.diagnostics.contains("status warning"));
+    assert_eq!(fake.calls(), ["status --json --offline"]);
 }
 
 #[cfg(unix)]
 #[test]
-fn malformed_or_unrelated_doctor_failures_do_not_produce_a_tools_report() {
-    for (original, replacement, expected) in [
-        (
-            r#""checks":[{"check":"java","ok":false,"detail":"not installed"}]"#,
-            r#""checks":null"#,
-            ErrorKind::Protocol,
-        ),
-        (
-            "TOOL_UNAVAILABLE",
-            "VERIFICATION_INCOMPLETE",
-            ErrorKind::Engine,
-        ),
-        (
-            r#""product":"biosmod-engine""#,
-            r#""product":"unexpected-engine""#,
-            ErrorKind::Protocol,
-        ),
+fn malformed_status_reports_do_not_replace_the_tools_report() {
+    for (original, replacement) in [
+        (r#""health":"missing""#, r#""health":"odd""#),
+        (r#""id":"flashrom""#, r#""id":7"#),
     ] {
-        let fake = MissingToolsEngine::new();
-        let path = fake.directory.path().join("tools");
-        let script = std::fs::read_to_string(&path).unwrap();
-        assert!(script.contains(original), "fixture: expected {original}");
-        std::fs::write(path, script.replacen(original, replacement, 1)).unwrap();
-        let mut session = Session::new().unwrap();
-        session.connected = true;
-        session.engine_contract = Some(fake_engine_contract());
-        let job = session.prepare(Action::Tools).unwrap();
-        let error = match job.execute(&fake.engine()) {
-            Ok(_) => panic!("tools doctor: expected {expected:?} | received success"),
-            Err(error) => error,
-        };
+        let fake = FakeToolsEngine::new();
+        fake.alter(original, replacement);
+        let mut session = connected_session();
+        let completion = session.prepare(Action::Tools).unwrap().run(&fake.engine());
+        assert!(session.finish(completion));
         assert_eq!(
-            error.kind, expected,
-            "tools doctor: expected {expected:?} | received {error:?}"
+            session.outcome,
+            Outcome::Failed,
+            "tools status: expected a rejected report for {replacement} | received {}",
+            session.status
         );
         assert!(session.tool_report.is_none());
     }
@@ -515,29 +528,116 @@ fn malformed_or_unrelated_doctor_failures_do_not_produce_a_tools_report() {
 
 #[cfg(unix)]
 #[test]
-fn tools_rejects_inconsistent_versions_and_honors_cancellation() {
-    let fake = MissingToolsEngine::new();
-    let path = fake.directory.path().join("tools");
-    let script = std::fs::read_to_string(&path).unwrap();
-    let original = r#""version":"0.1.0","command":"tools paths""#;
-    let replacement = r#""version":"0.2.0","command":"tools paths""#;
-    assert!(script.contains(original));
-    std::fs::write(path, script.replacen(original, replacement, 1)).unwrap();
-    let mut session = Session::new().unwrap();
-    session.connected = true;
-    session.engine_contract = Some(fake_engine_contract());
-    let job = session.prepare(Action::Tools).unwrap();
+fn choosing_a_tool_location_saves_it_then_refreshes_the_report() {
+    let fake = FakeToolsEngine::new();
+    let mut session = connected_session();
+    session.queue_tool_change(ToolChange::Choose {
+        tool: LocatableTool::Flashrom,
+        path: "/opt/fr/flashrom".into(),
+    });
+    let completion = session
+        .prepare(Action::ToolChange)
+        .unwrap()
+        .run(&fake.engine());
+    assert!(session.finish(completion));
+    assert_eq!(session.outcome, Outcome::Idle, "{}", session.status);
+    assert_eq!(
+        fake.calls(),
+        [
+            "set flashrom /opt/fr/flashrom --json --offline",
+            "status --json --offline"
+        ]
+    );
+    assert!(session.tool_report.is_some());
+    assert!(session.diagnostics.contains("status warning"));
+}
+
+#[cfg(unix)]
+#[test]
+fn resetting_a_tool_location_runs_unset() {
+    let fake = FakeToolsEngine::new();
+    let mut session = connected_session();
+    session.queue_tool_change(ToolChange::Reset {
+        tool: LocatableTool::Ghidra,
+    });
+    let completion = session
+        .prepare(Action::ToolChange)
+        .unwrap()
+        .run(&fake.engine());
+    assert!(session.finish(completion));
+    assert_eq!(fake.calls()[0], "unset ghidra --json --offline");
+}
+
+#[cfg(unix)]
+#[test]
+fn installing_ghidra_is_the_only_request_allowed_online() {
+    let fake = FakeToolsEngine::new();
+    let mut session = connected_session();
+    session.queue_tool_change(ToolChange::InstallGhidra);
+    let completion = session
+        .prepare(Action::ToolInstall)
+        .unwrap()
+        .run(&fake.engine());
+    assert!(session.finish(completion));
+    assert_eq!(session.outcome, Outcome::Idle, "{}", session.status);
+    let calls = fake.calls();
+    assert_eq!(
+        calls[0], "setup ghidra --json",
+        "install must not pass --offline"
+    );
+    assert_eq!(calls[1], "status --json --offline");
+    assert!(session.diagnostics.contains("install note"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_tool_change_needs_the_matching_queued_change() {
+    let mut session = connected_session();
+    let error = match session.prepare(Action::ToolChange) {
+        Err(error) => error,
+        Ok(_) => panic!("tool change: expected a refusal without a queued change"),
+    };
+    assert_eq!(error, PreparationError::Engine);
+    session.queue_tool_change(ToolChange::InstallGhidra);
+    let error = match session.prepare(Action::ToolChange) {
+        Err(error) => error,
+        Ok(_) => panic!("tool change: expected a refusal for an install queued as a change"),
+    };
+    assert_eq!(error, PreparationError::Engine);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_tool_change_followed_by_a_status_of_another_version_is_rejected() {
+    let fake = FakeToolsEngine::new();
+    fake.alter(
+        r#"0.1.0 ;;
+  set)"#,
+        r#"0.2.0 ;;
+  set)"#,
+    );
+    let mut session = connected_session();
+    session.queue_tool_change(ToolChange::Reset {
+        tool: LocatableTool::Flashrom,
+    });
+    let job = session.prepare(Action::ToolChange).unwrap();
     let error = match job.execute(&fake.engine()) {
-        Ok(_) => panic!("tools versions: expected refusal | received success"),
+        Ok(_) => panic!("tools: expected a version mismatch | received success"),
         Err(error) => error,
     };
-    assert_eq!(error.kind, ErrorKind::Protocol);
-    assert!(error.message.contains("0.1.0") && error.message.contains("0.2.0"));
-    assert!(error.diagnostics.contains("doctor warning"));
-    assert!(error.diagnostics.contains("paths warning"));
-    let mut session = Session::new().unwrap();
-    session.connected = true;
-    session.engine_contract = Some(fake_engine_contract());
+    assert!(
+        error
+            .message
+            .contains("expected matching change and status versions | received 0.1.0 and 0.2.0"),
+        "{error:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn tools_honor_cancellation_before_starting() {
+    let fake = FakeToolsEngine::new();
+    let mut session = connected_session();
     let job = session.prepare(Action::Tools).unwrap();
     job.cancel.store(true, Ordering::Relaxed);
     let error = match job.execute(&fake.engine()) {
@@ -545,6 +645,31 @@ fn tools_rejects_inconsistent_versions_and_honors_cancellation() {
         Err(error) => error,
     };
     assert_eq!(error.kind, ErrorKind::Cancelled);
+}
+
+#[cfg(unix)]
+#[test]
+fn flash_commands_learn_the_saved_flashrom_before_running() {
+    let fake = FakeToolsEngine::new();
+    fake.alter(r#""origin":"none""#, r#""origin":"config""#);
+    fake.alter(r#""path":null"#, r#""path":"/opt/fr/flashrom""#);
+    std::fs::write(
+        fake.directory.path().join("flash"),
+        r#"echo "$@" >> "$(dirname "$0")/calls.log"
+printf '%s' '{"product":"biosmod-engine","protocol":"bme/1","version":"0.1.0","command":"flash doctor","ok":true,"data":{"checks":[]}}'
+"#,
+    )
+    .unwrap();
+    let mut session = connected_session();
+    session.flash.supported = true;
+    let job = session.prepare(Action::FlashDoctor).unwrap();
+    job.execute(&fake.engine()).unwrap();
+    let calls = fake.calls();
+    assert_eq!(calls[0], "status --json --offline");
+    assert_eq!(
+        calls[1],
+        "doctor --programmer=internal --json --offline --flashrom=/opt/fr/flashrom"
+    );
 }
 
 #[cfg(unix)]

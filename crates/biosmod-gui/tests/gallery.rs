@@ -123,6 +123,41 @@ fn populate_flash(window: &AppWindow) {
     window.set_flash_details(biosmod_gui::desktop::flash_summary(window, &check));
 }
 
+/// Fill the Tools page: Ghidra missing, a saved flashrom, Java and git missing.
+fn populate_tools(window: &AppWindow, last_first: bool) {
+    let row = |id: &str,
+               name: &str,
+               health: &str,
+               version: Option<&str>,
+               path: Option<&str>,
+               origin: &str,
+               detail: &str,
+               method: &str,
+               command: &str,
+               automatic: bool,
+               custom: bool| {
+        serde_json::json!({
+            "id": id, "name": name, "purpose": "", "health": health, "version": version,
+            "path": path, "origin": origin, "detail": detail,
+            "install": {"method": method, "command": command, "automatic": automatic},
+            "custom_location": custom
+        })
+    };
+    let report = serde_json::json!({"ready": false, "platform": "linux", "tools": [
+        row("ghidra", "Ghidra", "missing", None, Some("/home/user/.local/share/biosmod-engine/tools/ghidra_12.2_PUBLIC"), "managed", "support/analyzeHeadless not found in this directory", "bme", "bme tools setup ghidra", true, true),
+        row("firmware-utils", "ghidra-firmware-utils", "missing", None, None, "managed", "needs Ghidra first", "bme", "bme tools setup ghidra", true, false),
+        row("java", "Java runtime", "ready", Some("25"), Some("/usr/bin/java"), "PATH", "java 25", "package-manager", "sudo apt install openjdk-21-jdk", false, false),
+        row("jdk", "Java JDK", "missing", None, None, "PATH", "javac: not found (Ubuntu: apt install openjdk-21-jdk)", "package-manager", "sudo apt install openjdk-21-jdk", false, false),
+        row("git", "Git", "ready", Some("2.53.0"), Some("/usr/bin/git"), "PATH", "git version 2.53.0", "package-manager", "sudo apt install git", false, false),
+        row("flashrom", "flashrom", "ready", Some("1.6.0"), Some("/opt/flashrom/bin/flashrom"), "config", "flashrom answers --version", "package-manager", "sudo apt install flashrom", false, true),
+    ]});
+    let mut rows = biosmod_gui::desktop::tool_rows(window, &report);
+    if last_first {
+        rows.reverse();
+    }
+    window.set_tool_rows(ModelRc::new(VecModel::from(rows)));
+}
+
 fn capture(window: &AppWindow, dir: &Path, name: &str) {
     let pixels = window.window().take_snapshot().unwrap();
     let file = std::fs::File::create(dir.join(format!("{name}.png"))).unwrap();
@@ -227,6 +262,9 @@ fn gallery_states_build_and_capture() {
     populate_flash(&window);
     window.set_page(5);
     shot("11-flash-chip");
+    populate_tools(&window, false);
+    window.set_page(1);
+    shot("12-tools");
     window.set_page(0);
     let key = |text: slint::SharedString| {
         window
@@ -554,6 +592,67 @@ fn flash_page_fits_the_minimum_window() {
             (actual.width, actual.height),
             (760.0, 600.0),
             "(flash page, {language:?}): expected the minimum window to hold the page"
+        );
+        window.hide().unwrap();
+    }
+    biosmod_gui::i18n::Language::En.select().unwrap();
+}
+
+/// Every tool card control stays inside the minimum window in both languages.
+#[test]
+fn tools_page_fits_the_minimum_window() {
+    i_slint_backend_testing::init_no_event_loop();
+    for (language, labels) in [
+        (
+            biosmod_gui::i18n::Language::En,
+            ["Download and install", "Choose location…", "Reset"],
+        ),
+        (
+            biosmod_gui::i18n::Language::PtBr,
+            ["Baixar e instalar", "Escolher local…", "Restaurar"],
+        ),
+    ] {
+        let window = AppWindow::new().unwrap();
+        language.select().unwrap();
+        window
+            .window()
+            .set_size(slint::LogicalSize::new(760.0, 600.0));
+        window.show().unwrap();
+        slint::platform::update_timers_and_animations();
+        // The list only builds the cards that fit, so check the saved-location card
+        // (Reset) first and the missing-Ghidra card (Install) after it.
+        let mut seen = std::collections::BTreeSet::new();
+        for last_first in [true, false] {
+            populate_tools(&window, last_first);
+            window.set_page(1);
+            slint::platform::update_timers_and_animations();
+            for label in labels {
+                let visible = ElementHandle::find_by_element_type_name(&window, "Button")
+                    .any(|button| button.accessible_label().as_deref() == Some(label));
+                if !visible {
+                    continue;
+                }
+                let elements: Vec<ElementHandle> =
+                    ElementHandle::find_by_element_type_name(&window, "Button")
+                        .filter(|button| button.accessible_label().as_deref() == Some(label))
+                        .collect();
+                seen.insert(label);
+                for element in elements {
+                    let position = element.absolute_position();
+                    let size = element.size();
+                    assert!(
+                        position.x >= 0.0 && position.x + size.width <= 760.5,
+                        "(tools page, {language:?}): expected {label:?} inside 0..760 | received: {}..{}",
+                        position.x,
+                        position.x + size.width
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            seen.len(),
+            labels.len(),
+            "(tools page, {language:?}): expected buttons {labels:?} | received {seen:?}"
         );
         window.hide().unwrap();
     }

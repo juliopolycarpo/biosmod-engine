@@ -1,12 +1,13 @@
 import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ListView, Palette, Spinner, TextEdit } from "std-widgets.slint";
 import { PatchCard, PatchRow } from "patch-card.slint";
 import { Stepper } from "stepper.slint";
+import { ToolCard, ToolRowData } from "tool-card.slint";
 import { Theme } from "theme.slint";
 import { Caption, Chip, Tone, Tones, Divider, FieldRow, NavTab, PageTitle, SectionTitle } from "widgets.slint";
 import { Fact, FindingsSummary } from "facts.slint";
 import { UiText } from "translations.slint";
 
-export { Fact, PatchRow, Theme, UiText }
+export { Fact, PatchRow, ToolRowData, Theme, UiText }
 
 export component AppWindow inherits Window {
     title: "BIOS Mod Engine";
@@ -35,7 +36,7 @@ export component AppWindow inherits Window {
     in property <string> result-title: @tr("Output & verification");
     in property <string> manifest-path;
     in property <string> source-details;
-    in property <string> tool-details;
+    in property <[ToolRowData]> tool-rows;
     in property <string> diagnostics;
     in property <string> operation-label;
     in property <string> elapsed;
@@ -111,6 +112,9 @@ export component AppWindow inherits Window {
     callback open-output();
     callback refresh-sources();
     callback show-tools();
+    callback tool-install(string);
+    callback tool-choose(string);
+    callback tool-reset(string);
     callback refresh-engine();
     callback export-diagnostics();
     callback theme-changed(int);
@@ -488,29 +492,41 @@ export component AppWindow inherits Window {
             padding-bottom: Theme.space-xl;
             spacing: Theme.space-md;
             PageTitle { text: @tr("Sources & tools"); }
-            Caption { text: @tr("Read-only status of the configured catalog sources and engine tools. Use the CLI to change them."); }
-            HorizontalLayout {
-                spacing: Theme.space-lg;
-                VerticalLayout {
-                    spacing: Theme.space-sm;
-                    horizontal-stretch: 1;
-                    HorizontalLayout {
-                        SectionTitle { text: @tr("Catalog sources"); vertical-alignment: center; }
-                        Rectangle { horizontal-stretch: 1; }
-                        Button { text: @tr("Refresh sources"); enabled: !root.busy; clicked => { root.refresh-sources(); } }
-                    }
-                    TextEdit { text: root.source-details; placeholder-text: @tr("Refresh to view configured sources."); read-only: true; accessible-label: @tr("Catalog sources"); }
+            Caption { text: @tr("Install a tool or choose where it lives. Catalog sources change in the CLI."); }
+            VerticalLayout {
+                spacing: Theme.space-sm;
+                vertical-stretch: 1;
+                HorizontalLayout {
+                    SectionTitle { text: @tr("Tools"); vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button { text: @tr("Check tools"); enabled: !root.busy; clicked => { root.show-tools(); } }
                 }
-                VerticalLayout {
-                    spacing: Theme.space-sm;
-                    horizontal-stretch: 1;
-                    HorizontalLayout {
-                        SectionTitle { text: @tr("Tools"); vertical-alignment: center; }
-                        Rectangle { horizontal-stretch: 1; }
-                        Button { text: @tr("Check tools"); enabled: !root.busy; clicked => { root.show-tools(); } }
+                if root.tool-rows.length == 0: Caption { text: @tr("Check tools to view their status."); }
+                if root.tool-rows.length > 0: ListView {
+                    for tool[index] in root.tool-rows: ToolCard {
+                        tool: tool;
+                        enabled: !root.busy;
+                        install-label: UiText.tool-install;
+                        choose-label: UiText.tool-choose;
+                        reset-label: UiText.tool-reset;
+                        install-unavailable-label: UiText.tool-install-unavailable;
+                        install-with-label: UiText.tool-install-with;
+                        install-note-label: UiText.tool-install-note;
+                        install => { root.tool-install(tool.id); }
+                        choose => { root.tool-choose(tool.id); }
+                        reset => { root.tool-reset(tool.id); }
                     }
-                    TextEdit { text: root.tool-details; placeholder-text: @tr("Check tools to view their status."); read-only: true; accessible-label: @tr("Tool diagnostics"); }
                 }
+            }
+            VerticalLayout {
+                spacing: Theme.space-xs;
+                vertical-stretch: 0;
+                HorizontalLayout {
+                    SectionTitle { text: @tr("Catalog sources"); vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button { text: @tr("Refresh sources"); enabled: !root.busy; clicked => { root.refresh-sources(); } }
+                }
+                TextEdit { text: root.source-details; placeholder-text: @tr("Refresh to view configured sources."); read-only: true; accessible-label: @tr("Catalog sources"); height: 56px; }
             }
         }
         if root.page == 4: VerticalLayout {

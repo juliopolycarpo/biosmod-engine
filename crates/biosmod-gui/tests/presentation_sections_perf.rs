@@ -97,7 +97,7 @@ fn presentation_sections_callback_cost() {
     assert!(state.session.review.is_some() && state.session.scan.is_some());
     assert_eq!(window.get_diagnostics().len(), diagnostic_bytes);
     if scenario != "empty" {
-        assert!(!window.get_tool_details().is_empty());
+        assert!(slint::Model::row_count(&window.get_tool_rows()) > 0);
         assert!(!window.get_source_details().is_empty());
     }
     println!(

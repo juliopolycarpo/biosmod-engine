@@ -59,6 +59,31 @@ fn fake_scan() -> SourceReport {
     .unwrap()
 }
 
+/// A `tools status` report with one tool; `detail` and `health` are what tests vary.
+fn tool_report(detail: &str, health: &str) -> serde_json::Value {
+    json!({
+        "ready": health == "ready",
+        "platform": "linux",
+        "tools": [{
+            "id": "flashrom",
+            "name": "flashrom",
+            "purpose": "reads and writes the SPI flash chip",
+            "health": health,
+            "version": null,
+            "path": null,
+            "origin": "none",
+            "detail": detail,
+            "install": {"method": "package-manager", "command": "sudo apt install flashrom", "automatic": false},
+            "custom_location": true
+        }]
+    })
+}
+
+/// The first tool card the window shows.
+fn first_tool(window: &AppWindow) -> crate::ui::ToolRowData {
+    slint::Model::row_data(&window.get_tool_rows(), 0).expect("tools: expected one card")
+}
+
 fn bound_window(settings: Settings, settings_path: Option<PathBuf>) -> (AppWindow, Shared) {
     let preferences =
         settings_path.map_or(PreferencesStore::Unavailable, PreferencesStore::Writable);
@@ -109,10 +134,10 @@ fn rejected_language_restores_selector_and_preserves_review_and_preferences() {
     TOOL_RENDER_COUNT.with(|count| count.set(0));
     {
         let mut desktop = state.lock().unwrap();
-        desktop.session.tool_report = Some(Arc::new((json!({"check":"retained"}), None)));
+        desktop.session.tool_report = Some(Arc::new(tool_report("retained", "missing")));
         sync(&window, &desktop);
     }
-    let tool_details = window.get_tool_details();
+    let tool_card = first_tool(&window);
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
     // ComboBox updates its two-way index before calling the native callback.
     window.set_language_index(1);
@@ -132,7 +157,7 @@ fn rejected_language_restores_selector_and_preserves_review_and_preferences() {
             .get_plan_details()
             .starts_with("Preview of selected changes")
     );
-    assert_eq!(window.get_tool_details(), tool_details);
+    assert_eq!(first_tool(&window), tool_card);
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
     let state = state.lock().unwrap();
     assert_eq!(state.settings.language, Language::En);
@@ -1445,21 +1470,60 @@ fn timers_for_independent_windows_remain_independent() {
 }
 
 #[test]
-fn tools_view_shows_controlled_failure_and_paths() {
+fn tools_view_shows_a_missing_tool_with_its_install_command() {
     i_slint_backend_testing::init_no_event_loop();
     let (window, state) = bound_window(Settings::default(), None);
     {
         let mut state = state.lock().unwrap();
-        state.session.tool_report = Some(Arc::new((
-            json!({"checks": [{"check":"java", "ok":false, "detail":"not installed"}], "error":{"code":"TOOL_UNAVAILABLE", "message":"missing optional tools"}}),
-            Some(json!({"config":"fixture-config"})),
-        )));
+        state.session.tool_report = Some(Arc::new(tool_report("not found in PATH", "missing")));
         sync(&window, &state);
     }
-    let details = window.get_tool_details();
-    assert!(details.contains("TOOL_UNAVAILABLE"));
-    assert!(details.contains("not installed"));
-    assert!(details.contains("fixture-config"));
+    let card = first_tool(&window);
+    assert_eq!(card.state, "Missing");
+    assert_eq!(card.detail, "not found in PATH");
+    assert_eq!(card.install_command, "sudo apt install flashrom");
+    assert!(!card.ready && !card.can_install && !card.can_reset);
+    assert!(card.can_choose, "flashrom accepts a custom location");
+}
+
+#[test]
+fn tools_view_offers_install_for_ghidra_and_reset_for_a_saved_location() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    let ghidra = json!({
+        "id": "ghidra", "name": "Ghidra", "purpose": "analyzes", "health": "missing",
+        "version": null, "path": "/data/ghidra", "origin": "managed",
+        "detail": "analyzeHeadless not found",
+        "install": {"method": "bme", "command": "bme tools setup ghidra", "automatic": true},
+        "custom_location": true
+    });
+    let flashrom = json!({
+        "id": "flashrom", "name": "flashrom", "purpose": "flashes", "health": "ready",
+        "version": "1.6.0", "path": "/opt/fr/flashrom", "origin": "config",
+        "detail": "flashrom answers --version",
+        "install": {"method": "package-manager", "command": "sudo apt install flashrom", "automatic": false},
+        "custom_location": true
+    });
+    {
+        let mut state = state.lock().unwrap();
+        state.session.tool_report = Some(Arc::new(
+            json!({"ready": false, "platform": "linux", "tools": [ghidra, flashrom]}),
+        ));
+        sync(&window, &state);
+    }
+    let rows = window.get_tool_rows();
+    let ghidra = slint::Model::row_data(&rows, 0).unwrap();
+    assert!(ghidra.can_install, "a missing Ghidra installs through bme");
+    assert_eq!(
+        ghidra.install_command, "",
+        "the Install button replaces the command it would run"
+    );
+    assert_eq!(ghidra.location, "/data/ghidra (managed)");
+    let flashrom = slint::Model::row_data(&rows, 1).unwrap();
+    assert_eq!(flashrom.state, "Ready");
+    assert_eq!(flashrom.version, "1.6.0");
+    assert!(flashrom.can_reset, "a saved location can be reset");
+    assert!(!flashrom.can_install);
 }
 
 #[test]
@@ -1471,10 +1535,7 @@ fn presentation_sections_refresh_only_changed_reports_and_language() {
         let mut desktop = state.lock().unwrap();
         desktop.session.source_details = "catalog A".into();
         desktop.session.diagnostics = "diagnostic A".into();
-        desktop.session.tool_report = Some(Arc::new((
-            json!({"checks":[{"detail":"tool A"}]}),
-            Some(json!({"config":"path A"})),
-        )));
+        desktop.session.tool_report = Some(Arc::new(tool_report("tool A", "missing")));
         sync(&window, &desktop);
     }
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
@@ -1498,13 +1559,13 @@ fn presentation_sections_refresh_only_changed_reports_and_language() {
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
     {
         let mut desktop = state.lock().unwrap();
-        Arc::make_mut(desktop.session.tool_report.as_mut().unwrap()).0["checks"][0]["detail"] =
+        Arc::make_mut(desktop.session.tool_report.as_mut().unwrap())["tools"][0]["detail"] =
             json!("tool B");
         sync(&window, &desktop);
     }
-    assert!(window.get_tool_details().contains("tool B"));
+    assert_eq!(first_tool(&window).detail, "tool B");
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 2);
-    let english = window.get_tool_details();
+    let english = first_tool(&window).state;
     {
         let mut desktop = state.lock().unwrap();
         Language::PtBr.select().unwrap();
@@ -1512,9 +1573,9 @@ fn presentation_sections_refresh_only_changed_reports_and_language() {
         sync(&window, &desktop);
     }
     assert_ne!(
-        window.get_tool_details(),
+        first_tool(&window).state,
         english,
-        "tools heading must change language"
+        "tool status chip must change language"
     );
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 3);
     {
@@ -1522,13 +1583,13 @@ fn presentation_sections_refresh_only_changed_reports_and_language() {
         desktop.session.tool_report = None;
         sync(&window, &desktop);
     }
-    assert!(window.get_tool_details().is_empty());
+    assert_eq!(slint::Model::row_count(&window.get_tool_rows()), 0);
     {
         let mut desktop = state.lock().unwrap();
-        desktop.session.tool_report = Some(Arc::new((json!({"new":"report"}), None)));
+        desktop.session.tool_report = Some(Arc::new(tool_report("new report", "attention")));
         sync(&window, &desktop);
     }
-    assert!(window.get_tool_details().contains("report"));
+    assert_eq!(first_tool(&window).detail, "new report");
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 4);
     Language::En.select().unwrap();
 }

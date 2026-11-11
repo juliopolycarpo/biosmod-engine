@@ -1,8 +1,9 @@
 //! Session transitions and reviewed-plan ownership, independent of the windowing backend.
 
 use crate::engine::{
-    Engine, EngineContract, EngineError, ErrorKind, PatchDestination, PatchSelection, Reply,
-    Request, ScannedSelection, append_diagnostics, run_pair, verification_complete,
+    Engine, EngineContract, EngineError, ErrorKind, LocatableTool, PatchDestination,
+    PatchSelection, Reply, Request, ScannedSelection, append_diagnostics, run_pair,
+    verification_complete,
 };
 use crate::model::{Scan, SourceReport, pretty};
 use serde_json::Value;
@@ -29,6 +30,10 @@ pub enum Action {
     Verify,
     Sources,
     Tools,
+    /// Save or forget a tool location.
+    ToolChange,
+    /// Download and install the pinned Ghidra.
+    ToolInstall,
     Import,
     ValidateRecipe,
     FlashDoctor,
@@ -52,6 +57,8 @@ impl Action {
             Self::Verify => "Verifying output",
             Self::Sources => "Reading sources",
             Self::Tools => "Checking tools",
+            Self::ToolChange => "Updating tool location",
+            Self::ToolInstall => "Installing Ghidra",
             Self::Import => "Opening selection file",
             Self::ValidateRecipe => "Validating selection file",
             Self::FlashDoctor => "Diagnosing the system",
@@ -90,6 +97,29 @@ pub enum Outcome {
     ChipWritten,
     /// A chip write ended without a definite result.
     ChipWriteUnknown,
+}
+
+/// A change to the tools on the Tools page, run by `Action::ToolChange` or `Action::ToolInstall`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolChange {
+    /// Use an existing Ghidra directory or flashrom executable.
+    Choose { tool: LocatableTool, path: PathBuf },
+    /// Forget a saved location.
+    Reset { tool: LocatableTool },
+    /// Download and install the pinned Ghidra.
+    InstallGhidra,
+}
+
+impl ToolChange {
+    /// The action that performs this change.
+    ///
+    /// Example: `ToolChange::InstallGhidra.action()` is `Action::ToolInstall`.
+    pub fn action(&self) -> Action {
+        match self {
+            ToolChange::InstallGhidra => Action::ToolInstall,
+            _ => Action::ToolChange,
+        }
+    }
 }
 
 /// A GUI action cannot start until its required inputs are available.
@@ -415,7 +445,10 @@ pub struct Session {
     /// Retained verification data for presentation in the currently selected language.
     pub verification_report: Option<Value>,
     pub source_details: String,
-    pub tool_report: Option<Arc<(Value, Option<Value>)>>,
+    /// The `tools status` report shown on the Tools page.
+    pub tool_report: Option<Arc<Value>>,
+    /// The change the next `Action::ToolChange` or `Action::ToolInstall` performs.
+    pending_tool_change: Option<ToolChange>,
     pub diagnostics: String,
     pub flash: FlashState,
 }
@@ -455,6 +488,7 @@ impl Session {
             verification_report: None,
             source_details: String::new(),
             tool_report: None,
+            pending_tool_change: None,
             diagnostics: String::new(),
             flash: FlashState::default(),
         };
@@ -609,6 +643,12 @@ impl Session {
             Action::FlashProbe => self.flash.elevate,
             _ => false,
         })
+    }
+
+    /// Queue the tool change the next `prepare(change.action())` performs.
+    /// Example: `session.queue_tool_change(ToolChange::InstallGhidra)`.
+    pub fn queue_tool_change(&mut self, change: ToolChange) {
+        self.pending_tool_change = Some(change);
     }
 
     /// Change one flash input; a completed check no longer covers the new inputs.
@@ -924,7 +964,19 @@ impl Session {
                 }
             }
             Action::Sources => Request::CatalogList,
-            Action::Tools => Request::ToolsDoctor,
+            Action::Tools => Request::ToolsStatus,
+            Action::ToolChange | Action::ToolInstall => match self.pending_tool_change.take() {
+                Some(ToolChange::Choose { tool, path }) if action == Action::ToolChange => {
+                    Request::ToolsSet { tool, path }
+                }
+                Some(ToolChange::Reset { tool }) if action == Action::ToolChange => {
+                    Request::ToolsUnset { tool }
+                }
+                Some(ToolChange::InstallGhidra) if action == Action::ToolInstall => {
+                    Request::ToolsSetupGhidra
+                }
+                _ => return Err(PreparationError::Engine),
+            },
             Action::FlashDoctor
             | Action::FlashProbe
             | Action::FlashBackup
@@ -1116,7 +1168,15 @@ impl Session {
                 self.set_status(Status::Sources);
             }
             Action::Tools => {
-                self.tool_report = Some(Arc::new((data, payload.extra)));
+                self.tool_report = Some(Arc::new(valid_tool_report(data)?));
+                self.set_status(Status::Tools);
+            }
+            Action::ToolChange | Action::ToolInstall => {
+                // The change succeeded; the refreshed report that follows it is what we show.
+                let status = payload.extra.ok_or_else(|| {
+                    local_error("tools: expected a status report after the change")
+                })?;
+                self.tool_report = Some(Arc::new(valid_tool_report(status)?));
                 self.set_status(Status::Tools);
             }
             Action::FlashDoctor => {
@@ -1634,7 +1694,14 @@ impl Job {
             let contract = self.contract.clone().ok_or_else(|| {
                 local_error("engine: expected a contract from the active connection")
             })?;
-            bound_engine = engine.clone().with_contract(contract);
+            let mut bound = engine.clone().with_contract(contract);
+            if self.request.is_flash() {
+                // Root never reads the user's configuration, so every chip command is told
+                // which flashrom the user saved. Without one, the engine looks in PATH.
+                let saved = saved_flashrom(&bound, &self.cancel);
+                bound = bound.with_flashrom(saved);
+            }
+            bound_engine = bound;
             &bound_engine
         };
         let (reply, extra) = match self.token.2 {
@@ -1663,26 +1730,26 @@ impl Job {
                 append_diagnostics(&mut scan.diagnostics, &catalog.diagnostics);
                 (scan, Some(catalog.data))
             }
-            Action::Tools => {
-                let mut doctor = run_doctor(engine, &self.request, &self.cancel)?;
-                let paths =
+            Action::ToolChange | Action::ToolInstall => {
+                let mut change = engine.run(&self.request, &self.cancel)?;
+                let status =
                     engine
-                        .run(&Request::ToolsPaths, &self.cancel)
+                        .run(&Request::ToolsStatus, &self.cancel)
                         .map_err(|mut error| {
-                            append_diagnostics(&mut error.diagnostics, &doctor.diagnostics);
+                            append_diagnostics(&mut error.diagnostics, &change.diagnostics);
                             error
                         })?;
-                if doctor.version != paths.version {
+                if change.version != status.version {
                     let mut error = local_error(format!(
-                        "tools: expected matching doctor and paths versions | received {} and {}",
-                        doctor.version, paths.version
+                        "tools: expected matching change and status versions | received {} and {}",
+                        change.version, status.version
                     ));
-                    append_diagnostics(&mut error.diagnostics, &doctor.diagnostics);
-                    append_diagnostics(&mut error.diagnostics, &paths.diagnostics);
+                    append_diagnostics(&mut error.diagnostics, &change.diagnostics);
+                    append_diagnostics(&mut error.diagnostics, &status.diagnostics);
                     return Err(error);
                 }
-                append_diagnostics(&mut doctor.diagnostics, &paths.diagnostics);
-                (doctor, Some(paths.data))
+                append_diagnostics(&mut change.diagnostics, &status.diagnostics);
+                (change, Some(status.data))
             }
             _ => (engine.run(&self.request, &self.cancel)?, None),
         };
@@ -1694,52 +1761,47 @@ impl Job {
     }
 }
 
-/// Retain a controlled missing-tools doctor report without accepting malformed errors.
-fn run_doctor(
-    engine: &Engine,
-    request: &Request,
-    cancel: &AtomicBool,
-) -> Result<Reply, EngineError> {
-    match engine.run(request, cancel) {
-        Ok(reply) => Ok(reply),
-        Err(error)
-            if error.kind == ErrorKind::Engine
-                && error.code.as_deref() == Some("TOOL_UNAVAILABLE") =>
-        {
-            let details = error.details.as_ref();
-            let home = details.and_then(|value| value.get("ghidra_home"));
-            let checks = details.and_then(|value| value.get("checks"));
-            let valid_home =
-                home.is_some_and(|home| home["path"].is_string() && home["origin"].is_string());
-            let valid_checks = checks.and_then(Value::as_array).is_some_and(|checks| {
-                !checks.is_empty()
-                    && checks.iter().all(|check| {
-                        check["check"].is_string()
-                            && check["ok"].is_boolean()
-                            && check["detail"].is_string()
-                    })
-                    && checks.iter().any(|check| check["ok"] == false)
-            });
-            if !valid_home || !valid_checks || error.version.is_none() {
-                return Err(EngineError {
-                    kind: ErrorKind::Protocol,
-                    message: format!(
-                        "tools doctor: expected a structured failed-check report | received {}",
-                        details.unwrap_or(&Value::Null)
-                    ),
-                    ..error
-                });
-            }
-            let mut report = details.cloned().unwrap();
-            report["error"] =
-                serde_json::json!({"code":"TOOL_UNAVAILABLE", "message":error.message});
-            Ok(Reply {
-                version: *error.version.unwrap(),
-                data: report,
-                diagnostics: error.diagnostics,
+/// The flashrom executable saved with `bme tools set`, or `None` when none is saved
+/// or the engine cannot say.
+///
+/// Example: a report whose flashrom row has origin `config` and path `/opt/fr/flashrom`
+/// yields `Some("/opt/fr/flashrom")`.
+fn saved_flashrom(engine: &Engine, cancel: &AtomicBool) -> Option<PathBuf> {
+    let report = engine.run(&Request::ToolsStatus, cancel).ok()?;
+    saved_flashrom_in(&report.data)
+}
+
+fn saved_flashrom_in(report: &Value) -> Option<PathBuf> {
+    let row = report["tools"]
+        .as_array()?
+        .iter()
+        .find(|row| row["id"] == "flashrom" && row["origin"] == "config")?;
+    row["path"].as_str().map(PathBuf::from)
+}
+
+/// Accept a `tools status` report that carries a list of typed tool rows.
+///
+/// Example: `valid_tool_report(json!({"tools": [{"id": "git", "health": "ready"}]}))` is accepted.
+fn valid_tool_report(report: Value) -> Result<Value, EngineError> {
+    let rows = report["tools"].as_array();
+    let valid = rows.is_some_and(|rows| {
+        !rows.is_empty()
+            && rows.iter().all(|row| {
+                row["id"].is_string()
+                    && row["name"].is_string()
+                    && matches!(
+                        row["health"].as_str(),
+                        Some("ready" | "attention" | "missing")
+                    )
             })
-        }
-        Err(error) => Err(error),
+    });
+    if valid {
+        Ok(report)
+    } else {
+        Err(local_error(format!(
+            "tools status: expected tool rows with id, name and health | received {}",
+            pretty(&report)
+        )))
     }
 }
 
