@@ -33,6 +33,8 @@ pub enum Health {
 
 impl Health {
     /// The word printed in the status table.
+    ///
+    /// Example: `Health::Attention.word()` is `"attention"`.
     pub fn word(self) -> &'static str {
         match self {
             Health::Ready => "ready",
@@ -508,6 +510,8 @@ fn nasm_row(probe: &Probe) -> ToolRow {
 }
 
 /// Render rows as a table followed by one next step per tool that needs attention.
+///
+/// Example: `render(&status(&probe))` ends with `Every tool is ready.` when nothing is missing.
 pub fn render(rows: &[ToolRow]) -> String {
     let mut cells = vec![vec![
         "TOOL".to_string(),
@@ -558,7 +562,9 @@ pub fn render(rows: &[ToolRow]) -> String {
     text
 }
 
-/// `tools status`.
+/// `tools status`: report every tool against the real system; a missing tool is a row.
+///
+/// Example: `bme tools status --json` prints `{"ready": false, "tools": [...]}` without flashrom.
 pub fn run_status(ctx: &Ctx) -> Result<Reply> {
     let env = super::env(ctx, &System, &crate::transport::Offline);
     let home = super::ghidra_home(&ctx.config, &env.data, &env.profile);

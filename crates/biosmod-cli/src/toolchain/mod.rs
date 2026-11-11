@@ -247,6 +247,8 @@ fn java_check(runner: &dyn Runner, program: &'static str, min: u32) -> Check {
 }
 
 /// The Ghidra release recorded in `home`, from `Ghidra/application.properties`.
+///
+/// Example: `ghidra_version(Path::new("/opt/ghidra_12.2_PUBLIC"))` is `Some("12.2")`.
 pub fn ghidra_version(home: &Path) -> Option<String> {
     property(
         &home.join("Ghidra/application.properties"),

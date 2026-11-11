@@ -36,6 +36,8 @@ pub enum FlashromOrigin {
 
 impl FlashromOrigin {
     /// The label shown in `tools status`.
+    ///
+    /// Example: `FlashromOrigin::Config.label()` is `"config"`.
     pub fn label(self) -> &'static str {
         match self {
             FlashromOrigin::Environment => FLASHROM_OVERRIDE,
