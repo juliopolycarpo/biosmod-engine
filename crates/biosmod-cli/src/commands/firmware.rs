@@ -229,6 +229,16 @@ fn scan_text(loaded: &Loaded, report: &ScanReport) -> String {
     text
 }
 
+fn quote_shell_argument(value: &str) -> String {
+    // Use PowerShell quoting on Windows and POSIX shell quoting elsewhere.
+    let escaped = if cfg!(windows) {
+        value.replace('\'', "''")
+    } else {
+        value.replace('\'', "'\\''")
+    };
+    format!("'{escaped}'")
+}
+
 pub fn scan(ctx: &Ctx, args: &ScanArgs) -> Result<Reply> {
     let image = read_image(&args.rom)?;
     let loaded = load_sources(ctx, &args.source, &[])?;
@@ -238,11 +248,14 @@ pub fn scan(ctx: &Ctx, args: &ScanArgs) -> Result<Reply> {
         let report = analysis::scan(&image, &source.catalog, args.source.firmware.as_deref());
         text += &scan_text(source, &report);
         if !report.recommended.is_empty() {
-            let _ = write!(text, "Next: bme patch {} --recommended", args.rom.display());
+            let rom = quote_shell_argument(&args.rom.to_string_lossy());
+            let _ = write!(text, "Next: bme patch {rom} --recommended");
             if let Some(selector) = args.source.catalogs.get(index) {
+                let selector = quote_shell_argument(selector);
                 let _ = write!(text, " --catalog {selector}");
             }
             if let Some(firmware) = &args.source.firmware {
+                let firmware = quote_shell_argument(firmware);
                 let _ = write!(text, " --firmware {firmware}");
             }
             if args.source.allow_unsigned_local {

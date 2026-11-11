@@ -135,6 +135,70 @@ fn recommended_and_legacy_selectors_keep_their_contracts() {
 }
 
 #[test]
+fn scan_follow_up_round_trips_rom_and_catalog_paths() {
+    let sandbox = Sandbox::new();
+    let (image, catalog) = sandbox.synthetic();
+    for (original, name) in [(image, "input 'rom'.bin"), (catalog, "local $catalog")] {
+        fs::rename(original, sandbox.path(name)).unwrap();
+    }
+    let image = sandbox.path("input 'rom'.bin");
+    let catalog = sandbox.path("local $catalog");
+    let scan = sandbox.run([
+        "scan",
+        s(&image),
+        "--catalog",
+        s(&catalog),
+        "--allow-unsigned-local",
+    ]);
+    assert_eq!(scan.code, 0, "{}", scan.stderr);
+    let follow_up = scan
+        .stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("Next: "))
+        .expect("scan: expected a recommended follow-up command");
+    let mut shell = if cfg!(windows) {
+        let mut shell = std::process::Command::new("powershell.exe");
+        shell.args([
+            "-NoProfile", "-NonInteractive", "-Command",
+            &format!("[Console]::OutputEncoding = [Text.Encoding]::UTF8; function bme {{ foreach ($arg in $args) {{ [Console]::Write($arg + [char]0) }} }}; {follow_up}"),
+        ]);
+        shell
+    } else {
+        let mut shell = std::process::Command::new("sh");
+        shell.args([
+            "-c",
+            &format!("bme() {{ printf '%s\\0' \"$@\"; }}\n{follow_up}"),
+        ]);
+        shell
+    };
+    let parsed = shell.output().unwrap();
+    assert!(
+        parsed.status.success(),
+        "{follow_up}: {}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+    let arguments = String::from_utf8(parsed.stdout).unwrap();
+    let arguments = arguments
+        .trim_end_matches('\0')
+        .split('\0')
+        .collect::<Vec<_>>();
+    assert_eq!(
+        arguments,
+        [
+            "patch",
+            s(&image),
+            "--recommended",
+            "--catalog",
+            s(&catalog),
+            "--allow-unsigned-local"
+        ],
+        "follow-up command: {follow_up}"
+    );
+    let patch = sandbox.run(arguments.into_iter().chain(["--dry-run"]));
+    assert_eq!(patch.code, 0, "{}", patch.stderr);
+}
+
+#[test]
 fn guarded_operations_refuse_snapshot_drift_before_publishing() {
     let sandbox = Sandbox::new();
     let (image, catalog) = sandbox.synthetic();
