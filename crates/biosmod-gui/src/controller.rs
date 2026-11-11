@@ -1781,6 +1781,9 @@ impl Job {
 /// A failed lookup is an error, not `None`: an elevated command that silently skipped the
 /// saved path would run whatever flashrom `PATH` offers instead.
 ///
+/// `BME_FLASHROM` counts as a choice too: pkexec resets the environment, so the elevated
+/// engine would otherwise fall back to `PATH`.
+///
 /// Example: a `tools paths` reply whose flashrom has origin `config` and path
 /// `/opt/fr/flashrom` yields `Some("/opt/fr/flashrom")`.
 fn saved_flashrom(engine: &Engine, cancel: &AtomicBool) -> Result<Option<PathBuf>, EngineError> {
@@ -1802,7 +1805,9 @@ fn saved_flashrom(engine: &Engine, cancel: &AtomicBool) -> Result<Option<PathBuf
 
 fn saved_flashrom_in(paths: &Value) -> Option<PathBuf> {
     let flashrom = &paths["flashrom"];
-    if flashrom["origin"] != "config" {
+    // A PATH result is what the elevated engine finds on its own; any other origin is a
+    // choice that root cannot see.
+    if !flashrom["origin"].is_string() || flashrom["origin"] == "PATH" {
         return None;
     }
     flashrom["path"].as_str().map(PathBuf::from)

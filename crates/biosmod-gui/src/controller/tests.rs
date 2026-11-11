@@ -686,6 +686,46 @@ fn flash_commands_learn_the_saved_flashrom_before_running() {
 
 #[cfg(unix)]
 #[test]
+fn flash_commands_repeat_an_environment_flashrom_that_pkexec_would_drop() {
+    let fake = FakeToolsEngine::new();
+    fake.alter(
+        r#"'{"flashrom":null}'"#,
+        r#"'{"flashrom":{"path":"/opt/env/flashrom","origin":"BME_FLASHROM"}}'"#,
+    );
+    write_flash_doctor(&fake);
+    let mut session = connected_session();
+    session.flash.supported = true;
+    let job = session.prepare(Action::FlashDoctor).unwrap();
+    job.execute(&fake.engine()).unwrap();
+    assert_eq!(
+        fake.calls()[1],
+        "doctor --programmer=internal --json --offline --flashrom=/opt/env/flashrom",
+        "(flash job, BME_FLASHROM origin): expected the environment flashrom on the command line"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn flash_commands_leave_a_path_flashrom_to_the_engine_lookup() {
+    let fake = FakeToolsEngine::new();
+    fake.alter(
+        r#"'{"flashrom":null}'"#,
+        r#"'{"flashrom":{"path":"/usr/sbin/flashrom","origin":"PATH"}}'"#,
+    );
+    write_flash_doctor(&fake);
+    let mut session = connected_session();
+    session.flash.supported = true;
+    let job = session.prepare(Action::FlashDoctor).unwrap();
+    job.execute(&fake.engine()).unwrap();
+    assert_eq!(
+        fake.calls()[1],
+        "doctor --programmer=internal --json --offline",
+        "(flash job, PATH origin): expected no --flashrom flag"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn flash_commands_add_no_flashrom_flag_without_a_saved_one() {
     let fake = FakeToolsEngine::new();
     write_flash_doctor(&fake);
