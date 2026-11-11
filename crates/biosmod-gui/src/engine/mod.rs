@@ -72,6 +72,28 @@ pub enum Request {
     },
     ToolsDoctor,
     ToolsPaths,
+    /// Read-only system diagnosis for chip access; never starts a programmer.
+    FlashDoctor {
+        programmer: String,
+    },
+    FlashProbe {
+        programmer: String,
+        elevate: bool,
+    },
+    FlashBackup {
+        programmer: String,
+        output: PathBuf,
+        elevate: bool,
+    },
+    /// Check (`confirm: None`, a dry run) or write an image guarded by a backup.
+    FlashWrite {
+        programmer: String,
+        image: PathBuf,
+        backup: PathBuf,
+        whole_chip: bool,
+        confirm: Option<String>,
+        elevate: bool,
+    },
 }
 
 impl Request {
@@ -88,17 +110,38 @@ impl Request {
             Self::VerifyResult { .. } => "verify",
             Self::ToolsDoctor => "tools doctor",
             Self::ToolsPaths => "tools paths",
+            Self::FlashDoctor { .. } => "flash doctor",
+            Self::FlashProbe { .. } => "flash probe",
+            Self::FlashBackup { .. } => "flash backup",
+            Self::FlashWrite { .. } => "flash write",
         }
     }
 
-    fn publishes(&self) -> bool {
+    /// Whether the engine runs with administrator rights obtained through polkit.
+    /// Example: a probe with `elevate: true` runs as `pkexec bme flash probe`.
+    pub fn elevated(&self) -> bool {
         matches!(
             self,
-            Self::Build {
-                destination: PatchDestination::Publish(_),
-                ..
-            } | Self::Export { .. }
+            Self::FlashProbe { elevate: true, .. }
+                | Self::FlashBackup { elevate: true, .. }
+                | Self::FlashWrite { elevate: true, .. }
         )
+    }
+
+    /// Whether the child must run to completion: publication and chip writes may
+    /// not be cut short, and a root child cannot be signalled from this process.
+    fn uninterruptible(&self) -> bool {
+        self.elevated()
+            || matches!(
+                self,
+                Self::Build {
+                    destination: PatchDestination::Publish(_),
+                    ..
+                } | Self::Export { .. }
+                    | Self::FlashBackup { .. }
+                    // Even the dry run reads the chip, which outlasts the read-only timeout.
+                    | Self::FlashWrite { .. }
+            )
     }
 
     fn args(&self, cwd: &Path) -> Result<Vec<OsString>, EngineError> {
@@ -159,6 +202,34 @@ impl Request {
                 args.push(option("--manifest=", &path(manifest)));
                 if let Some(recipe) = recipe {
                     args.push(option("--from=", &path(recipe)));
+                }
+            }
+            Self::FlashDoctor { programmer } | Self::FlashProbe { programmer, .. } => {
+                args.push(option("--programmer=", OsStr::new(programmer)));
+            }
+            Self::FlashBackup {
+                programmer, output, ..
+            } => {
+                args.push(option("--programmer=", OsStr::new(programmer)));
+                args.push(option("--output=", &path(output)));
+            }
+            Self::FlashWrite {
+                programmer,
+                image,
+                backup,
+                whole_chip,
+                confirm,
+                ..
+            } => {
+                args.push(path(image));
+                args.push(option("--backup=", &path(backup)));
+                args.push(option("--programmer=", OsStr::new(programmer)));
+                if *whole_chip {
+                    args.push("--whole-chip".into());
+                }
+                match confirm {
+                    Some(digest) => args.push(option("--confirm=", OsStr::new(digest))),
+                    None => args.push("--dry-run".into()),
                 }
             }
             _ => {}
@@ -533,7 +604,12 @@ pub struct Engine {
     env: Vec<(OsString, OsString)>,
     timeout: Duration,
     contract: Option<Arc<EngineContract>>,
+    /// The program that runs the engine as root for chip access.
+    elevation: OsString,
 }
+
+/// pkexec's exit statuses when no command ran: not authorized, or dismissed.
+const ELEVATION_REFUSED: [i32; 2] = [126, 127];
 
 impl Engine {
     /// Set up an engine using absolute paths, independent of the opened image's directory.
@@ -561,6 +637,7 @@ impl Engine {
             env: Vec::new(),
             timeout: Duration::from_secs(120),
             contract: None,
+            elevation: "pkexec".into(),
         })
     }
     /// Override one child environment variable, for example isolated `BME_CONFIG_HOME` in tests.
@@ -568,6 +645,13 @@ impl Engine {
     /// Example: `engine.with_env("BME_CONFIG_HOME", "/tmp/config")`.
     pub fn with_env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
         self.env.push((key.into(), value.into()));
+        self
+    }
+    /// Replace polkit's `pkexec` as the program that runs the engine as root.
+    ///
+    /// Example: `engine.with_elevation("/usr/bin/pkexec")`; tests pass a stand-in.
+    pub fn with_elevation(mut self, program: impl Into<OsString>) -> Self {
+        self.elevation = program.into();
         self
     }
     /// Set the read-only operation timeout; publication is intentionally not interrupted.
@@ -625,7 +709,14 @@ impl Engine {
             ));
         }
         let args = request.args(&self.cwd)?;
-        let mut command = Command::new(&self.executable);
+        let mut command = if request.elevated() {
+            // pkexec resets the environment and working directory; arguments are absolute.
+            let mut command = Command::new(&self.elevation);
+            command.arg(&self.executable);
+            command
+        } else {
+            Command::new(&self.executable)
+        };
         command
             .args(args)
             .current_dir(&self.cwd)
@@ -641,17 +732,24 @@ impl Engine {
         let mut child = command.spawn().map_err(|e| {
             EngineError::new(
                 ErrorKind::Launch,
-                format!(
-                    "engine {}: expected executable process | received {e}",
-                    self.executable.display()
-                ),
+                if request.elevated() {
+                    format!(
+                        "administrator rights: expected {} (polkit) to start the engine | received {e}",
+                        self.elevation.to_string_lossy()
+                    )
+                } else {
+                    format!(
+                        "engine {}: expected executable process | received {e}",
+                        self.executable.display()
+                    )
+                },
             )
         })?;
         let stdout = child.stdout.take().expect("stdout was piped");
         let stderr = child.stderr.take().expect("stderr was piped");
         #[cfg(unix)]
         if let Err(error) = nonblocking(&stdout).and_then(|()| nonblocking(&stderr)) {
-            if request.publishes() {
+            if request.uninterruptible() {
                 // Publication may already have started. Drain both pipes and wait for it
                 // rather than treating a local setup failure as safe to interrupt.
                 let out =
@@ -708,7 +806,7 @@ impl Engine {
             if leader_done && stdout.is_some() && stderr.is_some() {
                 break;
             }
-            if !request.publishes()
+            if !request.uninterruptible()
                 && (cancel.load(Ordering::Relaxed) || started.elapsed() >= self.timeout)
             {
                 stopped = Some(if cancel.load(Ordering::Relaxed) {
@@ -737,7 +835,7 @@ impl Engine {
             }
         }
         if stopped.is_some() || process_error.is_some() {
-            if request.publishes() {
+            if request.uninterruptible() {
                 // A supervision error cannot make it safe to interrupt publication.
                 let _ = child.wait();
             } else {
@@ -795,6 +893,17 @@ impl Engine {
             )
             .diagnostics(&diagnostics)
         })?;
+        if request.elevated() && stdout.bytes.is_empty() && ELEVATION_REFUSED.contains(&code) {
+            // The engine never started, so nothing was read or written.
+            return Err(EngineError::new(
+                ErrorKind::Configuration,
+                format!(
+                    "administrator rights: expected authorization through {} | received exit status {code} (dismissed, denied or no polkit agent running)",
+                    self.elevation.to_string_lossy()
+                ),
+            )
+            .diagnostics(&diagnostics));
+        }
         if stdout.overflow {
             return Err(EngineError::new(
                 ErrorKind::OutputLimit,

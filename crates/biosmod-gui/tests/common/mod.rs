@@ -53,3 +53,38 @@ pub fn setup_fixture(binary: &Path, root: &Path) -> PathBuf {
     }
     fixture.join("synthetic.bin")
 }
+
+/// A flashrom stand-in whose chip is the file named by `FAKE_FLASH_CHIP`.
+const FAKE_FLASHROM_PROGRAM: &str = r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+    echo "flashrom v1.6.0 on Linux 7.0.0 (x86_64)"
+    exit 0
+fi
+operation=""
+file=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -p|-c|-l|-i) shift ;;
+        -r|-w) operation="$1"; file="$2"; shift ;;
+    esac
+    shift
+done
+echo 'Found Winbond flash chip "W25Q128.V" (16384 kB, SPI) on ch341a_spi.'
+case "$operation" in
+    -r) cp "$FAKE_FLASH_CHIP" "$file" ;;
+    -w) cp "$file" "$FAKE_FLASH_CHIP" && echo "Verifying flash... VERIFIED." ;;
+    *) echo "No operations were specified." ;;
+esac
+"#;
+
+/// Install the flashrom stand-in in `root` and return its path.
+/// Example: `engine.with_env("BME_FLASHROM", common::fake_flashrom_program(root))`.
+#[cfg(unix)]
+#[allow(dead_code)]
+pub fn fake_flashrom_program(root: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let program = root.join("fake-flashrom");
+    std::fs::write(&program, FAKE_FLASHROM_PROGRAM).unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    program
+}

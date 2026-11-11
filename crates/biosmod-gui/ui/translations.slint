@@ -130,4 +130,51 @@ export global UiText {
     out property <string> precondition-recipe-mismatch: @tr("The selection file must match the scan and use only corrections supported by the desktop.");
     out property <string> precondition-wait-import: @tr("Wait for the active operation before opening a selection file.");
     out property <string> tool-paths: @tr("Paths");
+
+    out property <string> operation-flash-doctor: @tr("Diagnosing the system");
+    out property <string> operation-flash-probe: @tr("Looking for the flash chip");
+    out property <string> operation-flash-backup: @tr("Backing up the flash chip");
+    out property <string> operation-flash-check: @tr("Checking the image against the chip");
+    out property <string> operation-flash-write: @tr("Writing the flash chip. Do not power off");
+    out property <string> status-flash-diagnosed: @tr("System diagnosis complete.");
+    out property <string> status-flash-probed: @tr("Flash chip found.");
+    out property <string> status-flash-checked: @tr("The backup matches the chip. Review what will be written before flashing.");
+    out property <string> status-flash-written: @tr("Chip written and read back. Power-cycle the board to start the new firmware.");
+    out property <string> status-closing-flash: @tr("Working on the flash chip. Close the window after the operation finishes.");
+    out property <string> status-flash-inputs: @tr("Flash inputs changed. Check the image against the chip again.");
+    public pure function status-flash-backed-up(path: string) -> string { return @tr("Chip backed up to {}", path); }
+    public pure function status-flash-unknown(detail: string) -> string { return @tr("The chip may hold a partial image. Keep the board powered and restore the backup. {}", detail); }
+    out property <string> precondition-flash-unsupported: @tr("The connected bme engine has no flash chip commands. Use the bundled engine.");
+    out property <string> precondition-programmer: @tr("Enter a flashrom programmer such as internal or ch341a_spi.");
+    out property <string> precondition-flash-backup: @tr("Choose a backup file first.");
+    out property <string> precondition-flash-image: @tr("Choose the image to write first.");
+    out property <string> precondition-flash-check: @tr("Check the image against the chip first.");
+    out property <string> precondition-flash-acknowledge: @tr("Confirm that you can recover the board first.");
+    out property <string> flash-save-backup: @tr("Save the chip backup as a new file");
+    out property <string> flash-open-backup: @tr("Open a backup of this chip");
+    out property <string> flash-open-image: @tr("Open the image to write");
+    out property <string> flash-pass: @tr("PASS");
+    out property <string> flash-warn: @tr("WARN");
+    out property <string> flash-fail: @tr("FAIL");
+    out property <string> flash-info: @tr("INFO");
+    public pure function flash-board(board: string) -> string { return @tr("Board: {}", board); }
+    public pure function flash-firmware(firmware: string) -> string { return @tr("Firmware: {}", firmware); }
+    public pure function flash-catalog-board(id: string) -> string { return @tr("Catalog board profile: {}", id); }
+    out property <string> flash-no-catalog-board: @tr("No catalog board profile names this board.");
+    public pure function flash-checks(programmer: string) -> string { return @tr("Checks for programmer {}", programmer); }
+    out property <string> flash-ready: @tr("Nothing blocks chip access. Next: find the chip, then back it up.");
+    out property <string> flash-not-ready: @tr("Fix the FAIL lines before reading or writing the chip.");
+    public pure function flash-chip(chip: string) -> string { return @tr("Chip: {}", chip); }
+    out property <string> flash-ambiguous: @tr("Several chip definitions match. Read the marking on the chip and use the bme CLI with --chip.");
+    out property <string> flash-probe-next: @tr("Next: choose a new backup file and back up the chip.");
+    public pure function flash-backup-summary(path: string, size: string, digest: string) -> string { return @tr("Backup: {}\n{} bytes · SHA-256 {}\nTwo reads matched. Keep this file: it is the only way back.", path, size, digest); }
+    public pure function flash-partial(regions: string) -> string { return @tr("Only these regions were read: {}", regions); }
+    public pure function flash-volumes(count: string) -> string { return @tr("Firmware volumes found: {}", count); }
+    public pure function flash-not-firmware(note: string) -> string { return @tr("Not recognized as UEFI firmware: {}", note); }
+    out property <string> flash-backup-next: @tr("Next: build a patched copy from this backup in Workflow, then check it here.");
+    public pure function flash-check-summary(digest: string) -> string { return @tr("The backup matches the chip.\nImage SHA-256: {}\n\nWill write:", digest); }
+    public pure function flash-region(name: string, start: string, end: string, changed: string) -> string { return @tr("{}  {}–{}  {} bytes change", name, start, end, changed); }
+    out property <string> flash-check-next: @tr("Nothing was written yet. Confirm that you can recover the board, then choose Flash chip.");
+    public pure function flash-written-summary(digest: string) -> string { return @tr("Written and read back. The chip holds image {}.\nPower-cycle the board to start the new firmware. Keep the backup.", digest); }
+    public pure function flash-failure(message: string) -> string { return @tr("Failed: {}", message); }
 }

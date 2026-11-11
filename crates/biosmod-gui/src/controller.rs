@@ -31,6 +31,11 @@ pub enum Action {
     Tools,
     Import,
     ValidateRecipe,
+    FlashDoctor,
+    FlashProbe,
+    FlashBackup,
+    FlashCheck,
+    FlashWrite,
 }
 
 impl Action {
@@ -49,7 +54,25 @@ impl Action {
             Self::Tools => "Checking tools",
             Self::Import => "Opening selection file",
             Self::ValidateRecipe => "Validating selection file",
+            Self::FlashDoctor => "Diagnosing the system",
+            Self::FlashProbe => "Looking for the flash chip",
+            Self::FlashBackup => "Backing up the flash chip",
+            Self::FlashCheck => "Checking the image against the chip",
+            Self::FlashWrite => "Writing the flash chip. Do not power off",
         }
+    }
+
+    /// Whether the action talks to the flash chip or diagnoses access to it.
+    /// Example: `Action::FlashBackup.is_flash()` is `true`.
+    pub fn is_flash(self) -> bool {
+        matches!(
+            self,
+            Self::FlashDoctor
+                | Self::FlashProbe
+                | Self::FlashBackup
+                | Self::FlashCheck
+                | Self::FlashWrite
+        )
     }
 }
 
@@ -63,6 +86,10 @@ pub enum Outcome {
     VerificationIncomplete,
     VerificationFailed,
     Verified,
+    /// The chip was written and read back.
+    ChipWritten,
+    /// A chip write ended without a definite result.
+    ChipWriteUnknown,
 }
 
 /// A GUI action cannot start until its required inputs are available.
@@ -80,6 +107,12 @@ pub enum PreparationError {
     Manifest,
     WaitImport,
     RecipeMismatch,
+    FlashUnsupported,
+    Programmer,
+    FlashBackup,
+    FlashImage,
+    FlashCheck,
+    FlashAcknowledge,
 }
 
 impl std::fmt::Display for PreparationError {
@@ -97,6 +130,12 @@ impl std::fmt::Display for PreparationError {
             Self::Manifest => "Choose an output with its paired manifest first.",
             Self::WaitImport => "Wait for the active operation before opening a selection file.",
             Self::RecipeMismatch => "The selection file must match the scan and use only corrections supported by the desktop.",
+            Self::FlashUnsupported => "The connected bme engine has no flash chip commands. Use the bundled engine.",
+            Self::Programmer => "Enter a flashrom programmer such as internal or ch341a_spi.",
+            Self::FlashBackup => "Choose a backup file first.",
+            Self::FlashImage => "Choose the image to write first.",
+            Self::FlashCheck => "Check the image against the chip first.",
+            Self::FlashAcknowledge => "Confirm that you can recover the board first.",
         })
     }
 }
@@ -136,6 +175,14 @@ pub enum Status {
     PreferencesNoLocation,
     PreferencesProtected,
     PickerError,
+    FlashDiagnosed,
+    FlashProbed,
+    FlashBackedUp,
+    FlashChecked,
+    FlashWritten,
+    FlashOutcomeUnknown,
+    ClosingFlash,
+    FlashInputs,
     ExportingPlan,
     ExportingDiagnostics,
     PlanExported,
@@ -177,6 +224,18 @@ impl Status {
             Self::ClosingBuild => "Building the copy. Close the window after publication finishes.",
             Self::ClosingStop => "Stopping operation before closing…",
             Self::ExportNeedsPlan => "Select corrections or open a selection file to export.",
+            Self::FlashDiagnosed => "System diagnosis complete.",
+            Self::FlashProbed => "Flash chip found.",
+            Self::FlashChecked => {
+                "The backup matches the chip. Review what will be written before flashing."
+            }
+            Self::FlashWritten => {
+                "Chip written and read back. Power-cycle the board to start the new firmware."
+            }
+            Self::ClosingFlash => {
+                "Working on the flash chip. Close the window after the operation finishes."
+            }
+            Self::FlashInputs => "Flash inputs changed. Check the image against the chip again.",
             Self::Activity(action) => action.label(),
             // These carry a detail or path; callers use set_detailed_status or set_notice.
             Self::Precondition(_)
@@ -187,6 +246,8 @@ impl Status {
             | Self::PreferencesNoLocation
             | Self::PreferencesProtected
             | Self::PickerError
+            | Self::FlashBackedUp
+            | Self::FlashOutcomeUnknown
             | Self::ExportingPlan
             | Self::ExportingDiagnostics
             | Self::PlanExported
@@ -266,6 +327,61 @@ impl Review {
     }
 }
 
+/// The last flash chip result, kept as engine data for presentation in any language.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FlashReport {
+    Doctor(Value),
+    Probe(Value),
+    Backup(Value),
+    Check(Value),
+    Written(Value),
+    /// A failed operation: the engine message and its structured details.
+    Failure(String, Option<Value>),
+}
+
+/// The inputs a dry run approved; a write needs exactly these again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CheckedWrite {
+    programmer: String,
+    image: PathBuf,
+    backup: PathBuf,
+    whole_chip: bool,
+    image_sha256: String,
+}
+
+/// Flash chip inputs and results. They are independent of the patch workflow.
+#[derive(Debug, Clone)]
+pub struct FlashState {
+    /// Whether the connected engine advertises the flash commands.
+    pub supported: bool,
+    pub programmer: String,
+    /// Ask polkit for administrator rights before touching the chip.
+    pub elevate: bool,
+    pub backup: Option<PathBuf>,
+    pub image: Option<PathBuf>,
+    pub whole_chip: bool,
+    /// The user stated they can recover a board that no longer starts.
+    pub acknowledged: bool,
+    pub report: Option<Arc<FlashReport>>,
+    checked: Option<CheckedWrite>,
+}
+
+impl Default for FlashState {
+    fn default() -> Self {
+        Self {
+            supported: false,
+            programmer: "internal".into(),
+            elevate: true,
+            backup: None,
+            image: None,
+            whole_chip: false,
+            acknowledged: false,
+            report: None,
+            checked: None,
+        }
+    }
+}
+
 /// The UI owns this state. A worker receives only a prepared `Job` snapshot.
 pub struct Session {
     directory: Arc<TempDir>,
@@ -301,6 +417,7 @@ pub struct Session {
     pub source_details: String,
     pub tool_report: Option<Arc<(Value, Option<Value>)>>,
     pub diagnostics: String,
+    pub flash: FlashState,
 }
 
 impl Session {
@@ -339,6 +456,7 @@ impl Session {
             source_details: String::new(),
             tool_report: None,
             diagnostics: String::new(),
+            flash: FlashState::default(),
         };
         session.set_status(Status::Start);
         Ok(session)
@@ -479,6 +597,108 @@ impl Session {
     pub fn publishing(&self) -> bool {
         self.active
             .is_some_and(|a| matches!(a.2, Action::Build | Action::Export))
+            || self.flashing()
+    }
+
+    /// A chip operation that cannot be stopped: a backup, a check or a write, and
+    /// anything running as root, which this process may not signal.
+    /// Example: hide Cancel while `session.flashing()`.
+    pub fn flashing(&self) -> bool {
+        self.active.is_some_and(|a| match a.2 {
+            Action::FlashBackup | Action::FlashCheck | Action::FlashWrite => true,
+            Action::FlashProbe => self.flash.elevate,
+            _ => false,
+        })
+    }
+
+    /// Change one flash input; a completed check no longer covers the new inputs.
+    /// Example: `session.edit_flash(|flash| flash.programmer = "ch341a_spi".into())`.
+    pub fn edit_flash(&mut self, change: impl FnOnce(&mut FlashState)) {
+        if self.busy() {
+            return;
+        }
+        let before = self.flash_inputs();
+        change(&mut self.flash);
+        if before != self.flash_inputs() && self.flash.checked.take().is_some() {
+            self.flash.acknowledged = false;
+            self.outcome = Outcome::Idle;
+            self.set_status(Status::FlashInputs);
+        }
+    }
+
+    fn flash_inputs(&self) -> (String, Option<PathBuf>, Option<PathBuf>, bool) {
+        (
+            self.flash.programmer.clone(),
+            self.flash.image.clone(),
+            self.flash.backup.clone(),
+            self.flash.whole_chip,
+        )
+    }
+
+    /// Whether a dry run approved the current flash inputs.
+    /// Example: `session.flash_checked()` turns true after `Action::FlashCheck` succeeds.
+    pub fn flash_checked(&self) -> bool {
+        self.flash.checked.is_some()
+    }
+
+    /// Whether every guard for writing the chip holds.
+    /// Example: enable the Flash button only while `session.can_flash_write()`.
+    pub fn can_flash_write(&self) -> bool {
+        self.connected
+            && self.flash.supported
+            && !self.busy()
+            && self.flash.acknowledged
+            && self.flash_checked()
+    }
+
+    fn flash_request(&self, action: Action) -> Result<Request, PreparationError> {
+        let flash = &self.flash;
+        if !flash.supported {
+            return Err(PreparationError::FlashUnsupported);
+        }
+        let programmer = flash.programmer.trim().to_owned();
+        if programmer.is_empty() {
+            return Err(PreparationError::Programmer);
+        }
+        let elevate = flash.elevate;
+        let backup = || flash.backup.clone().ok_or(PreparationError::FlashBackup);
+        let image = || flash.image.clone().ok_or(PreparationError::FlashImage);
+        Ok(match action {
+            Action::FlashDoctor => Request::FlashDoctor { programmer },
+            Action::FlashProbe => Request::FlashProbe {
+                programmer,
+                elevate,
+            },
+            Action::FlashBackup => Request::FlashBackup {
+                programmer,
+                output: backup()?,
+                elevate,
+            },
+            Action::FlashCheck => Request::FlashWrite {
+                programmer,
+                image: image()?,
+                backup: backup()?,
+                whole_chip: flash.whole_chip,
+                confirm: None,
+                elevate,
+            },
+            Action::FlashWrite => {
+                let checked = flash.checked.as_ref().ok_or(PreparationError::FlashCheck)?;
+                if !flash.acknowledged {
+                    return Err(PreparationError::FlashAcknowledge);
+                }
+                // The write repeats the checked inputs, not whatever the fields hold now.
+                Request::FlashWrite {
+                    programmer: checked.programmer.clone(),
+                    image: checked.image.clone(),
+                    backup: checked.backup.clone(),
+                    whole_chip: checked.whole_chip,
+                    confirm: Some(checked.image_sha256.clone()),
+                    elevate,
+                }
+            }
+            _ => unreachable!("flash_request({action:?}): expected a flash action"),
+        })
     }
 
     /// Report the current operation for an indeterminate activity indicator.
@@ -705,6 +925,11 @@ impl Session {
             }
             Action::Sources => Request::CatalogList,
             Action::Tools => Request::ToolsDoctor,
+            Action::FlashDoctor
+            | Action::FlashProbe
+            | Action::FlashBackup
+            | Action::FlashCheck
+            | Action::FlashWrite => self.flash_request(action)?,
         };
         let token = self.begin(action);
         if matches!(action, Action::Scan | Action::ValidateRecipe) {
@@ -762,6 +987,7 @@ impl Session {
                 self.connected = true;
                 self.engine_attempted = true;
                 self.engine_version = Some(payload.reply.version.clone());
+                self.flash.supported = data["flash_workflow"] == 1;
                 self.set_status(Status::Ready);
             }
             Action::Inspect => {
@@ -892,6 +1118,86 @@ impl Session {
             Action::Tools => {
                 self.tool_report = Some(Arc::new((data, payload.extra)));
                 self.set_status(Status::Tools);
+            }
+            Action::FlashDoctor => {
+                if !data["checks"].is_array() {
+                    return Err(local_error("flash doctor: expected a checks array"));
+                }
+                self.flash.report = Some(Arc::new(FlashReport::Doctor(data)));
+                self.set_status(Status::FlashDiagnosed);
+            }
+            Action::FlashProbe => {
+                if data["chips"].as_array().is_none_or(Vec::is_empty) {
+                    return Err(local_error("flash probe: expected one or more chips"));
+                }
+                self.flash.report = Some(Arc::new(FlashReport::Probe(data)));
+                self.set_status(Status::FlashProbed);
+            }
+            Action::FlashBackup => {
+                let requested = self
+                    .flash
+                    .backup
+                    .as_deref()
+                    .ok_or_else(|| local_error("flash backup: expected the requested path"))?;
+                if data["output"] != requested.to_string_lossy().as_ref()
+                    || sha256_string(&data["sha256"]).is_none()
+                {
+                    return Err(local_error(
+                        "flash backup receipt: expected the requested output path and a lowercase SHA-256",
+                    ));
+                }
+                let path = requested.display().to_string();
+                self.flash.report = Some(Arc::new(FlashReport::Backup(data)));
+                self.set_detailed_status(
+                    Status::FlashBackedUp,
+                    path.clone(),
+                    "",
+                    format!("Chip backed up to {path}"),
+                );
+            }
+            Action::FlashCheck => {
+                let digest = sha256_string(&data["confirm"])
+                    .filter(|digest| data["image_sha256"] == *digest)
+                    .ok_or_else(|| {
+                        local_error("flash check: expected the image SHA-256 to confirm")
+                    })?;
+                if data["dry_run"] != true || data["written"] != false {
+                    return Err(local_error("flash check: expected a dry run"));
+                }
+                let (programmer, image, backup, whole_chip) = self.flash_inputs();
+                self.flash.checked = Some(CheckedWrite {
+                    programmer: programmer.trim().to_owned(),
+                    image: image.ok_or_else(|| local_error("flash check: expected an image"))?,
+                    backup: backup.ok_or_else(|| local_error("flash check: expected a backup"))?,
+                    whole_chip,
+                    image_sha256: digest.to_owned(),
+                });
+                self.flash.acknowledged = false;
+                self.flash.report = Some(Arc::new(FlashReport::Check(data)));
+                self.set_status(Status::FlashChecked);
+            }
+            Action::FlashWrite => {
+                let checked = self.flash.checked.take();
+                self.flash.acknowledged = false;
+                let expected = checked
+                    .as_ref()
+                    .map(|checked| checked.image_sha256.as_str());
+                if data["written"] != true
+                    || data["verified"] != true
+                    || data["image_sha256"].as_str() != expected
+                {
+                    self.outcome = Outcome::ChipWriteUnknown;
+                    return Err(local_error(format!(
+                        "flash write receipt: expected a written, read-back image {} | received written={} verified={} image {}",
+                        expected.unwrap_or("<none>"),
+                        data["written"],
+                        data["verified"],
+                        data["image_sha256"]
+                    )));
+                }
+                self.flash.report = Some(Arc::new(FlashReport::Written(data)));
+                self.outcome = Outcome::ChipWritten;
+                self.set_status(Status::FlashWritten);
             }
             Action::Import => {
                 if self.manifest_receipt.take().is_some() {
@@ -1042,6 +1348,11 @@ impl Session {
             self.engine_attempted = true;
             self.engine_version = None;
             self.engine_contract = None;
+            self.flash.supported = false;
+        }
+        if action.is_flash() {
+            self.fail_flash(action, error);
+            return;
         }
         self.outcome = match error.code.as_deref() {
             Some("PUBLISH_INCOMPLETE") => Outcome::PublicationIncomplete,
@@ -1096,6 +1407,49 @@ impl Session {
         } else {
             None
         };
+    }
+
+    /// Record a failed chip operation without touching the patch workflow's results.
+    fn fail_flash(&mut self, action: Action, error: EngineError) {
+        let definite = matches!(
+            error.kind,
+            ErrorKind::Engine | ErrorKind::Configuration | ErrorKind::Launch
+        );
+        let message = error.to_string();
+        self.log(&format!(
+            "{}\n{}\n{}",
+            error,
+            error.details.as_ref().map(pretty).unwrap_or_default(),
+            error.diagnostics
+        ));
+        self.flash.report = Some(Arc::new(FlashReport::Failure(
+            message.clone(),
+            error.details.clone(),
+        )));
+        if action == Action::FlashWrite {
+            // Whatever happened, the chip may have changed: the check is spent.
+            self.flash.checked = None;
+            self.flash.acknowledged = false;
+        }
+        // A refusal happens before the write; anything else may have reached the chip.
+        let refused = definite && error.code.as_deref() != Some("FLASH_FAILED");
+        if action == Action::FlashWrite && !refused {
+            self.outcome = Outcome::ChipWriteUnknown;
+            let fallback = format!(
+                "The chip may hold a partial image. Keep the board powered and restore the backup. {message}"
+            );
+            self.set_detailed_status(Status::FlashOutcomeUnknown, message, "", fallback);
+        } else {
+            self.outcome = if matches!(
+                error.kind,
+                ErrorKind::Interrupted | ErrorKind::Cancelled | ErrorKind::Timeout
+            ) {
+                Outcome::Interrupted
+            } else {
+                Outcome::Failed
+            };
+            self.set_detailed_status(Status::Failed, message.clone(), "", message);
+        }
     }
 
     fn log(&mut self, text: &str) {

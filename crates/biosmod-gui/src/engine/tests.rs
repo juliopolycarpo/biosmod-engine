@@ -1066,3 +1066,174 @@ fn handshake_warnings_remain_bounded_for_both_processes() {
         reply.diagnostics.len() <= 2 * (MAX_DIAGNOSTICS + "\n[diagnostics truncated]".len()) + 1
     );
 }
+
+#[test]
+fn flash_arguments_carry_programmer_paths_and_confirmation() {
+    let words = |request: &Request| -> Vec<String> {
+        request
+            .args(Path::new("/work"))
+            .unwrap()
+            .into_iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    };
+    assert_eq!(
+        words(&Request::FlashDoctor {
+            programmer: "internal".into()
+        }),
+        [
+            "flash",
+            "doctor",
+            "--programmer=internal",
+            "--json",
+            "--offline"
+        ]
+    );
+    let backup = Request::FlashBackup {
+        programmer: "ch341a_spi".into(),
+        output: "dump.bin".into(),
+        elevate: true,
+    };
+    assert_eq!(
+        words(&backup),
+        [
+            "flash",
+            "backup",
+            "--programmer=ch341a_spi",
+            "--output=/work/dump.bin",
+            "--json",
+            "--offline"
+        ]
+    );
+    assert!(backup.elevated() && backup.uninterruptible());
+    let write = |confirm: Option<&str>, whole_chip| Request::FlashWrite {
+        programmer: "linux_mtd:dev=0".into(),
+        image: "/images/patched.bin".into(),
+        backup: "/images/dump.bin".into(),
+        whole_chip,
+        confirm: confirm.map(str::to_owned),
+        elevate: false,
+    };
+    assert_eq!(
+        words(&write(None, false)),
+        [
+            "flash",
+            "write",
+            "/images/patched.bin",
+            "--backup=/images/dump.bin",
+            "--programmer=linux_mtd:dev=0",
+            "--dry-run",
+            "--json",
+            "--offline"
+        ]
+    );
+    let digest = "a".repeat(64);
+    assert_eq!(
+        words(&write(Some(&digest), true))[5..7],
+        ["--whole-chip".to_owned(), format!("--confirm={digest}")]
+    );
+    assert!(
+        !write(None, false).elevated() && write(None, false).uninterruptible(),
+        "(flash check): expected an unprivileged request that still runs to completion"
+    );
+    let doctor = Request::FlashDoctor {
+        programmer: "internal".into(),
+    };
+    assert!(!doctor.elevated() && !doctor.uninterruptible());
+}
+
+/// Stands in for the engine behind an elevation program: every flash command prints `reply`.
+#[cfg(unix)]
+struct FakeElevatedEngine {
+    dir: tempfile::TempDir,
+}
+
+#[cfg(unix)]
+impl FakeElevatedEngine {
+    fn new(script: &str) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("engine.sh"), script).unwrap();
+        Self { dir }
+    }
+
+    /// `/bin/sh` plays pkexec: it runs the engine file it is handed with the same arguments.
+    fn engine(&self) -> Engine {
+        Engine::new(self.dir.path().join("engine.sh"), self.dir.path())
+            .unwrap()
+            .with_elevation("/bin/sh")
+            .with_contract(Arc::new(fake_contract()))
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn elevated_requests_run_through_the_elevation_program() {
+    let fake = FakeElevatedEngine::new(
+        "printf '%s' \"$*\" > arguments.txt\nprintf '%s' '{\"product\":\"biosmod-engine\",\"protocol\":\"bme/1\",\"version\":\"0.1.0\",\"command\":\"flash probe\",\"ok\":true,\"data\":{\"chips\":[{\"name\":\"W25Q128.V\"}]}}'",
+    );
+    let probe = |elevate| Request::FlashProbe {
+        programmer: "internal".into(),
+        elevate,
+    };
+    let reply = fake
+        .engine()
+        .run(&probe(true), &AtomicBool::new(false))
+        .unwrap();
+    assert_eq!(reply.data["chips"][0]["name"], "W25Q128.V");
+    assert_eq!(
+        std::fs::read_to_string(fake.dir.path().join("arguments.txt")).unwrap(),
+        "flash probe --programmer=internal --json --offline"
+    );
+    // Without elevation the engine file itself is executed, which this data file cannot be.
+    let error = fake
+        .engine()
+        .run(&probe(false), &AtomicBool::new(false))
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Launch, "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn dismissed_authorization_is_a_definite_refusal() {
+    for status in [126, 127] {
+        let fake = FakeElevatedEngine::new(&format!("echo 'Request dismissed' >&2\nexit {status}"));
+        let error = fake
+            .engine()
+            .run(
+                &Request::FlashBackup {
+                    programmer: "internal".into(),
+                    output: "/tmp/dump.bin".into(),
+                    elevate: true,
+                },
+                &AtomicBool::new(false),
+            )
+            .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Configuration, "{error}");
+        assert!(
+            error.message.contains(&format!(
+                "expected authorization through /bin/sh | received exit status {status}"
+            )),
+            "{error}"
+        );
+        assert_eq!(error.diagnostics.trim(), "Request dismissed");
+    }
+    let missing = Engine::new("/missing/bme", "/")
+        .unwrap()
+        .with_elevation("/missing/pkexec")
+        .with_contract(Arc::new(fake_contract()))
+        .run(
+            &Request::FlashProbe {
+                programmer: "internal".into(),
+                elevate: true,
+            },
+            &AtomicBool::new(false),
+        )
+        .unwrap_err();
+    assert_eq!(missing.kind, ErrorKind::Launch, "{missing}");
+    assert!(
+        missing
+            .message
+            .contains("expected /missing/pkexec (polkit) to start the engine"),
+        "{missing}"
+    );
+}

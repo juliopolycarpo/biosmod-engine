@@ -394,6 +394,12 @@ fn every_precondition_has_a_localized_message() {
         PreparationError::Manifest,
         PreparationError::WaitImport,
         PreparationError::RecipeMismatch,
+        PreparationError::FlashUnsupported,
+        PreparationError::Programmer,
+        PreparationError::FlashBackup,
+        PreparationError::FlashImage,
+        PreparationError::FlashCheck,
+        PreparationError::FlashAcknowledge,
     ] {
         Language::En.select().unwrap();
         let english = localized_status(&window, Status::Precondition(error), "", "");
@@ -1525,4 +1531,181 @@ fn presentation_sections_refresh_only_changed_reports_and_language() {
     assert!(window.get_tool_details().contains("report"));
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 4);
     Language::En.select().unwrap();
+}
+
+#[test]
+fn flash_statuses_and_activities_are_localized() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, _) = bound_window(Settings::default(), None);
+    for status in [
+        Status::FlashDiagnosed,
+        Status::FlashProbed,
+        Status::FlashChecked,
+        Status::FlashWritten,
+        Status::ClosingFlash,
+        Status::FlashInputs,
+        Status::Activity(Action::FlashDoctor),
+        Status::Activity(Action::FlashProbe),
+        Status::Activity(Action::FlashBackup),
+        Status::Activity(Action::FlashCheck),
+        Status::Activity(Action::FlashWrite),
+    ] {
+        Language::En.select().unwrap();
+        let mut session = Session::new().unwrap();
+        session.set_status(status);
+        let english = localized_status(&window, status, "", "");
+        assert_eq!(english.as_str(), session.status, "status {status:?}");
+        Language::PtBr.select().unwrap();
+        let portuguese = localized_status(&window, status, "", "");
+        assert_ne!(
+            portuguese, english,
+            "status {status:?}: untranslated {english}"
+        );
+    }
+    Language::En.select().unwrap();
+    assert_eq!(
+        localized_status(&window, Status::FlashBackedUp, "", "/tmp/dump.bin"),
+        "Chip backed up to /tmp/dump.bin"
+    );
+    assert!(
+        localized_status(
+            &window,
+            Status::FlashOutcomeUnknown,
+            "",
+            "FLASH_FAILED: read-back"
+        )
+        .ends_with("restore the backup. FLASH_FAILED: read-back")
+    );
+    assert_eq!(status_tone(Outcome::ChipWritten), Tone::Good);
+    assert_eq!(status_tone(Outcome::ChipWriteUnknown), Tone::Danger);
+}
+
+#[test]
+fn flash_reports_render_engine_facts_in_the_selected_language() {
+    use crate::controller::FlashReport;
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    Language::En.select().unwrap();
+    let doctor = FlashReport::Doctor(json!({
+        "programmer": "internal", "ready": false,
+        "system": {"board_vendor": "MACHINIST", "board_name": "E5-MR9A PRO", "board_version": "V1.2",
+            "bios_vendor": "American Megatrends Inc.", "bios_version": "5.11", "bios_date": "03/22/2023"},
+        "catalog_boards": [{"id": "machinist-mr9a-pro-q87-rev-1.2"}],
+        "checks": [
+            {"check": "flashrom", "state": "pass", "detail": "1.6.0 at /usr/sbin/flashrom"},
+            {"check": "kernel-lockdown", "state": "fail", "detail": "integrity: the kernel blocks raw hardware access"},
+            {"check": "mtd", "state": "info", "detail": "no kernel MTD flash device"}
+        ]
+    }));
+    assert_eq!(
+        flash_summary(&window, &doctor).as_str(),
+        "Board: MACHINIST E5-MR9A PRO V1.2\nFirmware: American Megatrends Inc. 5.11 03/22/2023\nCatalog board profile: machinist-mr9a-pro-q87-rev-1.2\n\nChecks for programmer internal\nPASS  flashrom: 1.6.0 at /usr/sbin/flashrom\nFAIL  kernel-lockdown: integrity: the kernel blocks raw hardware access\nINFO  mtd: no kernel MTD flash device\n\nFix the FAIL lines before reading or writing the chip."
+    );
+    let check = FlashReport::Check(json!({
+        "image_sha256": "ab".repeat(32),
+        "regions": [{"name": "bios", "start": 0x300000, "end": 0x1000000, "changed_bytes": 412}]
+    }));
+    let english = flash_summary(&window, &check);
+    assert!(
+        english.contains("bios  0x0300000–0x0ffffff  412 bytes change"),
+        "{english}"
+    );
+    let failure = FlashReport::Failure(
+        "TOOL_FAILED: flashrom -p internal (probe)".into(),
+        Some(json!({"log": "Error: Programmer initialization failed."})),
+    );
+    assert_eq!(
+        flash_summary(&window, &failure).as_str(),
+        "Failed: TOOL_FAILED: flashrom -p internal (probe)\n\nError: Programmer initialization failed."
+    );
+
+    // The page re-renders the same report when the language changes.
+    {
+        let mut state = state.lock().unwrap();
+        state.session.flash.report = Some(Arc::new(check));
+        sync(&window, &state);
+    }
+    assert_eq!(window.get_flash_details(), english);
+    window.invoke_language_changed(1);
+    assert!(
+        window.get_flash_details().contains("412 bytes mudam"),
+        "(flash details): expected Portuguese | received {}",
+        window.get_flash_details()
+    );
+    window.invoke_language_changed(0);
+}
+
+#[test]
+fn flash_page_inputs_reach_the_session_and_reset_the_check() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    {
+        let mut state = state.lock().unwrap();
+        state.session.connected = true;
+        state.session.flash.supported = true;
+        state.session.output = Some("/images/patched.bin".into());
+        sync(&window, &state);
+    }
+    assert!(window.get_flash_supported());
+    window.invoke_flash_programmer_edited("ch341a_spi".into());
+    window.invoke_flash_backup_edited("/images/dump.bin".into());
+    window.invoke_flash_elevate_changed(false);
+    window.invoke_flash_whole_chip_changed(true);
+    window.invoke_flash_output();
+    assert_eq!(window.get_page(), 5);
+    assert_eq!(window.get_flash_image_path(), "/images/patched.bin");
+    {
+        let state = state.lock().unwrap();
+        let flash = &state.session.flash;
+        assert_eq!(flash.programmer, "ch341a_spi");
+        assert_eq!(flash.backup.as_deref(), Some(Path::new("/images/dump.bin")));
+        assert_eq!(
+            flash.image.as_deref(),
+            Some(Path::new("/images/patched.bin"))
+        );
+        assert!(!flash.elevate && flash.whole_chip);
+    }
+    assert!(!window.get_can_flash_write() && !window.get_flash_checked());
+    // Without a check the write is refused with the missing step, and no worker starts.
+    window.invoke_flash_write();
+    let state = state.lock().unwrap();
+    assert_eq!(
+        state.session.status_kind,
+        Status::Precondition(PreparationError::FlashCheck)
+    );
+    assert!(!state.session.busy());
+}
+
+#[test]
+fn window_stays_open_while_the_chip_is_written() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    {
+        let mut state = state.lock().unwrap();
+        state.session.connected = true;
+        state.session.flash.supported = true;
+        state
+            .session
+            .edit_flash(|flash| flash.backup = Some("/images/dump.bin".into()));
+        state.session.prepare(Action::FlashBackup).unwrap();
+        sync(&window, &state);
+    }
+    assert!(
+        !window.get_can_cancel(),
+        "(chip backup): expected no Cancel for a root process"
+    );
+    window.show().unwrap();
+    assert_eq!(
+        window
+            .window()
+            .dispatch_event_with_result(WindowEvent::CloseRequested)
+            .unwrap(),
+        WindowEventDispatchResult::Rejected
+    );
+    let state = state.lock().unwrap();
+    assert_eq!(state.session.status_kind, Status::ClosingFlash);
+    assert!(
+        !state.session.cancel.load(Ordering::Relaxed) && !state.closing,
+        "(close request): expected the chip operation to continue untouched"
+    );
 }

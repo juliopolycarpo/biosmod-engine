@@ -101,6 +101,28 @@ fn populate(window: &AppWindow) {
     ])));
 }
 
+/// Fill the flash chip page with a completed check, long paths included.
+fn populate_flash(window: &AppWindow) {
+    window.set_flash_supported(true);
+    window.set_flash_programmer("ch341a_spi".into());
+    window.set_flash_backup_path(
+        "/home/user/firmware/a-very-long-directory-name/another-long-directory/bios-backup.bin"
+            .into(),
+    );
+    window.set_flash_image_path(
+        "/home/user/firmware/a-very-long-directory-name/another-long-directory/bios-backup.patched.bin"
+            .into(),
+    );
+    window.set_flash_checked(true);
+    window.set_flash_acknowledged(true);
+    window.set_can_flash_write(true);
+    let check = biosmod_gui::controller::FlashReport::Check(serde_json::json!({
+        "image_sha256": "bba72e771e75036c666ed04d87bf9631a57a380af71d039a2feaacff5077d08a",
+        "regions": [{"name": "bios", "start": 0x300000, "end": 0x1000000, "changed_bytes": 412}]
+    }));
+    window.set_flash_details(biosmod_gui::desktop::flash_summary(window, &check));
+}
+
 fn capture(window: &AppWindow, dir: &Path, name: &str) {
     let pixels = window.window().take_snapshot().unwrap();
     let file = std::fs::File::create(dir.join(format!("{name}.png"))).unwrap();
@@ -202,6 +224,9 @@ fn gallery_states_build_and_capture() {
     window.set_stage(1);
     window.set_page(4);
     shot("9-settings");
+    populate_flash(&window);
+    window.set_page(5);
+    shot("11-flash-chip");
     window.set_page(0);
     let key = |text: slint::SharedString| {
         window
@@ -455,4 +480,82 @@ fn resizing_open_paths_preserves_the_minimum_window() {
             height - 44
         );
     }
+}
+
+/// Every flash chip control stays inside the minimum window, above the status bar,
+/// in both languages; the page adds a navigation tab to an already full header.
+#[test]
+fn flash_page_fits_the_minimum_window() {
+    i_slint_backend_testing::init_no_event_loop();
+    for (language, labels) in [
+        (
+            biosmod_gui::i18n::Language::En,
+            [
+                "Flash chip",
+                "Diagnostics",
+                "Find chip",
+                "Ask for administrator rights",
+                "Back up chip",
+                "Check the image against the chip",
+                "I can recover this board if it does not start",
+            ],
+        ),
+        (
+            biosmod_gui::i18n::Language::PtBr,
+            [
+                "Gravar chip",
+                "Diagnósticos",
+                "Localizar chip",
+                "Pedir direitos de administrador",
+                "Fazer backup do chip",
+                "Conferir a imagem com o chip",
+                "Consigo recuperar esta placa se ela não iniciar",
+            ],
+        ),
+    ] {
+        let window = AppWindow::new().unwrap();
+        language.select().unwrap();
+        window
+            .window()
+            .set_size(slint::LogicalSize::new(760.0, 600.0));
+        window.show().unwrap();
+        slint::platform::update_timers_and_animations();
+        populate(&window);
+        populate_flash(&window);
+        window.set_page(5);
+        for label in labels {
+            let elements: Vec<ElementHandle> =
+                ElementHandle::find_by_accessible_label(&window, label).collect();
+            assert!(
+                !elements.is_empty(),
+                "(flash page, {language:?}): expected control {label:?} | received: none"
+            );
+            for element in elements {
+                let position = element.absolute_position();
+                let size = element.size();
+                assert!(
+                    position.x >= 0.0 && position.x + size.width <= 760.5,
+                    "(flash page, {language:?}): expected {label:?} inside 0..760 | received: {}..{}",
+                    position.x,
+                    position.x + size.width
+                );
+                assert!(
+                    position.y + size.height <= 600.0 - 44.0 + 0.5,
+                    "(flash page, {language:?}): expected {label:?} bottom <= 556 above the status bar | received: {}",
+                    position.y + size.height
+                );
+            }
+        }
+        let actual = window
+            .window()
+            .size()
+            .to_logical(window.window().scale_factor());
+        assert_eq!(
+            (actual.width, actual.height),
+            (760.0, 600.0),
+            "(flash page, {language:?}): expected the minimum window to hold the page"
+        );
+        window.hide().unwrap();
+    }
+    biosmod_gui::i18n::Language::En.select().unwrap();
 }

@@ -1,4 +1,4 @@
-import { AboutSlint, Button, ComboBox, LineEdit, ListView, Palette, Spinner, TextEdit } from "std-widgets.slint";
+import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ListView, Palette, Spinner, TextEdit } from "std-widgets.slint";
 import { PatchCard, PatchRow } from "patch-card.slint";
 import { Stepper } from "stepper.slint";
 import { Theme } from "theme.slint";
@@ -53,6 +53,16 @@ export component AppWindow inherits Window {
     in property <int> selection-count;
     in property <bool> can-verify;
     in property <int> stage;
+    in property <bool> flash-supported;
+    in-out property <string> flash-programmer: "internal";
+    in-out property <bool> flash-elevate: true;
+    in-out property <string> flash-backup-path;
+    in-out property <string> flash-image-path;
+    in-out property <bool> flash-whole-chip;
+    in-out property <bool> flash-acknowledged;
+    in property <string> flash-details;
+    in property <bool> flash-checked;
+    in property <bool> can-flash-write;
     in-out property <int> theme-choice: 0;
     in-out property <int> language-index: 0;
     in-out property <int> page: 0;
@@ -108,6 +118,21 @@ export component AppWindow inherits Window {
     callback open-output-path(string);
     callback export-plan();
     callback export-plan-path(string);
+    callback flash-programmer-edited(string);
+    callback flash-backup-edited(string);
+    callback flash-image-edited(string);
+    callback flash-elevate-changed(bool);
+    callback flash-whole-chip-changed(bool);
+    callback flash-acknowledged-changed(bool);
+    callback browse-flash-backup-new();
+    callback browse-flash-backup();
+    callback browse-flash-image();
+    callback flash-doctor();
+    callback flash-probe();
+    callback flash-backup();
+    callback flash-check();
+    callback flash-write();
+    callback flash-output();
 
     public function apply-theme() {
         Palette.color-scheme = root.theme-choice == 1 ? ColorScheme.light : root.theme-choice == 2 ? ColorScheme.dark : ColorScheme.unknown;
@@ -136,6 +161,7 @@ export component AppWindow inherits Window {
                     if root.viewport-width >= 1200px: Text { text: @tr("BIOS Mod Engine"); font-size: Theme.font-heading; font-weight: 700; color: Theme.text; vertical-alignment: center; }
                     Rectangle { width: Theme.space-md; }
                     NavTab { text: @tr("Workflow"); selected: root.page == 0; activated => { root.page = 0; } }
+                    NavTab { text: @tr("Flash chip"); selected: root.page == 5; activated => { root.page = 5; } }
                     NavTab { text: @tr("Sources & tools"); selected: root.page == 1; activated => { root.page = 1; } }
                     NavTab { text: @tr("Diagnostics"); selected: root.page == 2; activated => { root.page = 2; } }
                     Rectangle { horizontal-stretch: 1; }
@@ -363,8 +389,94 @@ export component AppWindow inherits Window {
                     spacing: Theme.space-sm;
                     Caption { text: @tr("Offline verification does not establish hardware boot behavior."); vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
+                    if root.flash-supported && root.output-path != "": Button { text: @tr("Flash this output…"); enabled: !root.busy; clicked => { root.flash-output(); } }
                     Button { text: @tr("Verify output"); primary: true; enabled: root.can-verify && !root.busy; clicked => { root.verify(); } }
                 }
+            }
+        }
+        if root.page == 5: VerticalLayout {
+            padding-left: root.gutter;
+            padding-right: root.gutter;
+            padding-top: Theme.space-md;
+            padding-bottom: Theme.space-md;
+            spacing: Theme.space-sm;
+            HorizontalLayout {
+                spacing: Theme.space-sm;
+                SectionTitle { text: @tr("System flash chip"); vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: @tr("Diagnose"); enabled: root.flash-supported && !root.busy; clicked => { root.flash-doctor(); } }
+                Button { text: @tr("Find chip"); enabled: root.flash-supported && !root.busy; clicked => { root.flash-probe(); } }
+            }
+            Caption { text: root.flash-supported ? @tr("Reads and writes the firmware chip through flashrom on Linux. A bad or interrupted write leaves a board that does not start: only flash if you can recover with an external programmer and the backup.") : @tr("The connected bme engine has no flash chip commands. Use the bundled engine."); }
+            Rectangle {
+                background: Theme.surface;
+                border-color: Theme.border;
+                border-width: 1px;
+                border-radius: Theme.radius;
+                height: flash-layout.preferred-height;
+                flash-layout := VerticalLayout {
+                    padding: Theme.space-md;
+                    spacing: Theme.space-sm;
+                    FieldRow {
+                        label: @tr("Programmer");
+                        LineEdit {
+                            placeholder-text: @tr("internal, ch341a_spi, linux_mtd:dev=0…");
+                            accessible-label: @tr("flashrom programmer");
+                            text <=> root.flash-programmer;
+                            enabled: !root.busy;
+                            edited(value) => { root.flash-programmer-edited(value); }
+                        }
+                        CheckBox {
+                            text: @tr("Ask for administrator rights");
+                            checked <=> root.flash-elevate;
+                            enabled: !root.busy;
+                            toggled => { root.flash-elevate-changed(self.checked); }
+                        }
+                    }
+                    FieldRow {
+                        label: @tr("Backup");
+                        LineEdit {
+                            placeholder-text: @tr("Chip backup file path");
+                            accessible-label: @tr("Chip backup file path");
+                            text <=> root.flash-backup-path;
+                            enabled: !root.busy;
+                            edited(value) => { root.flash-backup-edited(value); }
+                        }
+                        Button { text: @tr("New…"); accessible-label: @tr("Choose a new backup file"); enabled: !root.busy; clicked => { root.browse-flash-backup-new(); } }
+                        Button { text: @tr("Open…"); accessible-label: @tr("Open an existing backup"); enabled: !root.busy; clicked => { root.browse-flash-backup(); } }
+                        Button { text: @tr("Back up chip"); enabled: root.flash-supported && root.flash-backup-path != "" && !root.busy; clicked => { root.flash-backup(); } }
+                    }
+                    FieldRow {
+                        label: @tr("Image");
+                        LineEdit {
+                            placeholder-text: @tr("Image to write, built from the backup");
+                            accessible-label: @tr("Image to write");
+                            text <=> root.flash-image-path;
+                            enabled: !root.busy;
+                            edited(value) => { root.flash-image-edited(value); }
+                        }
+                        Button { text: @tr("Browse…"); accessible-label: @tr("Choose the image to write"); enabled: !root.busy; clicked => { root.browse-flash-image(); } }
+                        CheckBox {
+                            text: @tr("Whole chip");
+                            checked <=> root.flash-whole-chip;
+                            enabled: !root.busy;
+                            toggled => { root.flash-whole-chip-changed(self.checked); }
+                        }
+                        Button { text: @tr("Check"); accessible-label: @tr("Check the image against the chip"); enabled: root.flash-supported && root.flash-backup-path != "" && root.flash-image-path != "" && !root.busy; clicked => { root.flash-check(); } }
+                    }
+                }
+            }
+            TextEdit { text: root.flash-details; placeholder-text: @tr("Diagnose the system, find the chip, back it up, then check an image built from that backup."); read-only: true; min-height: 60px; vertical-stretch: 1; accessible-label: @tr("Flash chip results"); }
+            HorizontalLayout {
+                spacing: Theme.space-sm;
+                CheckBox {
+                    text: @tr("I can recover this board if it does not start");
+                    checked <=> root.flash-acknowledged;
+                    enabled: root.flash-checked && !root.busy;
+                    toggled => { root.flash-acknowledged-changed(self.checked); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: @tr("Flash chip"); primary: root.can-flash-write; enabled: root.can-flash-write && !root.busy; clicked => { root.flash-write(); } }
             }
         }
         if root.page == 1: VerticalLayout {
