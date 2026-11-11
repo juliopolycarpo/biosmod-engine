@@ -321,9 +321,19 @@ pub enum ToolsCommand {
         #[arg(long)]
         deep: bool,
     },
+    /// Show every tool bme uses: version, location, and how to install what is missing.
+    Status,
     /// Install pinned tools (Linux only for now).
     #[command(subcommand)]
     Setup(SetupCommand),
+    /// Use an existing copy of a tool and remember it in the configuration.
+    Set {
+        tool: toolchain::Locatable,
+        /// Ghidra installation directory, or the flashrom executable.
+        path: PathBuf,
+    },
+    /// Forget a saved tool location and go back to the default lookup.
+    Unset { tool: toolchain::Locatable },
     /// Import modules into a Ghidra project and export C, assembly and JSON.
     Analyze {
         #[arg(long)]
@@ -372,6 +382,24 @@ pub struct FlashTargetArgs {
     /// flashrom chip definition, when probing reports several.
     #[arg(long, short)]
     pub chip: Option<String>,
+    /// flashrom executable to use (default: BME_FLASHROM, `bme tools set flashrom`, then PATH).
+    #[arg(long, value_name = "PATH")]
+    pub flashrom: Option<PathBuf>,
+}
+
+impl FlashCommand {
+    /// The `--flashrom` executable named on the command line, if any.
+    ///
+    /// Example: `bme flash probe --flashrom /opt/fr/flashrom` yields `/opt/fr/flashrom`.
+    pub fn flashrom_override(&self) -> Option<&PathBuf> {
+        match self {
+            FlashCommand::Doctor { flashrom, .. } => flashrom.as_ref(),
+            FlashCommand::Probe(target) | FlashCommand::Backup { target, .. } => {
+                target.flashrom.as_ref()
+            }
+            FlashCommand::Write(args) => args.target.flashrom.as_ref(),
+        }
+    }
 }
 
 #[derive(Args)]
@@ -404,6 +432,9 @@ pub enum FlashCommand {
         /// The flashrom programmer you plan to use.
         #[arg(long, short, default_value = "internal")]
         programmer: String,
+        /// flashrom executable to use (default: BME_FLASHROM, `bme tools set flashrom`, then PATH).
+        #[arg(long, value_name = "PATH")]
+        flashrom: Option<PathBuf>,
     },
     /// Detect the flash chip without reading it.
     Probe(FlashTargetArgs),
@@ -458,6 +489,9 @@ fn command_name(command: &Command) -> &'static str {
         },
         Command::Tools(t) => match t {
             ToolsCommand::Doctor { .. } => "tools doctor",
+            ToolsCommand::Status => "tools status",
+            ToolsCommand::Set { .. } => "tools set",
+            ToolsCommand::Unset { .. } => "tools unset",
             ToolsCommand::Setup(_) => "tools setup ghidra",
             ToolsCommand::Analyze { .. } => "tools analyze",
             ToolsCommand::Paths => "tools paths",

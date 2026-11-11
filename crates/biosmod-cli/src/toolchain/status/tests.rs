@@ -1,0 +1,477 @@
+//! Status tests. Programs are answered by `FakeInstalledTools`; nothing real runs.
+
+use super::*;
+use crate::config::{Config, Paths};
+use crate::output::Out;
+use crate::toolchain::{Finished, Profile};
+use crate::transport::Offline;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+
+const UBUNTU: &str = "NAME=\"Ubuntu\"\nID=ubuntu\nID_LIKE=debian\n";
+const FEDORA: &str = "ID=fedora\n";
+const ARCH: &str = "ID=arch\n";
+const MINT: &str = "ID=linuxmint\nID_LIKE=\"ubuntu debian\"\n";
+
+/// Answers `--version` style calls by program file name and records the full command lines.
+struct FakeInstalledTools {
+    answers: BTreeMap<&'static str, &'static str>,
+    calls: RefCell<Vec<String>>,
+}
+
+impl FakeInstalledTools {
+    fn complete() -> FakeInstalledTools {
+        FakeInstalledTools {
+            answers: BTreeMap::from([
+                ("java", "openjdk version \"21.0.5\" 2026-10-21"),
+                ("javac", "javac 21.0.5"),
+                ("git", "git version 2.53.0"),
+                ("flashrom", "flashrom v1.6.0 on Linux 7.0 (x86_64)"),
+            ]),
+            calls: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn without(mut self, program: &'static str) -> FakeInstalledTools {
+        self.answers.remove(program);
+        self
+    }
+
+    fn answering(mut self, program: &'static str, text: &'static str) -> FakeInstalledTools {
+        self.answers.insert(program, text);
+        self
+    }
+}
+
+impl Runner for FakeInstalledTools {
+    fn run(&self, invocation: &Invocation) -> Result<Finished> {
+        let name = invocation
+            .program
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        self.calls.borrow_mut().push(format!(
+            "{} {}",
+            invocation.program.display(),
+            invocation.words().join(" ")
+        ));
+        match self.answers.get(name.as_str()) {
+            Some(text) => Ok(Finished {
+                status: Some(0),
+                stdout: if name == "java" || name == "javac" {
+                    String::new()
+                } else {
+                    (*text).into()
+                },
+                stderr: if name == "java" || name == "javac" {
+                    (*text).into()
+                } else {
+                    String::new()
+                },
+                ..Finished::default()
+            }),
+            None => Err(Error::new(
+                Code::ToolUnavailable,
+                format!("{name}: not found"),
+            )),
+        }
+    }
+}
+
+/// A Ghidra directory with a headless script, version file and extension data.
+fn ghidra_directory(root: &Path, version: &str) -> PathBuf {
+    let home = root.join("ghidra");
+    fs::create_dir_all(home.join("support")).unwrap();
+    fs::write(home.join("support/analyzeHeadless"), "#!/bin/sh\n").unwrap();
+    fs::create_dir_all(home.join("Ghidra")).unwrap();
+    fs::write(
+        home.join("Ghidra/application.properties"),
+        format!("application.version={version}\n"),
+    )
+    .unwrap();
+    let extension = home.join("Ghidra/Extensions/ghidra-firmware-utils");
+    fs::create_dir_all(extension.join("data")).unwrap();
+    fs::write(
+        extension.join("extension.properties"),
+        format!("version={version}\n"),
+    )
+    .unwrap();
+    home
+}
+
+struct Scene {
+    root: tempfile::TempDir,
+    runner: FakeInstalledTools,
+    variables: BTreeMap<&'static str, OsString>,
+    configured_flashrom: Option<PathBuf>,
+    os_release: &'static str,
+}
+
+impl Scene {
+    fn new(runner: FakeInstalledTools) -> Scene {
+        Scene {
+            root: tempfile::tempdir().unwrap(),
+            runner,
+            variables: BTreeMap::new(),
+            configured_flashrom: None,
+            os_release: UBUNTU,
+        }
+    }
+
+    fn rows(&self, ghidra: &GhidraHome) -> Vec<ToolRow> {
+        let env = Env {
+            runner: &self.runner,
+            transport: &Offline,
+            offline: false,
+            data: self.root.path().join("data"),
+            cache: self.root.path().join("cache"),
+            profile: Profile::pinned(),
+        };
+        let get = |key: &str| self.variables.get(key).cloned();
+        status(&Probe {
+            env: &env,
+            ghidra,
+            get: &get,
+            flashrom: self.configured_flashrom.as_deref(),
+            sbin: &[],
+            os_release: Some(self.os_release),
+        })
+    }
+}
+
+fn row<'a>(rows: &'a [ToolRow], id: &str) -> &'a ToolRow {
+    rows.iter().find(|r| r.id == id).unwrap_or_else(|| {
+        panic!(
+            "(tools status): expected row {id} | received {:?}",
+            rows.iter().map(|r| r.id).collect::<Vec<_>>()
+        )
+    })
+}
+
+fn pinned_ghidra(scene: &Scene) -> GhidraHome {
+    GhidraHome {
+        path: ghidra_directory(scene.root.path(), "12.2"),
+        origin: "managed",
+    }
+}
+
+#[test]
+fn package_commands_follow_the_distribution_family() {
+    let command = |text, package| package_command(text, package);
+    assert_eq!(
+        command(UBUNTU, Package::Flashrom).as_deref(),
+        Some("sudo apt install flashrom")
+    );
+    assert_eq!(
+        command(MINT, Package::Git).as_deref(),
+        Some("sudo apt install git")
+    );
+    assert_eq!(
+        command(UBUNTU, Package::Jdk(21)).as_deref(),
+        Some("sudo apt install openjdk-21-jdk")
+    );
+    assert_eq!(
+        command(FEDORA, Package::Jdk(21)).as_deref(),
+        Some("sudo dnf install java-21-openjdk-devel")
+    );
+    assert_eq!(
+        command(ARCH, Package::Flashrom).as_deref(),
+        Some("sudo pacman -S flashrom")
+    );
+    assert_eq!(command("ID=plan9\n", Package::Git), None);
+}
+
+#[test]
+fn a_complete_installation_is_ready_with_versions_and_locations() {
+    let mut scene = Scene::new(FakeInstalledTools::complete());
+    scene.configured_flashrom = Some("/opt/fr/flashrom".into());
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    for row in &rows {
+        assert_eq!(
+            row.health,
+            Health::Ready,
+            "(tools status) {}: {}",
+            row.id,
+            row.detail
+        );
+    }
+    assert_eq!(row(&rows, "ghidra").version.as_deref(), Some("12.2"));
+    assert_eq!(row(&rows, "git").version.as_deref(), Some("2.53.0"));
+    assert_eq!(row(&rows, "flashrom").version.as_deref(), Some("1.6.0"));
+    assert!(render(&rows).ends_with("Every tool is ready.\n"));
+}
+
+#[test]
+fn a_missing_flashrom_offers_the_distribution_command_and_a_custom_location() {
+    let scene = Scene::new(FakeInstalledTools::complete());
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    let flashrom = row(&rows, "flashrom");
+    assert_eq!(flashrom.health, Health::Missing);
+    assert_eq!(flashrom.origin, "none");
+    assert_eq!(
+        flashrom.install.command.as_deref(),
+        Some("sudo apt install flashrom")
+    );
+    assert!(!flashrom.install.automatic, "bme never runs sudo itself");
+    assert!(flashrom.custom_location);
+    let text = render(&rows);
+    assert!(
+        text.contains("install:  sudo apt install flashrom"),
+        "{text}"
+    );
+    assert!(text.contains("bme tools set flashrom <path>"), "{text}");
+}
+
+#[test]
+fn a_missing_ghidra_marks_the_extension_missing_and_points_to_setup() {
+    let scene = Scene::new(FakeInstalledTools::complete());
+    let absent = GhidraHome {
+        path: scene.root.path().join("no-ghidra"),
+        origin: "managed",
+    };
+    let rows = scene.rows(&absent);
+    assert_eq!(row(&rows, "ghidra").health, Health::Missing);
+    assert_eq!(row(&rows, "firmware-utils").health, Health::Missing);
+    assert_eq!(row(&rows, "firmware-utils").detail, "needs Ghidra first");
+    assert_eq!(
+        row(&rows, "ghidra").install.command.as_deref(),
+        Some("bme tools setup ghidra")
+    );
+    assert_eq!(row(&rows, "ghidra").install.method, "bme");
+}
+
+#[test]
+fn another_ghidra_release_needs_attention_not_a_failure() {
+    let scene = Scene::new(FakeInstalledTools::complete());
+    let other = GhidraHome {
+        path: ghidra_directory(scene.root.path(), "11.0"),
+        origin: "config",
+    };
+    let rows = scene.rows(&other);
+    let ghidra = row(&rows, "ghidra");
+    assert_eq!(ghidra.health, Health::Attention);
+    assert_eq!(ghidra.version.as_deref(), Some("11.0"));
+    assert_eq!(ghidra.origin, "config");
+    assert!(
+        ghidra.detail.contains("expected 12.2 | received 11.0"),
+        "{}",
+        ghidra.detail
+    );
+}
+
+#[test]
+fn flashrom_location_prefers_the_environment_then_the_configuration_then_path() {
+    let mut scene = Scene::new(FakeInstalledTools::complete());
+    let ghidra = pinned_ghidra(&scene);
+    let bin = scene.root.path().join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    fs::write(bin.join("flashrom"), "").unwrap();
+    scene.variables.insert("PATH", bin.clone().into_os_string());
+    let rows = scene.rows(&ghidra);
+    assert_eq!(row(&rows, "flashrom").origin, "PATH");
+
+    scene.configured_flashrom = Some("/opt/fr/flashrom".into());
+    let rows = scene.rows(&ghidra);
+    assert_eq!(row(&rows, "flashrom").origin, "config");
+    assert_eq!(
+        row(&rows, "flashrom").path.as_deref(),
+        Some("/opt/fr/flashrom")
+    );
+
+    scene
+        .variables
+        .insert("BME_FLASHROM", "/env/flashrom".into());
+    let rows = scene.rows(&ghidra);
+    assert_eq!(row(&rows, "flashrom").origin, "BME_FLASHROM");
+    assert_eq!(
+        row(&rows, "flashrom").path.as_deref(),
+        Some("/env/flashrom")
+    );
+}
+
+#[test]
+fn a_program_without_the_flashrom_banner_needs_attention() {
+    let mut scene = Scene::new(FakeInstalledTools::complete().answering("flashrom", "hello"));
+    scene.configured_flashrom = Some("/opt/fr/flashrom".into());
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    let flashrom = row(&rows, "flashrom");
+    assert_eq!(flashrom.health, Health::Attention);
+    assert!(
+        flashrom
+            .detail
+            .contains("expected a `flashrom v<version>` banner | received hello"),
+        "{}",
+        flashrom.detail
+    );
+}
+
+#[test]
+fn missing_java_and_git_get_install_commands_for_this_distribution() {
+    let mut scene = Scene::new(
+        FakeInstalledTools::complete()
+            .without("java")
+            .without("javac")
+            .without("git"),
+    );
+    scene.os_release = FEDORA;
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    assert_eq!(row(&rows, "java").health, Health::Missing);
+    assert_eq!(
+        row(&rows, "jdk").install.command.as_deref(),
+        Some("sudo dnf install java-21-openjdk-devel")
+    );
+    assert_eq!(
+        row(&rows, "git").install.command.as_deref(),
+        Some("sudo dnf install git")
+    );
+}
+
+#[test]
+fn an_unknown_distribution_gets_a_generic_hint() {
+    let mut scene = Scene::new(FakeInstalledTools::complete().without("git"));
+    scene.os_release = "ID=plan9\n";
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    assert_eq!(row(&rows, "git").install.command, None);
+    assert!(render(&rows).contains("install:  use your package manager"));
+}
+
+/// A context over a temporary configuration directory.
+fn context(root: &Path) -> Ctx {
+    let paths = Paths {
+        config: root.join("config"),
+        cache: root.join("cache"),
+        data: root.join("data"),
+    };
+    Ctx {
+        out: Out {
+            json: true,
+            quiet: true,
+        },
+        offline: false,
+        paths,
+        config: Config::default(),
+    }
+}
+
+fn executable(path: &Path) {
+    fs::write(path, "#!/bin/sh\n").unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn set_saves_a_validated_flashrom_and_unset_removes_it() {
+    let root = tempfile::tempdir().unwrap();
+    let ctx = context(root.path());
+    let program = root.path().join("flashrom");
+    executable(&program);
+    let reply = set(
+        &ctx,
+        &FakeInstalledTools::complete(),
+        Locatable::Flashrom,
+        &program,
+    )
+    .unwrap();
+    assert_eq!(reply.data["version"], "1.6.0");
+    let saved = Config::load(&ctx.paths).unwrap();
+    assert_eq!(saved.tools.flashrom.as_deref(), Some(program.as_path()));
+
+    let ctx = Ctx {
+        config: saved,
+        ..ctx
+    };
+    let reply = unset(&ctx, Locatable::Flashrom).unwrap();
+    assert_eq!(reply.data["previous"], program.to_string_lossy().as_ref());
+    assert_eq!(Config::load(&ctx.paths).unwrap().tools.flashrom, None);
+    let ctx = Ctx {
+        config: Config::load(&ctx.paths).unwrap(),
+        ..ctx
+    };
+    let again = unset(&ctx, Locatable::Flashrom).unwrap();
+    assert_eq!(again.text, "flashrom had no saved location\n");
+}
+
+#[test]
+fn set_rejects_a_flashrom_path_that_is_not_a_file() {
+    let root = tempfile::tempdir().unwrap();
+    let ctx = context(root.path());
+    let missing = root.path().join("absent");
+    let error = set(
+        &ctx,
+        &FakeInstalledTools::complete(),
+        Locatable::Flashrom,
+        &missing,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, Code::Usage);
+    assert!(
+        error
+            .message
+            .contains("expected an executable file | received none"),
+        "{}",
+        error.message
+    );
+    assert!(
+        !ctx.paths.config_file().exists(),
+        "a rejected value must not be saved"
+    );
+}
+
+#[test]
+fn set_rejects_a_program_that_is_not_flashrom() {
+    let root = tempfile::tempdir().unwrap();
+    let ctx = context(root.path());
+    let program = root.path().join("flashrom");
+    executable(&program);
+    let impostor = FakeInstalledTools::complete().answering("flashrom", "bash 5.2");
+    let error = set(&ctx, &impostor, Locatable::Flashrom, &program).unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("expected a `flashrom v<version>` banner | received bash 5.2"),
+        "{}",
+        error.message
+    );
+    assert!(!ctx.paths.config_file().exists());
+}
+
+#[test]
+fn set_ghidra_needs_the_headless_script() {
+    let root = tempfile::tempdir().unwrap();
+    let ctx = context(root.path());
+    let empty = root.path().join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let error = set(
+        &ctx,
+        &FakeInstalledTools::complete(),
+        Locatable::Ghidra,
+        &empty,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("expected an installation containing support/analyzeHeadless"),
+        "{}",
+        error.message
+    );
+    let home = ghidra_directory(root.path(), "12.2");
+    let reply = set(
+        &ctx,
+        &FakeInstalledTools::complete(),
+        Locatable::Ghidra,
+        &home,
+    )
+    .unwrap();
+    assert_eq!(reply.data["version"], "12.2");
+    assert_eq!(
+        Config::load(&ctx.paths)
+            .unwrap()
+            .tools
+            .ghidra_home
+            .as_deref(),
+        Some(home.as_path())
+    );
+}

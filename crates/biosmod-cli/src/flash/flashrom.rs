@@ -15,7 +15,7 @@ use std::time::Duration;
 pub const FLASHROM_OVERRIDE: &str = "BME_FLASHROM";
 
 /// Directories searched after `PATH`: unprivileged shells often lack the sbin directories.
-const SBIN_DIRECTORIES: [&str; 3] = ["/usr/sbin", "/sbin", "/usr/local/sbin"];
+pub const SBIN_DIRECTORIES: [&str; 3] = ["/usr/sbin", "/sbin", "/usr/local/sbin"];
 
 /// A full read of a 16 MiB chip takes minutes on a CH341A.
 const READ_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -23,19 +23,60 @@ const READ_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Find flashrom: `BME_FLASHROM`, then `PATH`, then the sbin directories.
+/// Where the flashrom executable was found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlashromOrigin {
+    /// The `BME_FLASHROM` environment variable.
+    Environment,
+    /// `tools.flashrom` in the per-user configuration.
+    Config,
+    /// `PATH` or one of the sbin directories.
+    Path,
+}
+
+impl FlashromOrigin {
+    /// The label shown in `tools status`.
+    pub fn label(self) -> &'static str {
+        match self {
+            FlashromOrigin::Environment => FLASHROM_OVERRIDE,
+            FlashromOrigin::Config => "config",
+            FlashromOrigin::Path => "PATH",
+        }
+    }
+}
+
+/// Find flashrom: `BME_FLASHROM`, then the configured path, then `PATH`, then the sbin directories.
 ///
-/// Example: `locate_flashrom(&|key| std::env::var_os(key))` returns `/usr/sbin/flashrom` on Ubuntu.
-pub fn locate_flashrom(get: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+/// Example: `resolve_flashrom(&|_| None, Some(Path::new("/opt/fr/flashrom")))` returns that path
+/// with [`FlashromOrigin::Config`] when no environment override is set.
+pub fn resolve_flashrom(
+    get: &dyn Fn(&str) -> Option<OsString>,
+    configured: Option<&Path>,
+) -> Option<(PathBuf, FlashromOrigin)> {
+    resolve_flashrom_in(get, configured, &SBIN_DIRECTORIES)
+}
+
+/// [`resolve_flashrom`] with the directories searched after `PATH` named by the caller.
+///
+/// Example: `resolve_flashrom_in(&|_| None, None, &[])` is `None` on every host.
+pub fn resolve_flashrom_in(
+    get: &dyn Fn(&str) -> Option<OsString>,
+    configured: Option<&Path>,
+    sbin: &[&str],
+) -> Option<(PathBuf, FlashromOrigin)> {
     if let Some(chosen) = get(FLASHROM_OVERRIDE).filter(|value| !value.is_empty()) {
-        return Some(PathBuf::from(chosen));
+        return Some((PathBuf::from(chosen), FlashromOrigin::Environment));
+    }
+    if let Some(chosen) = configured {
+        return Some((chosen.to_path_buf(), FlashromOrigin::Config));
     }
     let name = format!("flashrom{}", std::env::consts::EXE_SUFFIX);
     let path = get("PATH").unwrap_or_default();
     std::env::split_paths(&path)
-        .chain(SBIN_DIRECTORIES.iter().map(PathBuf::from))
+        .chain(sbin.iter().map(PathBuf::from))
         .map(|directory| directory.join(&name))
         .find(|candidate| candidate.is_file())
+        .map(|found| (found, FlashromOrigin::Path))
 }
 
 /// Accept a flashrom programmer such as `internal`, `ch341a_spi` or `linux_mtd:dev=0`.

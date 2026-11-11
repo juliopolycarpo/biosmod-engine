@@ -7,12 +7,14 @@
 
 mod archive;
 mod runner;
+mod status;
 // Setup is Linux-only for now; the fakes model a Unix layout.
 #[cfg(all(test, unix))]
 mod tests;
 
 pub use archive::{Limits, extract_zip};
 pub use runner::{Finished, Invocation, Runner, System};
+pub use status::{Locatable, run_status, set, unset};
 
 use crate::commands::Ctx;
 use crate::config::{Config, io_error, write_atomic};
@@ -244,19 +246,31 @@ fn java_check(runner: &dyn Runner, program: &'static str, min: u32) -> Check {
     }
 }
 
+/// The Ghidra release recorded in `home`, from `Ghidra/application.properties`.
+pub fn ghidra_version(home: &Path) -> Option<String> {
+    property(
+        &home.join("Ghidra/application.properties"),
+        "application.version",
+    )
+}
+
 /// Read-only installation checks.
 pub fn inspect(env: &Env, home: &GhidraHome) -> Vec<Check> {
     let mut checks = vec![java_check(env.runner, "java", env.profile.java_min)];
+    checks.extend(ghidra_checks(env, home));
+    checks
+}
+
+/// Checks of the Ghidra directory, its version and the firmware-utils extension.
+fn ghidra_checks(env: &Env, home: &GhidraHome) -> Vec<Check> {
+    let mut checks = Vec::new();
     let script = headless(&home.path);
     checks.push(check(
         "ghidra",
         script.is_file(),
         format!("{} ({})", home.path.display(), home.origin),
     ));
-    let version = property(
-        &home.path.join("Ghidra/application.properties"),
-        "application.version",
-    );
+    let version = ghidra_version(&home.path);
     let version_ok = version.as_deref() == Some(env.profile.ghidra_version.as_str());
     let detail = match &version {
         Some(v) if version_ok => v.clone(),

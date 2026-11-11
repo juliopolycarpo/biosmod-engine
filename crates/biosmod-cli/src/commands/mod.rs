@@ -85,6 +85,9 @@ fn tools(ctx: &Ctx, command: ToolsCommand) -> Result<Reply> {
     use crate::toolchain;
     match command {
         ToolsCommand::Doctor { deep } => toolchain::doctor(ctx, deep),
+        ToolsCommand::Status => toolchain::run_status(ctx),
+        ToolsCommand::Set { tool, path } => toolchain::set(ctx, &toolchain::System, tool, &path),
+        ToolsCommand::Unset { tool } => toolchain::unset(ctx, tool),
         ToolsCommand::Setup(crate::SetupCommand::Ghidra(args)) => toolchain::setup(ctx, &args),
         ToolsCommand::Analyze {
             project,

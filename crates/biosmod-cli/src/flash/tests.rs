@@ -2,7 +2,7 @@
 //! through `FakeFlashChip` and system facts come from a `FakeSysfs` directory tree.
 
 use super::flashrom::{
-    layout_text, parse_chips, parse_version, validate_chip, validate_programmer,
+    FlashromOrigin, layout_text, parse_chips, parse_version, validate_chip, validate_programmer,
 };
 use super::host::{board_matches, describe_chip};
 use super::*;
@@ -234,6 +234,7 @@ fn target_args(programmer: &str) -> FlashTargetArgs {
     FlashTargetArgs {
         programmer: programmer.into(),
         chip: None,
+        flashrom: None,
     }
 }
 
@@ -416,18 +417,32 @@ fn command_lines_name_programmer_chip_and_regions() {
 }
 
 #[test]
-fn flashrom_is_found_by_override_then_path() {
+fn flashrom_is_found_by_override_then_config_then_path() {
     let directory = tempfile::tempdir().unwrap();
     let name = format!("flashrom{}", std::env::consts::EXE_SUFFIX);
     fs::write(directory.path().join(&name), "").unwrap();
     let path = directory.path().as_os_str().to_os_string();
-    let from_path = locate_flashrom(&|key| (key == "PATH").then(|| path.clone()));
-    assert_eq!(from_path, Some(directory.path().join(&name)));
-    let overridden = locate_flashrom(&|key| match key {
+    let configured = Path::new("/opt/configured/flashrom");
+    let on_path = |key: &str| (key == "PATH").then(|| path.clone());
+    assert_eq!(
+        resolve_flashrom(&on_path, None),
+        Some((directory.path().join(&name), FlashromOrigin::Path)),
+        "PATH lookup"
+    );
+    assert_eq!(
+        resolve_flashrom(&on_path, Some(configured)),
+        Some((configured.to_path_buf(), FlashromOrigin::Config)),
+        "configuration beats PATH"
+    );
+    let overridden = |key: &str| match key {
         "BME_FLASHROM" => Some("/opt/flashrom".into()),
         _ => Some(path.clone()),
-    });
-    assert_eq!(overridden, Some(PathBuf::from("/opt/flashrom")));
+    };
+    assert_eq!(
+        resolve_flashrom(&overridden, Some(configured)),
+        Some((PathBuf::from("/opt/flashrom"), FlashromOrigin::Environment)),
+        "BME_FLASHROM beats configuration"
+    );
 }
 
 #[test]
@@ -630,6 +645,7 @@ fn chip_commands_are_refused_outside_linux() {
         &env,
         FlashCommand::Doctor {
             programmer: "internal".into(),
+            flashrom: None,
         },
     )
     .unwrap();

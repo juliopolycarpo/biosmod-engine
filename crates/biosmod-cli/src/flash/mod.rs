@@ -10,11 +10,14 @@ mod host;
 #[cfg(all(test, unix))]
 mod tests;
 
-pub use flashrom::{Chip, Operation, Selection, Target, locate_flashrom};
+pub use flashrom::{
+    Chip, FLASHROM_OVERRIDE, Operation, SBIN_DIRECTORIES, Selection, Target, parse_version,
+    resolve_flashrom, resolve_flashrom_in,
+};
 pub use host::{Flashrom, Host, State};
 
 use crate::commands::{MAX_IMAGE_BYTES, read_bounded};
-use crate::config::io_error;
+use crate::config::{Config, io_error};
 use crate::output::{Out, Reply, display_path, table};
 use crate::publish::{check_outputs, publish_file};
 use crate::toolchain::{Finished, Runner};
@@ -48,12 +51,26 @@ pub struct Env<'a> {
 }
 
 /// Run one `flash` subcommand against the real system.
+///
+/// flashrom is chosen by `--flashrom`, then `BME_FLASHROM`, then `tools.flashrom` from the
+/// configuration, then `PATH`. Root (sudo, pkexec) never reads configuration, because the home
+/// directory is root's: pass `--flashrom` or `BME_FLASHROM` there.
 pub fn run(out: Out, command: FlashCommand) -> Result<Reply> {
     let variable = |key: &str| std::env::var_os(key);
+    let host = Host::current();
+    let configured = if host.euid == Some(0) {
+        None
+    } else {
+        configured_flashrom(&out)
+    };
+    let flashrom = command
+        .flashrom_override()
+        .cloned()
+        .or_else(|| resolve_flashrom(&variable, configured.as_deref()).map(|(path, _)| path));
     let env = Env {
         runner: &crate::toolchain::System,
-        host: Host::current(),
-        flashrom: locate_flashrom(&variable),
+        host,
+        flashrom,
         out,
         variable: &variable,
         boards: bundled_boards(),
@@ -61,10 +78,22 @@ pub fn run(out: Out, command: FlashCommand) -> Result<Reply> {
     dispatch(&env, command)
 }
 
+/// `tools.flashrom` from the per-user configuration; a broken file only costs a warning here.
+fn configured_flashrom(out: &Out) -> Option<PathBuf> {
+    let loaded = crate::config::Paths::from_env().and_then(|paths| Config::load(&paths));
+    match loaded {
+        Ok(config) => config.tools.flashrom,
+        Err(error) => {
+            out.note(format!("ignoring tools.flashrom: {error}"));
+            None
+        }
+    }
+}
+
 /// Route a parsed subcommand; chip access is refused outside Linux.
 pub fn dispatch(env: &Env, command: FlashCommand) -> Result<Reply> {
     match command {
-        FlashCommand::Doctor { programmer } => doctor(env, &programmer),
+        FlashCommand::Doctor { programmer, .. } => doctor(env, &programmer),
         FlashCommand::Probe(target) => {
             require_linux(env, "flash probe")?;
             probe(env, &target)
@@ -114,7 +143,7 @@ fn target(env: &Env, args: &FlashTargetArgs) -> Result<Target> {
         Error::new(
             Code::ToolUnavailable,
             format!(
-                "flashrom: expected an executable in PATH or the sbin directories | received none; install flashrom or set {}",
+                "flashrom: expected an executable in PATH or the sbin directories | received none; install flashrom (`bme tools status`), set {}, or run `bme tools set flashrom <path>`",
                 flashrom::FLASHROM_OVERRIDE
             ),
         )

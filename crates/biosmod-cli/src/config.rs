@@ -121,6 +121,9 @@ pub struct ToolsConfig {
     /// Ghidra installation directory to use instead of the managed one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ghidra_home: Option<PathBuf>,
+    /// flashrom executable to use instead of the one found in `PATH`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flashrom: Option<PathBuf>,
 }
 
 /// The configuration file.
