@@ -1107,7 +1107,7 @@ fn a_relative_flashrom_is_repeated_as_an_absolute_path_for_root() {
 }
 
 #[test]
-fn a_saved_flashrom_is_repeated_for_root_but_a_typed_flag_is_not() {
+fn saved_and_typed_flashrom_paths_are_both_repeated_for_root() {
     let directory = tempfile::tempdir().unwrap();
     let saved = executable_file(directory.path(), "saved-flashrom", 0o755);
     let typed = executable_file(directory.path(), "typed-flashrom", 0o755);
