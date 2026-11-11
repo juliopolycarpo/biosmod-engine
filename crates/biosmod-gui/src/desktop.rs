@@ -896,9 +896,10 @@ fn sync(ui: &AppWindow, state: &Desktop) {
     ui.set_can_plan(selected > 0);
     ui.set_building(session.activity() == Some(Action::Build));
     ui.set_can_recommend(session.can_recommend());
+    ui.set_can_export_built_selection(session.built_plan.is_some());
     ui.set_can_export_selection(
         ui.get_can_plan()
-            || session.built_plan.is_some()
+            || ui.get_can_export_built_selection()
             || session
                 .review
                 .as_ref()

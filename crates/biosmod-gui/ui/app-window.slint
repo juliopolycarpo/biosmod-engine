@@ -46,6 +46,7 @@ export component AppWindow inherits Window {
     in property <bool> can-scan;
     in property <bool> can-plan;
     in property <bool> can-export-selection;
+    in property <bool> can-export-built-selection;
     in property <bool> can-recommend;
     in property <bool> can-build;
     in property <bool> building;
@@ -353,7 +354,7 @@ export component AppWindow inherits Window {
                     Rectangle { horizontal-stretch: 1; }
                     if root.plan-details != "": Button { text: @tr("Selection details"); clicked => { root.show-review = true; } }
                     Button { text: @tr("Back to findings"); enabled: !root.busy; clicked => { root.back-to-selection(); } }
-                    if root.can-export-selection: Button { text: @tr("Export selection…"); enabled: !root.busy; clicked => { root.export-plan(); } }
+                    if root.can-export-built-selection: Button { text: @tr("Export selection…"); enabled: !root.busy; clicked => { root.export-plan(); } }
                 }
                 if root.output-path != "": Caption { text: @tr("Output: {}", root.output-path); }
                 if root.manifest-path != "": Caption { text: @tr("Manifest: {}", root.manifest-path); }

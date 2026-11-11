@@ -150,6 +150,11 @@ fn real_desktop_synthetic_workflow() {
     };
     let language = settings.language;
     language.select().unwrap();
+    let export_label = if language == Language::PtBr {
+        "Exportar seleção…"
+    } else {
+        "Export selection…"
+    };
     let settings_label = if language == Language::PtBr {
         "Configurações"
     } else {
@@ -328,13 +333,8 @@ fn real_desktop_synthetic_workflow() {
                     .size()
                     .to_logical(window.window().scale_factor())
                     .width;
-                let export = if language == Language::PtBr {
-                    "Exportar seleção…"
-                } else {
-                    "Export selection…"
-                };
                 let visible = i_slint_backend_testing::ElementHandle::find_by_accessible_label(
-                    &window, export,
+                    &window, export_label,
                 )
                 .next()
                 .is_some_and(|element| {
@@ -366,6 +366,26 @@ fn real_desktop_synthetic_workflow() {
                     return;
                 }
                 drop(state);
+                window.invoke_open_output_path(tick_output.to_string_lossy().as_ref().into());
+                let export_visible = i_slint_backend_testing::ElementHandle::find_by_accessible_label(
+                    &window, export_label,
+                )
+                .next()
+                .is_some();
+                if window.get_stage() != 3 || window.get_selection_count() == 0 || export_visible {
+                    *tick_result.borrow_mut() = Some(Err(format!(
+                        "opened output: expected results with a retained scan selection and no export action | received stage {}, selection count {}, export visible {export_visible}",
+                        window.get_stage(),
+                        window.get_selection_count(),
+                    )));
+                    let _ = slint::quit_event_loop();
+                    return;
+                }
+                if let Err(error) = save_stage(&window, screenshot.as_deref(), "opened-output") {
+                    *tick_result.borrow_mut() = Some(Err(error));
+                    let _ = slint::quit_event_loop();
+                    return;
+                }
                 window.invoke_back_to_selection();
                 window.invoke_output_edited(replay_output.to_string_lossy().as_ref().into());
                 tick_phase.set(6);
