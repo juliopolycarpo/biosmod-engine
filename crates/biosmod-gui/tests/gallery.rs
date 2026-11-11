@@ -305,16 +305,10 @@ fn gallery_states_build_and_capture() {
     populate_tools(&window, false, false);
     window.set_page(1);
     shot("12-tools");
-    // The whole list at once, as a tall window shows it, and the first-run blocked state.
-    window
-        .window()
-        .set_size(slint::LogicalSize::new(760.0, 1500.0));
-    shot("12-tools-all");
+    // Keep the blocked state at the requested gallery size too; CI covers both
+    // the minimum window and a larger window, including scaled captures.
     populate_tools(&window, false, true);
     shot("12-tools-blocked");
-    window
-        .window()
-        .set_size(slint::LogicalSize::new(760.0, 600.0));
     window.set_page(0);
     let key = |text: slint::SharedString| {
         window
