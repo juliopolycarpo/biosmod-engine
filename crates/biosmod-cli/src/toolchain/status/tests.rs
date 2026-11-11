@@ -573,3 +573,68 @@ fn nasm_reports_its_version_when_installed() {
     assert_eq!(row(&rows, "nasm").version.as_deref(), Some("2.16.01"));
     assert_eq!(row(&rows, "nasm").health, Health::Ready);
 }
+
+fn with_mode(path: &Path, mode: u32) {
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[test]
+fn a_group_writable_saved_flashrom_needs_attention_with_the_chmod_fix() {
+    let mut scene = Scene::new(FakeInstalledTools::complete());
+    let program = scene.root.path().join("self-built").join("flashrom");
+    fs::create_dir_all(program.parent().unwrap()).unwrap();
+    executable(&program);
+    with_mode(&program, 0o775);
+    scene.configured_flashrom = Some(program.clone());
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    let flashrom = row(&rows, "flashrom");
+    assert_eq!(
+        flashrom.health,
+        Health::Attention,
+        "(flashrom saved with mode 775): expected attention | received {}",
+        flashrom.detail
+    );
+    assert!(
+        flashrom.detail.contains("mode 775")
+            && flashrom
+                .detail
+                .contains(&format!("chmod go-w {}", program.display())),
+        "(flashrom detail): expected the mode and the chmod fix | received {}",
+        flashrom.detail
+    );
+
+    with_mode(&program, 0o755);
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    assert_eq!(row(&rows, "flashrom").health, Health::Ready);
+}
+
+#[test]
+fn set_warns_that_root_will_refuse_a_group_writable_flashrom() {
+    let root = tempfile::tempdir().unwrap();
+    let ctx = context(root.path());
+    let program = root.path().join("flashrom");
+    executable(&program);
+    with_mode(&program, 0o775);
+    let reply = set(
+        &ctx,
+        &FakeInstalledTools::complete(),
+        Locatable::Flashrom,
+        &program,
+    )
+    .unwrap();
+    let refusal = reply.data["root_refusal"].as_str().unwrap_or_default();
+    assert!(
+        refusal.contains("mode 775") && refusal.contains("chmod go-w"),
+        "(tools set flashrom, mode 775): expected a root refusal with the fix | received {}",
+        reply.data
+    );
+    with_mode(&program, 0o755);
+    let reply = set(
+        &ctx,
+        &FakeInstalledTools::complete(),
+        Locatable::Flashrom,
+        &program,
+    )
+    .unwrap();
+    assert!(reply.data["root_refusal"].is_null(), "{}", reply.data);
+}

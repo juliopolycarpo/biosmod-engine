@@ -6,7 +6,10 @@
 
 use super::{Env, GhidraHome, Runner, ghidra_checks, ghidra_version, java_check};
 use crate::commands::Ctx;
-use crate::flash::{FLASHROM_OVERRIDE, SBIN_DIRECTORIES, parse_version, resolve_flashrom_in};
+use crate::flash::{
+    FLASHROM_OVERRIDE, FlashromOrigin, SBIN_DIRECTORIES, parse_version, resolve_flashrom_in,
+    shell_word, validate_privileged_flashrom,
+};
 use crate::output::{Reply, table};
 use crate::toolchain::{Invocation, System};
 use biosmod_core::{Code, Error, Result};
@@ -219,16 +222,16 @@ fn system_install(probe: &Probe, package: Package) -> Install {
 fn ghidra_install(origin: &str, unready: &[&str]) -> Install {
     let blocked = match origin {
         "config" => Some(
-            "a saved location is in use and bme installs only into its own directory: run `bme tools unset ghidra`, then install"
+            "a saved location is in use and bme installs only into its own directory: run `bme tools unset ghidra`, then `bme tools setup ghidra`"
                 .to_string(),
         ),
         "managed" if unready.is_empty() => None,
         "managed" => Some(format!(
-            "{} must be ready first: setup checks it before downloading anything",
+            "{} must be ready first: `bme tools setup ghidra` checks it before downloading anything",
             unready.join(" and ")
         )),
         other => Some(format!(
-            "{other} points elsewhere and bme installs only into its own directory: unset it, then install"
+            "{other} points elsewhere and bme installs only into its own directory: unset it, then run `bme tools setup ghidra`"
         )),
     };
     Install {
@@ -420,6 +423,13 @@ fn flashrom_row(probe: &Probe) -> ToolRow {
         },
         Err(e) => (Health::Missing, None, e.message),
     };
+    let refusal = (origin != FlashromOrigin::Path)
+        .then(|| root_refusal(&path))
+        .flatten();
+    let (health, detail) = match (health, refusal) {
+        (Health::Ready, Some(reason)) => (Health::Attention, reason),
+        other => (other.0, detail),
+    };
     ToolRow {
         id: "flashrom",
         name: "flashrom",
@@ -433,6 +443,22 @@ fn flashrom_row(probe: &Probe) -> ToolRow {
         custom_location: true,
         optional: false,
     }
+}
+
+/// Why root would refuse to run `path`, with the fix, or `None` when root accepts it.
+///
+/// A saved flashrom that the group or others can write (a self-built one under umask 002)
+/// reports ready here, then fails the elevated chip command that uses it.
+///
+/// Example: a 0775 `/home/me/flashrom` yields a message ending in `chmod go-w /home/me/flashrom`.
+fn root_refusal(path: &Path) -> Option<String> {
+    // A missing file is reported by the version probe; chmod would not help it.
+    if !path.exists() {
+        return None;
+    }
+    validate_privileged_flashrom(path)
+        .err()
+        .map(|error| format!("{}; fix: chmod go-w {}", error.message, shell_word(path)))
 }
 
 /// NASM assembles `catalog/provenance` sources when a maintainer rebuilds a patch's hunks.
@@ -639,6 +665,13 @@ pub fn set(ctx: &Ctx, runner: &dyn Runner, tool: Locatable, path: &Path) -> Resu
             "{variable} is set and still wins over this setting in this shell"
         ));
     }
+    let refusal = (tool == Locatable::Flashrom)
+        .then(|| root_refusal(&absolute))
+        .flatten();
+    if let Some(reason) = &refusal {
+        ctx.out
+            .note(format!("saved, but root will refuse it: {reason}"));
+    }
     Ok(Reply::new(
         json!({
             "tool": tool.name(),
@@ -646,6 +679,7 @@ pub fn set(ctx: &Ctx, runner: &dyn Runner, tool: Locatable, path: &Path) -> Resu
             "version": version,
             "previous": previous.as_deref().map(lossy),
             "overridden_by": shadow,
+            "root_refusal": refusal,
         }),
         format!(
             "{} set to {} ({version})\n",

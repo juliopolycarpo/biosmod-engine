@@ -1100,7 +1100,7 @@ fn a_saved_flashrom_is_repeated_for_root_but_a_typed_flag_is_not() {
         "(saved flashrom): expected the saved path and a flag that repeats it"
     );
     let (path, flag) = choose_flashrom(false, Some(&typed), &no_variables, Some(&saved)).unwrap();
-    assert_eq!((path, flag), (Some(typed.clone()), None));
+    assert_eq!((path, flag), (Some(typed.clone()), Some(typed.clone())));
     let (path, flag) = choose_flashrom(false, None, &no_variables, None).unwrap();
     assert_eq!(
         flag, None,
@@ -1142,6 +1142,28 @@ fn the_probe_next_step_repeats_the_saved_flashrom() {
             .text
             .contains("backup --programmer ch341a_spi -o dump.bin"),
         "(flash probe): expected no flag without a saved flashrom | received {}",
+        reply.text
+    );
+}
+
+#[test]
+fn the_doctor_next_step_repeats_the_flashrom_path_for_a_root_rerun() {
+    let sysfs = FakeSysfs::mr9a()
+        .file("sys/class/mtd/mtd0/name", "BIOS\n")
+        .file("sys/class/mtd/mtd0/size", "16777216\n")
+        .file("sys/class/mtd/mtd0/type", "nor\n")
+        .directory("sys/class/mtd/mtd0ro")
+        .file("sys/bus/usb/devices/1-4/idVendor", "1a86\n")
+        .file("sys/bus/usb/devices/1-4/idProduct", "5512\n");
+    let chip = FakeFlashChip::holding(&[0; 16]);
+    let mut env = env(&chip, sysfs.host(0));
+    env.flashrom_flag = Some(PathBuf::from("/opt/my tools/flashrom"));
+    let reply = doctor(&env, "ch341a_spi").unwrap();
+    assert!(
+        reply.text.contains(
+            "Next: sudo bme flash probe --flashrom '/opt/my tools/flashrom', then sudo bme flash backup --flashrom '/opt/my tools/flashrom' -o dump.bin"
+        ),
+        "(flash doctor): expected the next step to repeat the flashrom path | received {}",
         reply.text
     );
 }

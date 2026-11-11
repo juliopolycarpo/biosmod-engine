@@ -11,8 +11,8 @@ mod host;
 mod tests;
 
 pub use flashrom::{
-    Chip, FLASHROM_OVERRIDE, Operation, SBIN_DIRECTORIES, Selection, Target, parse_version,
-    resolve_flashrom, resolve_flashrom_in,
+    Chip, FLASHROM_OVERRIDE, FlashromOrigin, Operation, SBIN_DIRECTORIES, Selection, Target,
+    parse_version, resolve_flashrom, resolve_flashrom_in, shell_word, validate_privileged_flashrom,
 };
 pub use host::{Flashrom, Host, State};
 
@@ -90,7 +90,7 @@ pub fn run(out: Out, command: FlashCommand) -> Result<Reply> {
 /// process is root, because root would execute it.
 ///
 /// Example: with a saved `/opt/fr/flashrom` and no override, a user run gets that path and the
-/// flag `/opt/fr/flashrom`; a `--flashrom` argument needs no flag because the user typed it.
+/// flag `/opt/fr/flashrom`; a typed `--flashrom` is repeated too, so the next step is complete.
 fn choose_flashrom(
     root: bool,
     flag: Option<&PathBuf>,
@@ -101,7 +101,7 @@ fn choose_flashrom(
         if root {
             flashrom::validate_privileged_flashrom(path)?;
         }
-        return Ok((Some(path.clone()), None));
+        return Ok((Some(path.clone()), Some(path.clone())));
     }
     let Some((path, origin)) = resolve_flashrom(variable, configured) else {
         return Ok((None, None));
