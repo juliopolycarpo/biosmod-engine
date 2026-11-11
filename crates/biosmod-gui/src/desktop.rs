@@ -103,9 +103,20 @@ fn bind_with_language_selector(
     action!(on_refresh_engine, Action::Connect);
     action!(on_inspect, Action::Inspect);
     action!(on_scan, Action::Scan);
-    action!(on_recommended, Action::Recommended);
-    action!(on_generate_plan, Action::Plan);
-    action!(on_apply_plan, Action::Apply);
+    let shared = state.clone();
+    let weak = ui.as_weak();
+    ui.on_recommended(move || {
+        let mut state = shared.lock().unwrap();
+        if state.dialog_open || state.exporting {
+            return;
+        }
+        state.session.select_recommended();
+        if let Some(ui) = weak.upgrade() {
+            sync(&ui, &state);
+        }
+    });
+    action!(on_preview, Action::Preview);
+    action!(on_build, Action::Build);
     action!(on_verify, Action::Verify);
     action!(on_refresh_sources, Action::Sources);
     action!(on_show_tools, Action::Tools);
@@ -273,7 +284,7 @@ fn bind_with_language_selector(
     let weak = ui.as_weak();
     ui.window().on_close_requested(move || {
         let mut state = shared.lock().unwrap();
-        if state.exporting {
+        if state.exporting || state.session.activity() == Some(Action::Export) {
             state.closing = true;
             state.session.set_status(Status::ClosingExport);
             if let Some(ui) = weak.upgrade() {
@@ -325,6 +336,10 @@ fn configured_engine(state: &Desktop) -> Result<Engine, crate::engine::EngineErr
 }
 
 fn start(ui: &AppWindow, shared: &Shared, action: Action) {
+    start_engine_job(ui, shared, action, None);
+}
+
+fn start_engine_job(ui: &AppWindow, shared: &Shared, action: Action, export_path: Option<PathBuf>) {
     let mut state = shared.lock().unwrap();
     if state.dialog_open || state.exporting {
         return;
@@ -338,7 +353,11 @@ fn start(ui: &AppWindow, shared: &Shared, action: Action) {
         sync(ui, &state);
         return;
     }
-    let job = match state.session.prepare(action) {
+    let prepared = match export_path {
+        Some(path) => state.session.prepare_export(path),
+        None => state.session.prepare(action),
+    };
+    let job = match prepared {
         Ok(job) => job,
         Err(error) => {
             state.session.set_detailed_status(
@@ -368,12 +387,18 @@ fn start(ui: &AppWindow, shared: &Shared, action: Action) {
                 return;
             }
             let verify = accepted
-                && action == Action::Apply
+                && action == Action::Build
                 && state.session.manifest.is_some()
                 && state.session.outcome == Outcome::Idle;
+            let validate = accepted
+                && action == Action::Scan
+                && state.session.outcome == Outcome::Idle
+                && state.session.imported_recipe().is_some();
             sync(&ui, &state);
             drop(state);
-            if verify {
+            if validate {
+                start(&ui, &shared, Action::ValidateRecipe);
+            } else if verify {
                 start(&ui, &shared, Action::Verify);
             }
         });
@@ -448,7 +473,7 @@ fn change(ui: &AppWindow, shared: &Shared, kind: PathKind, value: &str) {
         PathKind::Source => {
             state.session.invalidate();
             state.session.source = value.into();
-            ui.set_output_path("".into());
+            ui.set_output_path(display_path(state.session.output.as_ref()));
         }
         PathKind::Engine => {
             preview_engine(&mut state, path);
@@ -500,7 +525,7 @@ fn pick(ui: &AppWindow, shared: &Shared, kind: PathKind) {
             PathKind::ExportPlan => {
                 dialog
                     .set_title(&title)
-                    .set_file_name("bme-plan.json")
+                    .set_file_name("bme-selection.json")
                     .save_file()
                     .await
             }
@@ -656,7 +681,7 @@ enum ExportKind {
 impl ExportKind {
     fn label(self) -> &'static str {
         match self {
-            Self::Plan => "Plan",
+            Self::Plan => "Selection",
             Self::Diagnostics => "Diagnostics",
         }
     }
@@ -681,7 +706,21 @@ fn start_export(ui: &AppWindow, shared: &Shared, path: PathBuf, kind: ExportKind
         return;
     }
     let content = match kind {
-        ExportKind::Plan => state.session.review.clone().map(ExportContent::Plan),
+        ExportKind::Plan => {
+            let retained = state.session.built_plan.as_ref().or_else(|| {
+                state
+                    .session
+                    .review
+                    .as_ref()
+                    .filter(|review| review.recipe_path().is_some())
+            });
+            if retained.is_none() && state.session.connected && state.session.scan.is_some() {
+                drop(state);
+                start_engine_job(ui, shared, Action::Export, Some(path));
+                return;
+            }
+            retained.cloned().map(ExportContent::Plan)
+        }
         ExportKind::Diagnostics => Some(ExportContent::Diagnostics(
             state.session.diagnostics.clone(),
         )),
@@ -797,12 +836,22 @@ fn start_import(ui: &AppWindow, shared: &Shared, path: PathBuf) {
         let _ = weak.upgrade_in_event_loop(move |ui| {
             stop_timer(timer_id);
             let mut state = shared.lock().unwrap();
-            state.session.finish(completion);
+            let accepted = state.session.finish(completion);
             if close_if_requested(&ui, &state) {
                 return;
             }
+            let scan = accepted
+                && state.session.outcome == Outcome::Idle
+                && state.session.imported_recipe().is_some()
+                && state.session.connected
+                && state.session.image.is_some()
+                && state.session.manifest.is_none();
             sync_paths(&ui, &state);
             sync(&ui, &state);
+            drop(state);
+            if scan {
+                start(&ui, &shared, Action::Scan);
+            }
         });
     });
 }
@@ -836,13 +885,26 @@ fn sync(ui: &AppWindow, state: &Desktop) {
     ui.set_can_cancel(session.busy() && !session.publishing() && !stopping);
     ui.set_can_inspect(session.connected && session.image.is_some());
     ui.set_can_scan(session.connected && session.image.is_some() && !session.source.is_empty());
-    ui.set_can_plan(session.scan.as_ref().is_some_and(|s| {
-        s.report
+    let selected = session.scan.as_ref().map_or(0, |scan| {
+        scan.report
             .patches
             .iter()
-            .any(|p| p.selected && p.selectable())
-    }));
-    ui.set_can_recommend(session.connected && session.scan.is_some());
+            .filter(|patch| patch.selected && patch.selectable())
+            .count()
+    });
+    ui.set_selection_count(i32::try_from(selected).unwrap_or(i32::MAX));
+    ui.set_can_plan(selected > 0);
+    ui.set_building(session.activity() == Some(Action::Build));
+    ui.set_can_recommend(session.can_recommend());
+    ui.set_can_export_built_selection(session.built_plan.is_some());
+    ui.set_can_export_selection(
+        ui.get_can_plan()
+            || ui.get_can_export_built_selection()
+            || session
+                .review
+                .as_ref()
+                .is_some_and(|review| review.recipe_path().is_some()),
+    );
     ui.set_manifest_path(
         session
             .output
@@ -850,13 +912,12 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             .map(|p| manifest_path(p).to_string_lossy().as_ref().into())
             .unwrap_or_default(),
     );
-    ui.set_can_apply(session.can_apply());
+    ui.set_can_build(session.can_build());
     ui.set_can_verify(
         session.connected
             && session.image.is_some()
             && session.output.is_some()
-            && session.manifest.is_some()
-            && session.review.is_some(),
+            && session.manifest.is_some(),
     );
     let operation = if state.exporting {
         t.get_operation_export()
@@ -910,7 +971,19 @@ fn sync(ui: &AppWindow, state: &Desktop) {
             .unwrap_or_else(|| session.result_details.as_str().into()),
     );
     ui.set_result_title(match session.outcome {
+        Outcome::Verified if session.status_kind == Status::VerifiedOpened => {
+            t.get_status_verified_opened()
+        }
         Outcome::Verified => t.get_status_verified(),
+        Outcome::Idle
+            if session.built_plan.is_some()
+                && (session.status_kind == Status::Published
+                    || session.activity() == Some(Action::Verify)) =>
+        {
+            t.get_status_published()
+        }
+        Outcome::VerificationFailed => t.get_title_verification_failed(),
+        Outcome::PublicationUnknown => t.get_title_publication_unknown(),
         Outcome::VerificationIncomplete => t.get_title_incomplete(),
         Outcome::PublicationIncomplete => t.get_title_publication(),
         Outcome::Interrupted => t.get_title_interrupted(),
@@ -929,6 +1002,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
                 session.outcome,
                 Outcome::Verified
                     | Outcome::PublicationIncomplete
+                    | Outcome::PublicationUnknown
                     | Outcome::VerificationIncomplete
             )
         {
@@ -990,12 +1064,14 @@ pub fn localized_activity(ui: &AppWindow, action: Action) -> SharedString {
         Action::Connect => t.get_operation_connect(),
         Action::Inspect => t.get_operation_inspect(),
         Action::Scan => t.get_operation_scan(),
-        Action::Plan | Action::Recommended => t.get_operation_plan(),
-        Action::Apply => t.get_operation_apply(),
+        Action::Preview => t.get_operation_preview(),
+        Action::Export => t.get_operation_export_selection(),
+        Action::Build => t.get_operation_apply(),
         Action::Verify => t.get_operation_verify(),
         Action::Sources => t.get_operation_sources(),
         Action::Tools => t.get_operation_tools(),
         Action::Import => t.get_operation_import(),
+        Action::ValidateRecipe => t.get_operation_validate_recipe(),
     }
 }
 
@@ -1021,13 +1097,15 @@ fn localized_status_with_extra(
         Status::Ready => t.get_status_ready(),
         Status::Inspected => t.get_status_inspected(),
         Status::Scanned => t.get_status_scanned(),
-        Status::Planned => t.get_status_planned(),
+        Status::Previewed => t.get_status_previewed(),
         Status::Published => t.get_status_published(),
         Status::Verified => t.get_status_verified(),
+        Status::VerifiedOpened => t.get_status_verified_opened(),
         Status::Incomplete => t.get_status_incomplete(),
         Status::Sources => t.get_status_sources(),
         Status::Tools => t.get_status_tools(),
         Status::Imported => t.get_status_imported(),
+        Status::RecipeValidated => t.get_status_recipe_validated(),
         Status::Stopping => t.get_status_stopping(),
         Status::Back => t.get_status_back(),
         Status::ClosingExport => t.get_status_closing_export(),
@@ -1047,6 +1125,7 @@ fn localized_status_with_extra(
             PreparationError::Plan => t.get_precondition_plan(),
             PreparationError::Manifest => t.get_precondition_manifest(),
             PreparationError::WaitImport => t.get_precondition_wait_import(),
+            PreparationError::RecipeMismatch => t.get_precondition_recipe_mismatch(),
         },
         Status::Failed => t.invoke_status_failed(detail.into()),
         Status::PublicationUnknown => t.invoke_status_publication_unknown(detail.into()),
@@ -1098,7 +1177,7 @@ fn sync_review(ui: &AppWindow, state: &Desktop) {
 }
 
 /// Render a reviewed plan's summary in the selected language.
-/// Example: `plan_summary(&window, &review)` starts with `Generated in this session` in English.
+/// Example: `plan_summary(&window, &review)` starts with `Preview of selected changes` in English.
 pub fn plan_summary(ui: &AppWindow, review: &Review) -> SharedString {
     let t = ui.global::<UiText>();
     let plan = &review.document;
@@ -1115,7 +1194,7 @@ pub fn plan_summary(ui: &AppWindow, review: &Review) -> SharedString {
             .map(Into::into)
             .unwrap_or_else(|| t.get_none())
     };
-    let header = if review.generated {
+    let header = if review.recipe_path().is_none() {
         t.get_generated_plan()
     } else {
         t.get_imported_plan()
@@ -1223,8 +1302,12 @@ pub fn verification_summary(ui: &AppWindow, report: &serde_json::Value) -> Share
 pub fn status_tone(outcome: Outcome) -> Tone {
     match outcome {
         Outcome::Verified => Tone::Good,
-        Outcome::Failed | Outcome::PublicationIncomplete => Tone::Danger,
-        Outcome::Interrupted | Outcome::VerificationIncomplete => Tone::Attention,
+        Outcome::Failed | Outcome::PublicationIncomplete | Outcome::VerificationFailed => {
+            Tone::Danger
+        }
+        Outcome::Interrupted | Outcome::VerificationIncomplete | Outcome::PublicationUnknown => {
+            Tone::Attention
+        }
         Outcome::Idle => Tone::Quiet,
     }
 }

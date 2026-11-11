@@ -61,6 +61,7 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Inspect(args) => firmware::inspect(&args),
         Command::Scan(args) => firmware::scan(&ctx, &args),
         Command::Plan(args) => firmware::plan(&ctx, &args),
+        Command::Export(args) => firmware::export(&ctx, &args),
         Command::Patch(args) => firmware::patch(&ctx, &args),
         Command::Verify(args) => firmware::verify(&ctx, &args),
         Command::Extract(args) => firmware::extract(&args),
@@ -149,17 +150,15 @@ pub fn load_sources(ctx: &Ctx, args: &SourceArgs, select: &[String]) -> Result<V
     if names.is_empty() && (qualified.is_empty() || select.iter().any(|t| !t.contains("::"))) {
         names.push(sources::OFFICIAL.into());
     }
-    for alias in qualified {
-        if !names.contains(&alias) {
-            names.push(alias);
-        }
-    }
     let policy = LoadPolicy {
         allow_unsigned_local: args.allow_unsigned_local,
     };
     let mut loaded: Vec<Loaded> = Vec::new();
-    for name in names {
-        let source = sources::load(&name, &ctx.config, &ctx.paths, policy)?;
+    for (index, name) in names.iter().chain(&qualified).enumerate() {
+        if index >= names.len() && loaded.iter().any(|source| source.alias == *name) {
+            continue;
+        }
+        let source = sources::load(name, &ctx.config, &ctx.paths, policy)?;
         if loaded.iter().any(|l| l.alias == source.alias) {
             return Err(Error::new(
                 Code::Usage,

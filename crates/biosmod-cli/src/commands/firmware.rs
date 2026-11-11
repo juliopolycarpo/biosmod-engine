@@ -26,8 +26,8 @@ use crate::output::{Reply, table};
 use crate::publish::{self, Filesystem, check_outputs, manifest_path};
 use crate::sources::{self, LoadPolicy, Loaded};
 use crate::{
-    DeriveArgs, ExtractArgs, InspectArgs, PatchArgs, PlanArgs, ReplaceArgs, ScanArgs, SelectArgs,
-    VerifyArgs,
+    DeriveArgs, DirectSelection, ExportArgs, ExtractArgs, InspectArgs, PatchArgs, PlanArgs,
+    ReplaceArgs, ScanArgs, SelectArgs, SnapshotExpectations, VerifyArgs,
 };
 use biosmod_core::analysis::{self, ScanReport, State, module_bytes};
 use biosmod_core::catalog::{LeafKind, Scope};
@@ -42,7 +42,7 @@ use biosmod_core::{Code, Error, Result, json, patch as hunks};
 use serde_json::json;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const PLAN_LIMIT: u64 = 16 << 20;
 
@@ -139,7 +139,7 @@ fn gated(patch: &analysis::PatchReport) -> String {
     }
 }
 
-fn scan_text(loaded: &Loaded, report: &ScanReport, rom: &Path) -> String {
+fn scan_text(loaded: &Loaded, report: &ScanReport) -> String {
     let mut text = String::new();
     let source = format!(
         "{} ({:?}, catalog {} {})",
@@ -205,7 +205,7 @@ fn scan_text(loaded: &Loaded, report: &ScanReport, rom: &Path) -> String {
             let _ = writeln!(text, "  {}: {}", p.id, p.detail);
         }
         if let Some(blocked) = &p.blocked {
-            let _ = writeln!(text, "  {}: not plannable: {blocked}", p.id);
+            let _ = writeln!(text, "  {}: unavailable: {blocked}", p.id);
         }
     }
     let plannable: Vec<String> = report
@@ -224,14 +224,19 @@ fn scan_text(loaded: &Loaded, report: &ScanReport, rom: &Path) -> String {
         }
     );
     if !report.recommended.is_empty() {
-        let _ = writeln!(
-            text,
-            "Recommended: {}\nNext: bme plan {} --select recommended -o plan.json",
-            report.recommended.join(" "),
-            rom.display()
-        );
+        let _ = writeln!(text, "Recommended: {}", report.recommended.join(" "));
     }
     text
+}
+
+fn quote_shell_argument(value: &str) -> String {
+    // Use PowerShell quoting on Windows and POSIX shell quoting elsewhere.
+    let escaped = if cfg!(windows) {
+        value.replace('\'', "''")
+    } else {
+        value.replace('\'', "'\\''")
+    };
+    format!("'{escaped}'")
 }
 
 pub fn scan(ctx: &Ctx, args: &ScanArgs) -> Result<Reply> {
@@ -239,10 +244,26 @@ pub fn scan(ctx: &Ctx, args: &ScanArgs) -> Result<Reply> {
     let loaded = load_sources(ctx, &args.source, &[])?;
     let mut reports = Vec::new();
     let mut text = String::new();
-    for source in &loaded {
+    for (index, source) in loaded.iter().enumerate() {
         let report = analysis::scan(&image, &source.catalog, args.source.firmware.as_deref());
-        text += &scan_text(source, &report, &args.rom);
-        reports.push(json!({"alias": source.alias, "trust": source.trust, "catalog": source.catalog.manifest.id, "catalog_version": source.catalog.manifest.version.to_string(), "report": report}));
+        text += &scan_text(source, &report);
+        if !report.recommended.is_empty() {
+            let rom = quote_shell_argument(&args.rom.to_string_lossy());
+            let _ = write!(text, "Next: bme patch {rom} --recommended");
+            if let Some(selector) = args.source.catalogs.get(index) {
+                let selector = quote_shell_argument(selector);
+                let _ = write!(text, " --catalog {selector}");
+            }
+            if let Some(firmware) = &args.source.firmware {
+                let firmware = quote_shell_argument(firmware);
+                let _ = write!(text, " --firmware {firmware}");
+            }
+            if args.source.allow_unsigned_local {
+                text.push_str(" --allow-unsigned-local");
+            }
+            text.push('\n');
+        }
+        reports.push(json!({"alias": source.alias, "snapshot_sha256": source_snapshot_sha256(&pin(source)), "trust": source.trust, "catalog": source.catalog.manifest.id, "catalog_version": source.catalog.manifest.version.to_string(), "report": report}));
     }
     Ok(Reply::new(
         json!({"input": Blob::of(&image.bytes), "sources": reports}),
@@ -265,10 +286,7 @@ fn prepare<'a>(
     firmware: Option<&str>,
 ) -> Result<Prepared<'a>> {
     if select.select.is_empty() {
-        return Err(Error::new(
-            Code::Usage,
-            "expected --select <ids> (or --plan for patch)",
-        ));
+        return Err(Error::new(Code::Usage, "expected --select <ids>"));
     }
     let mut chosen: Option<usize> = None;
     let mut ids = Vec::new();
@@ -299,18 +317,16 @@ fn prepare<'a>(
             if report.recommended.is_empty() {
                 return Err(Error::new(
                     Code::SelectionInvalid,
-                    "recommended: no plannable tier-1 correction on this image",
+                    "recommended: no applicable recommended correction on this image",
                 ));
             }
             ids.extend(report.recommended.iter().cloned());
             continue;
         }
-        let patch = catalog.patches.get(&token.id).ok_or_else(|| {
-            Error::new(
-                Code::TargetNotFound,
-                format!("patch {}: not in source {}", token.id, loaded[index].alias),
-            )
-        })?;
+        let patch = catalog
+            .patches
+            .get(&token.id)
+            .ok_or_else(|| unknown_patch(&token.id, &loaded[index..=index]))?;
         if let Some(v) = &token.version
             && *v != patch.version
         {
@@ -359,18 +375,7 @@ fn pick_source(loaded: &[Loaded], token: &Token, chosen: Option<usize>) -> Resul
         .filter(|i| loaded[*i].catalog.patches.contains_key(&token.id))
         .collect();
     match hits.as_slice() {
-        [] => Err(Error::new(
-            Code::TargetNotFound,
-            format!(
-                "patch {}: not in {}",
-                token.id,
-                loaded
-                    .iter()
-                    .map(|l| l.alias.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        )),
+        [] => Err(unknown_patch(&token.id, loaded)),
         [one] => Ok(*one),
         _ => Err(Error::new(
             Code::TargetAmbiguous,
@@ -385,6 +390,38 @@ fn pick_source(loaded: &[Loaded], token: &Token, chosen: Option<usize>) -> Resul
             ),
         )),
     }
+}
+
+fn unknown_patch(id: &str, sources: &[Loaded]) -> Error {
+    let aliases = sources
+        .iter()
+        .map(|source| source.alias.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let related: Vec<_> = sources
+        .iter()
+        .flat_map(|source| {
+            source
+                .catalog
+                .patches
+                .values()
+                .filter(|patch| patch.findings.iter().any(|finding| finding == id))
+                .map(|patch| format!("{}::{}", source.alias, patch.id))
+        })
+        .take(5)
+        .collect();
+    let hint = if related.is_empty() {
+        "Run `bme scan` with the same catalog to list patch IDs.".to_string()
+    } else {
+        format!(
+            "This finding appears in {}. Select an applicable patch ID.",
+            related.join(", ")
+        )
+    };
+    Error::new(
+        Code::TargetNotFound,
+        format!("patch {id:?}: not in {aliases}. {hint}"),
+    )
 }
 
 fn pin(source: &Loaded) -> SourcePin {
@@ -404,21 +441,113 @@ fn pin(source: &Loaded) -> SourcePin {
     }
 }
 
+// Hash the compact serde_json representation in SourcePin field order. Sort a copy so
+// the snapshot identity is independent of load order without changing saved recipe equality.
+fn source_snapshot_sha256(pin: &SourcePin) -> Digest256 {
+    let mut pin = pin.clone();
+    pin.files
+        .sort_unstable_by(|left, right| left.path.cmp(&right.path));
+    let mut bytes = b"bme.source-snapshot/1\n".to_vec();
+    serde_json::to_writer(&mut bytes, &pin).expect("SourcePin serializes to JSON");
+    Digest256::of(&bytes)
+}
+
+fn check_snapshot(kind: &str, expected: Option<Digest256>, actual: Digest256) -> Result<()> {
+    if let Some(expected) = expected
+        && expected != actual
+    {
+        return Err(Error::new(
+            Code::PlanInputChanged,
+            format!("{kind} changed since scan (expected {expected}, found {actual}). Scan again."),
+        )
+        .with_details(
+            json!({"kind": kind, "expected_sha256": expected, "actual_sha256": actual}),
+        ));
+    }
+    Ok(())
+}
+
+fn normalize_selection(
+    selection: &DirectSelection,
+    default_recommended: bool,
+) -> Result<SelectArgs> {
+    let mut select = selection.legacy.clone();
+    if !select.select.is_empty() {
+        return Ok(select);
+    }
+    if !selection.ids.is_empty() {
+        for id in &selection.ids {
+            if parse_token(id)?.id == "recommended" {
+                return Err(Error::new(
+                    Code::Usage,
+                    format!("selection {id:?}: use --recommended or supply a patch ID"),
+                ));
+            }
+        }
+        select.select.clone_from(&selection.ids);
+    } else if selection.recommended || default_recommended {
+        select.select.push("recommended".into());
+    } else {
+        return Err(Error::new(
+            Code::Usage,
+            "expected patch IDs, --recommended or --from <recipe>",
+        ));
+    }
+    Ok(select)
+}
+
+fn default_patch_output(rom: &Path) -> PathBuf {
+    let mut name = rom.file_stem().unwrap_or(rom.as_os_str()).to_os_string();
+    name.push(".patched");
+    if let Some(extension) = rom.extension() {
+        name.push(".");
+        name.push(extension);
+    }
+    rom.with_file_name(name)
+}
+
 fn make_plan(
     ctx: &Ctx,
     rom: &Path,
     select: &SelectArgs,
     source: &crate::SourceArgs,
+    expectations: &SnapshotExpectations,
 ) -> Result<(PlanDocument, Vec<u8>)> {
-    let image = read_image(rom)?;
+    let input = read_bounded(rom, super::MAX_IMAGE_BYTES)?;
+    if expectations.expect_input_sha256.is_some() {
+        check_snapshot(
+            "input",
+            expectations.expect_input_sha256,
+            Digest256::of(&input),
+        )?;
+    }
+    let image = Image::parse(input).map_err(|error| error.context(rom.display()))?;
     let loaded = load_sources(ctx, source, &select.select)?;
+    // Report drift before attempting to resolve IDs that may have disappeared.
+    if let [only] = loaded.as_slice()
+        && expectations.expect_source_sha256.is_some()
+    {
+        check_snapshot(
+            "source",
+            expectations.expect_source_sha256,
+            source_snapshot_sha256(&pin(only)),
+        )?;
+    }
     let prepared = prepare(&image, &loaded, select, source.firmware.as_deref())?;
+    let source_pin = pin(prepared.source);
+    if loaded.len() != 1 && expectations.expect_source_sha256.is_some() {
+        check_snapshot(
+            "source",
+            expectations.expect_source_sha256,
+            source_snapshot_sha256(&source_pin),
+        )?;
+    }
     let built = plan::build(&image, &prepared.source.catalog, &prepared.request)?;
     let catalog = &prepared.source.catalog;
     let document = PlanDocument::new(
         &built,
         &image.bytes,
-        pin(prepared.source),
+        source_pin,
         catalog.boards_for(&built.firmware),
         prepared.requested,
         &prepared.request,
@@ -488,7 +617,13 @@ fn plan_text(plan: &PlanDocument) -> String {
 
 pub fn plan(ctx: &Ctx, args: &PlanArgs) -> Result<Reply> {
     check_outputs(&[&args.output], &[&args.rom])?;
-    let (document, _) = make_plan(ctx, &args.rom, &args.select, &args.source)?;
+    let (document, _) = make_plan(
+        ctx,
+        &args.rom,
+        &args.select,
+        &args.source,
+        &SnapshotExpectations::default(),
+    )?;
     let bytes = biosmod_core::json::pretty(&document);
     crate::config::write_new(&args.output, &bytes)?;
     let text = plan_text(&document)
@@ -500,6 +635,19 @@ pub fn plan(ctx: &Ctx, args: &PlanArgs) -> Result<Reply> {
         );
     Ok(Reply::new(
         json!({"plan_file": display_path(&args.output), "plan": document}),
+        text,
+    ))
+}
+
+/// Save a validated recipe. For example, `bme export rom.bin B05 -o selection.json`.
+pub fn export(ctx: &Ctx, args: &ExportArgs) -> Result<Reply> {
+    let select = normalize_selection(&args.selection, true)?;
+    check_outputs(&[&args.output], &[&args.rom])?;
+    let (document, _) = make_plan(ctx, &args.rom, &select, &args.source, &args.expectations)?;
+    crate::config::write_new(&args.output, &biosmod_core::json::pretty(&document))?;
+    let text = plan_text(&document) + &format!("Wrote selection file {}\n", args.output.display());
+    Ok(Reply::new(
+        json!({"patch_file": display_path(&args.output), "source_snapshot_sha256": source_snapshot_sha256(&document.source), "plan": document}),
         text,
     ))
 }
@@ -673,19 +821,40 @@ fn requested_ids(plan: &PlanDocument, loaded: &Loaded) -> Result<Request> {
 }
 
 pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
-    let manifest_file = manifest_path(&args.output);
-    check_outputs(&[&args.output, &manifest_file], &[&args.rom])?;
-    let (plan, output) = match &args.plan {
-        Some(path) => {
-            let plan = read_plan(path)?;
-            let output =
-                rebuild_from_plan(ctx, &args.rom, &plan, args.source.allow_unsigned_local)?;
-            (plan, output)
+    let select = args
+        .plan
+        .is_none()
+        .then(|| normalize_selection(&args.selection, false))
+        .transpose()?;
+    let target = if args.dry_run {
+        None
+    } else {
+        let output = args
+            .output
+            .clone()
+            .unwrap_or_else(|| default_patch_output(&args.rom));
+        let manifest = manifest_path(&output);
+        check_outputs(&[&output, &manifest], &[&args.rom])?;
+        Some((output, manifest))
+    };
+    let (plan, output) = if let Some(select) = select {
+        make_plan(ctx, &args.rom, &select, &args.source, &args.expectations)?
+    } else {
+        let path = args
+            .plan
+            .as_ref()
+            .expect("recipe path when selection is absent");
+        let plan = read_plan(path)?;
+        let output = rebuild_from_plan(ctx, &args.rom, &plan, args.source.allow_unsigned_local)?;
+        (plan, output)
+    };
+    let source_snapshot_sha256 = source_snapshot_sha256(&plan.source);
+    let Some((output_path, manifest_file)) = target else {
+        let mut data = json!({"dry_run": true, "plan": plan, "source_snapshot_sha256": source_snapshot_sha256});
+        if let Some(path) = &args.output {
+            data["proposed_output"] = json!(display_path(path));
         }
-        None => {
-            let (plan, output) = make_plan(ctx, &args.rom, &args.select, &args.source)?;
-            (plan, output)
-        }
+        return Ok(Reply::new(data, plan_text(&plan)));
     };
     let input = read_bounded(&args.rom, super::MAX_IMAGE_BYTES)?;
     if Blob::of(&input) != plan.input {
@@ -705,8 +874,7 @@ pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
     };
     let manifest = OutputManifest {
         schema: MANIFEST_SCHEMA.into(),
-        output_file: args
-            .output
+        output_file: output_path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default(),
@@ -715,16 +883,16 @@ pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
         notice: NOTICE.into(),
     };
     let bytes = biosmod_core::json::pretty(&manifest);
-    publish::publish(&Filesystem, &args.output, &output, &bytes)?;
+    publish::publish(&Filesystem, &output_path, &output, &bytes)?;
     let mut text = plan_text(&manifest.plan);
     let _ = writeln!(
         text,
         "Wrote {} and {}\n{NOTICE}\nRead `bme guide flashing` before writing anything to a chip.",
-        args.output.display(),
+        output_path.display(),
         manifest_file.display()
     );
     Ok(Reply::new(
-        json!({"output": display_path(&args.output), "manifest_file": display_path(&manifest_file), "manifest": manifest}),
+        json!({"output": display_path(&output_path), "manifest_file": display_path(&manifest_file), "manifest": manifest, "manifest_sha256": Digest256::of(&bytes), "source_snapshot_sha256": source_snapshot_sha256}),
         text,
     ))
 }
@@ -859,7 +1027,7 @@ pub fn verify(ctx: &Ctx, args: &VerifyArgs) -> Result<Reply> {
     }
     let _ = writeln!(text, "{NOTICE}");
     let complete = skipped.is_empty();
-    let report = json!({"complete": complete, "checks": checks, "skipped": skipped, "identical_to_observed_images": plan.identical_to_observed_images, "notice": NOTICE});
+    let report = json!({"manifest_sha256": Digest256::of(&bytes), "complete": complete, "checks": checks, "skipped": skipped, "identical_to_observed_images": plan.identical_to_observed_images, "notice": NOTICE});
     if !complete {
         return Err(Error::new(
             Code::VerificationIncomplete,

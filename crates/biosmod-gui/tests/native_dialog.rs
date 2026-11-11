@@ -11,7 +11,7 @@ use slint::ComponentHandle;
 
 #[test]
 #[ignore = "requires a running desktop with a native file-picker portal"]
-fn portuguese_plan_picker_opens_through_the_native_portal() {
+fn portuguese_selection_picker_opens_through_the_native_portal() {
     slint::BackendSelector::new().select().unwrap();
     let window = AppWindow::new().unwrap();
     Language::PtBr.select().unwrap();
@@ -28,7 +28,7 @@ fn portuguese_plan_picker_opens_through_the_native_portal() {
     let _state = bind(&window, desktop);
     assert_eq!(
         window.global::<UiText>().get_open_plan(),
-        "Abrir um plano para revisão"
+        "Abrir um arquivo de seleção"
     );
     assert_eq!(window.global::<UiText>().get_plan_filter(), "Plano");
     window.show().unwrap();

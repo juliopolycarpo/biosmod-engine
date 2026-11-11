@@ -7,7 +7,7 @@ Quando o treinamento de memória para em `b0` ou `b7`, o visor POST mostra apena
 É um registro `diagnostic` (`MRC-BREADCRUMBS`), em camadas sobre B01-B06 e B02-B03 para a versão MR9A `mnx99mr9apro-230322`:
 
 ```sh
-bme plan dump.bin --select B01-B06 B02-B03 MRC-BREADCRUMBS --allow-diagnostic -o plan.json
+bme patch dump.bin B01-B06 B02-B03 MRC-BREADCRUMBS --allow-diagnostic
 ```
 
 O registro verifica a base da imagem XIP do módulo, que nenhuma relocação cubra um byte modificado e que CmosPei, CmosDxe e PlatformEarlyInit correspondam a hashes revisados. Seu código assembly está no diretório `provenance/` do catálogo.

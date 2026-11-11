@@ -13,7 +13,7 @@ cargo build --locked --release -p biosmod-cli -p biosmod-gui
 target/release/bme-gui
 ```
 
-The GUI looks for `bme` beside its executable. To use another installation, choose it under **Settings**, or launch `bme-gui --engine /absolute/path/to/bme`. An override must pass the protocol handshake and advertise `desktop_workflow: 1`; an older binary with the same package version is insufficient. No engine is loaded from an image or catalog directory.
+The GUI looks for `bme` beside its executable. To use another installation, choose it under **Settings**, or launch `bme-gui --engine /absolute/path/to/bme`. An override must pass the protocol handshake and advertise both `desktop_workflow: 1` and `direct_patch_workflow: 1`; an older binary with the same package version is insufficient. No engine is loaded from an image or catalog directory.
 
 The build uses Slint 1.18.1 with the winit backend and GPU and software renderers. The GUI links fontconfig, FreeType, libgcc and glibc. The desktop also needs fonts, XKB, and Wayland or X11 client libraries; GPU rendering additionally needs a working OpenGL/EGL stack. Some windowing and graphics libraries are loaded dynamically. Native file dialogs use the XDG desktop portal and a portal backend. Manual path entry remains available if the portal is unavailable. To force software rendering, run:
 
@@ -37,25 +37,18 @@ The archive in `dist/` contains the matched binaries, a desktop entry, an icon a
 
 The project's code is MIT. The desktop distribution uses the Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0; **About** displays the required AboutSlint widget. The archive contains that license and the collected runtime dependency notices under `share/licenses/biosmod-engine/`.
 
-## Inspect, plan and verify
+## Scan, select and build
 
-1. Choose an image or enter its path, then inspect it. Choose a catalog source and scan. A board profile identifies catalog information, not the revision or components of a physical board.
-2. Select independently plannable corrections by clicking a finding or pressing Space or Enter on it, or use **Recommended** to ask the engine for its recommendation. Rows needing hardware assertions, a hold or diagnostic policy, or joint prerequisite selection cannot be selected in this workflow. A missing detection does not prove a defect is absent.
-3. Generate and review the plan, including source pin, input and expected output digests, selected patches, component offsets, policy flags and notes. Changing an input invalidates the review.
-4. Choose a new output path and build the patched copy. The paired `<output>.manifest.json` path is shown before publication. Existing files are not overwritten. A publication failure may leave artifacts; inspect the reported paths instead of deleting them automatically.
-5. The GUI independently verifies the output using the input, reviewed plan and manifest. It reports completion only when all required checks succeed. An incomplete verification is not a verified result; address the reported missing prerequisites and retry.
+1. Choose an image, inspect it, choose a catalog source and scan. A board profile identifies catalog information, not the revision or components of a physical board.
+2. Select eligible corrections by clicking a finding or pressing Space or Enter. **Recommended** selects the engine's recommended rows when the whole recommendation is eligible. Rows requiring hardware assertions, hold or diagnostic permissions, or joint prerequisite selection cannot be selected here. A missing detection does not prove a defect is absent.
+3. Choose an output path and press **Build patched copy**. The default places `.patched` before the input's final extension. Existing image and manifest paths are not overwritten. If the image or catalog changed since the scan, scan again and review the selection.
+4. The GUI independently verifies the published output and manifest. It reports completion only when all required checks succeed. A publication failure may leave artifacts; inspect the reported paths. An incomplete verification is not a verified result.
 
-Imported plans can be reviewed and used for verification, but cannot be applied. Only a plan generated and reviewed in the current session can build an image. The GUI checks the retained plan bytes before application; `bme` independently revalidates the input, catalog pin, selection and rebuilt output.
+**Preview changes** optionally builds and validates in memory to show component changes and the expected output; it does not publish files or authorize a later build. **Export selection** saves the visible selection to a new recipe file. Both actions use the input and source from the displayed scan.
 
-Use **Export plan** to keep the exact reviewed document after closing the window. Export requires a new file and preserves the current approval. To reopen a result, choose its original image, saved plan and output; **Open plan**, **Open output** and **Enter paths** remain available throughout the workflow. The output's manifest must be beside it at `<output>.manifest.json`. Imported plans and outputs can be opened in any order; changing their original image clears previous verification and requires another check.
+**Open selection file** loads an exact recipe for replay after validation against the current image, catalog and engine. The GUI retains a private copy and does not let the recipe grant unsupported permissions or switch the selected catalog. A recipe requires its pinned catalog and matching engine build. To reopen an output, choose the original image and output; its manifest must be beside it at `<output>.manifest.json`. An optional selection file can also be used for matching.
 
-Catalog and tool status are read-only in the GUI. Use the CLI to register or update catalogs and to manage external analysis tools. Source trust is configured by the CLI, not by the catalog being opened.
-
-Light and dark views of the synthetic workflow:
-
-![Scan results in the light theme](../images/gui-light.png)
-
-![Plan review in the dark theme](../images/gui-dark.png)
+Catalog and tool status are read-only in the GUI. Use the CLI to register or update catalogs and manage external analysis tools.
 
 ## Settings and diagnostics
 
@@ -69,7 +62,7 @@ The engine aligns FFS files relative to their volume, so volumes at any image of
 
 When independent verification cannot finish, the CLI reports `VERIFICATION_INCOMPLETE` with the partial report in error details. The GUI keeps incomplete results separate from verified results.
 
-## Validation recorded on 2026-11-09
+## Validation of the previous interface recorded on 2026-11-09
 
 The real synthetic workflow passed through the controller and through the Slint event loop, including plan export and automatic independent verification. Output bytes and manifest semantics match an equivalent CLI run. Native runs on Ubuntu 26.04/GNOME passed with Wayland software rendering in light and dark themes, Wayland accelerated rendering, and X11 software rendering through XWayland. These are separate from a native Xorg desktop qualification.
 

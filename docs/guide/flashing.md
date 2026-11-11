@@ -20,7 +20,7 @@ Two identical reads mean the clip is seated. The dump also holds board-specific 
 
 ```sh
 bme scan dump1.bin
-bme patch dump1.bin --select recommended -o patched.bin
+bme patch dump1.bin --recommended -o patched.bin
 bme verify dump1.bin patched.bin
 ```
 

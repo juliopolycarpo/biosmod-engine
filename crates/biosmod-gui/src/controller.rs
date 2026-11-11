@@ -1,8 +1,8 @@
 //! Session transitions and reviewed-plan ownership, independent of the windowing backend.
 
 use crate::engine::{
-    Engine, EngineContract, EngineError, ErrorKind, Reply, Request, append_diagnostics, run_pair,
-    verification_complete,
+    Engine, EngineContract, EngineError, ErrorKind, PatchDestination, PatchSelection, Reply,
+    Request, ScannedSelection, append_diagnostics, run_pair, verification_complete,
 };
 use crate::model::{Scan, SourceReport, pretty};
 use serde_json::Value;
@@ -23,13 +23,14 @@ pub enum Action {
     Connect,
     Inspect,
     Scan,
-    Plan,
-    Recommended,
-    Apply,
+    Preview,
+    Export,
+    Build,
     Verify,
     Sources,
     Tools,
     Import,
+    ValidateRecipe,
 }
 
 impl Action {
@@ -40,12 +41,14 @@ impl Action {
             Self::Connect => "Checking engine",
             Self::Inspect => "Inspecting image",
             Self::Scan => "Scanning image",
-            Self::Plan | Self::Recommended => "Generating plan",
-            Self::Apply => "Building patched copy",
+            Self::Preview => "Previewing changes",
+            Self::Export => "Exporting selection",
+            Self::Build => "Building patched copy",
             Self::Verify => "Verifying output",
             Self::Sources => "Reading sources",
             Self::Tools => "Checking tools",
-            Self::Import => "Opening plan",
+            Self::Import => "Opening selection file",
+            Self::ValidateRecipe => "Validating selection file",
         }
     }
 }
@@ -56,7 +59,9 @@ pub enum Outcome {
     Failed,
     Interrupted,
     PublicationIncomplete,
+    PublicationUnknown,
     VerificationIncomplete,
+    VerificationFailed,
     Verified,
 }
 
@@ -74,6 +79,7 @@ pub enum PreparationError {
     Plan,
     Manifest,
     WaitImport,
+    RecipeMismatch,
 }
 
 impl std::fmt::Display for PreparationError {
@@ -82,14 +88,15 @@ impl std::fmt::Display for PreparationError {
             Self::Busy => "An operation is already running.",
             Self::Engine => "Connect a compatible bme engine first.",
             Self::Image => "Choose an original image first.",
-            Self::ImportPath => "Plan import requires an explicit path.",
-            Self::Scan => "Scan this image and source before planning.",
+            Self::ImportPath => "Choose a selection file to open.",
+            Self::Scan => "Scan the original image and selected catalog first.",
             Self::Selection => "Select an eligible correction first.",
-            Self::Build => "Build requires a current generated plan and a new output path.",
+            Self::Build => "Choose a new output path for the selected corrections.",
             Self::Output => "Choose a built output first.",
-            Self::Plan => "Open or generate the matching plan first.",
+            Self::Plan => "Open the matching selection file first.",
             Self::Manifest => "Choose an output with its paired manifest first.",
-            Self::WaitImport => "Wait for the active operation before importing a plan.",
+            Self::WaitImport => "Wait for the active operation before opening a selection file.",
+            Self::RecipeMismatch => "The selection file must match the scan and use only corrections supported by the desktop.",
         })
     }
 }
@@ -105,13 +112,15 @@ pub enum Status {
     Ready,
     Inspected,
     Scanned,
-    Planned,
+    Previewed,
     Published,
     Verified,
+    VerifiedOpened,
     Incomplete,
     Sources,
     Tools,
     Imported,
+    RecipeValidated,
     Stopping,
     Back,
     ClosingExport,
@@ -145,31 +154,29 @@ impl Status {
             Self::Start => "Choose a firmware image to get started.",
             Self::Inputs => "Inputs changed. Inspect and scan to continue.",
             Self::ImportedInput => {
-                "Imported plan remains read-only. Verify against the chosen original image and output."
+                "Scan the original image and matching catalog to validate the selection file."
             }
-            Self::Selection => "Selection changed. Generate a new plan to review.",
+            Self::Selection => "Selection changed.",
             Self::Ready => "Engine ready. Choose an image to inspect.",
             Self::Inspected => "Image inspected. Scan a source for matching corrections.",
-            Self::Scanned => {
-                "Scan complete. Select corrections or review the engine's recommendation."
-            }
-            Self::Planned => "Review the resolved plan, then choose a new output and build a copy.",
+            Self::Scanned => "Scan complete. Select corrections or choose Recommended.",
+            Self::Previewed => "Preview complete.",
             Self::Published => "Patched copy published. Independent verification is next.",
             Self::Verified => "Offline verification complete",
+            Self::VerifiedOpened => "Verified against the opened manifest",
             Self::Incomplete => {
                 "Verification incomplete. Review skipped checks and retry after addressing them."
             }
             Self::Sources => "Registered sources loaded. Firmware operations remain offline.",
             Self::Tools => "Tool diagnostics complete.",
-            Self::Imported => {
-                "Imported plan: review and verification only. Choose its original image and output."
-            }
+            Self::Imported => "Selection file opened. Choose its original image and catalog.",
+            Self::RecipeValidated => "Selection file validated. Choose an output and build a copy.",
             Self::Stopping => "Stopping operation…",
-            Self::Back => "Select corrections and generate a new plan to continue.",
+            Self::Back => "Select corrections to build a patched copy.",
             Self::ClosingExport => "Finishing file export before closing…",
             Self::ClosingBuild => "Building the copy. Close the window after publication finishes.",
             Self::ClosingStop => "Stopping operation before closing…",
-            Self::ExportNeedsPlan => "Review a plan before exporting it.",
+            Self::ExportNeedsPlan => "Select corrections or open a selection file to export.",
             Self::Activity(action) => action.label(),
             // These carry a detail or path; callers use set_detailed_status or set_notice.
             Self::Precondition(_)
@@ -204,25 +211,57 @@ struct StatusSnapshot {
 
 #[derive(Debug, Clone)]
 pub struct Review {
-    pub path: PathBuf,
+    pub origin: SelectionOrigin,
     pub bytes: Vec<u8>,
     pub document: Value,
-    pub generated: bool,
     /// The pretty-printed document, prepared off the UI thread for every language.
     pub(crate) snapshot: slint::SharedString,
 }
 
+/// Provenance of the selection document shown or exported by the desktop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SelectionOrigin {
+    Imported(PathBuf),
+    Preview,
+    Build,
+}
+
 impl Review {
-    /// Retain exact plan bytes and pretty-print the document on the worker.
-    /// Example: `Review::new(path, bytes, document, false)` creates a read-only import.
-    pub fn new(path: PathBuf, bytes: Vec<u8>, document: Value, generated: bool) -> Self {
+    /// Keep exact imported bytes and the private path used for replay.
+    /// Example: `Review::imported(private_path, bytes, document)` prepares a snapshot for display.
+    pub fn imported(path: PathBuf, bytes: Vec<u8>, document: Value) -> Self {
         let snapshot = pretty(&document).into();
         Self {
-            path,
+            origin: SelectionOrigin::Imported(path),
             bytes,
             document,
-            generated,
             snapshot,
+        }
+    }
+
+    /// Present a dry-run document without creating a backing file.
+    /// Example: `Review::preview(reply.data["plan"].clone())` renders an engine preview.
+    pub fn preview(document: Value) -> Self {
+        Self::from_document(document, SelectionOrigin::Preview)
+    }
+
+    fn from_document(document: Value, origin: SelectionOrigin) -> Self {
+        let snapshot: slint::SharedString = pretty(&document).into();
+        let bytes = snapshot.as_bytes().to_vec();
+        Self {
+            origin,
+            bytes,
+            document,
+            snapshot,
+        }
+    }
+
+    /// Return the private path only for an imported snapshot.
+    /// Example: `review.recipe_path()` is absent for dry-run and build documents.
+    pub fn recipe_path(&self) -> Option<&Path> {
+        match &self.origin {
+            SelectionOrigin::Imported(path) => Some(path.as_path()),
+            _ => None,
         }
     }
 }
@@ -238,14 +277,17 @@ pub struct Session {
     pub source: String,
     pub output: Option<PathBuf>,
     pub manifest: Option<PathBuf>,
+    manifest_receipt: Option<String>,
     pub connected: bool,
     pub engine_version: Option<String>,
     pub(crate) engine_contract: Option<Arc<EngineContract>>,
     pub engine_attempted: bool,
     pub inspection: Option<Value>,
     pub scan: Option<SourceReport>,
-    scan_input: Option<Value>,
+    pub(crate) scan_input: Option<Value>,
     pub review: Option<Arc<Review>>,
+    recipe_validated: bool,
+    pub built_plan: Option<Arc<Review>>,
     pub outcome: Outcome,
     pub status: String,
     pub status_kind: Status,
@@ -275,6 +317,7 @@ impl Session {
             source: "official".into(),
             output: None,
             manifest: None,
+            manifest_receipt: None,
             connected: false,
             engine_version: None,
             engine_contract: None,
@@ -283,6 +326,8 @@ impl Session {
             scan: None,
             scan_input: None,
             review: None,
+            recipe_validated: false,
+            built_plan: None,
             outcome: Outcome::Idle,
             status: String::new(),
             status_kind: Status::Start,
@@ -382,9 +427,15 @@ impl Session {
         self.inspection = None;
         self.scan = None;
         self.scan_input = None;
-        self.review = None;
-        self.output = None;
+        self.recipe_validated = false;
+        self.review = self
+            .review
+            .take()
+            .filter(|review| review.recipe_path().is_some());
+        self.output = self.image.as_deref().and_then(default_patch_output);
         self.manifest = None;
+        self.manifest_receipt = None;
+        self.built_plan = None;
         self.result_details.clear();
         self.verification_report = None;
         self.outcome = Outcome::Idle;
@@ -394,13 +445,20 @@ impl Session {
     /// Change the original image, retaining only imported artifacts for re-verification.
     /// Example: selecting an imported plan's original image never grants build permission.
     pub fn change_image(&mut self, image: Option<PathBuf>) {
-        let keep = self.review.as_ref().is_none_or(|review| !review.generated);
+        let keep = self
+            .review
+            .as_ref()
+            .is_none_or(|review| review.recipe_path().is_some());
         let imported = self.review.take().filter(|_| keep);
         let output = self.output.clone();
-        let manifest = self.manifest.clone();
+        let manifest = self
+            .manifest
+            .clone()
+            .filter(|_| self.manifest_receipt.is_none());
         self.invalidate();
         self.image = image;
-        if keep && (imported.is_some() || manifest.is_some()) {
+        self.output = self.image.as_deref().and_then(default_patch_output);
+        if keep && manifest.is_some() {
             self.output = output;
             self.manifest = manifest;
         }
@@ -419,7 +477,8 @@ impl Session {
     /// Publication must finish before ordinary window closure.
     /// Example: ignore a close request while `session.publishing()`.
     pub fn publishing(&self) -> bool {
-        self.active.is_some_and(|a| a.2 == Action::Apply)
+        self.active
+            .is_some_and(|a| matches!(a.2, Action::Build | Action::Export))
     }
 
     /// Report the current operation for an indeterminate activity indicator.
@@ -449,30 +508,119 @@ impl Session {
         self.set_status(Status::Selection);
     }
 
+    /// Check whether the desktop can select every patch recommended by the current scan.
+    /// Example: an empty recommendation list disables the Recommended button.
+    pub fn can_recommend(&self) -> bool {
+        self.connected
+            && !self.busy()
+            && self.scan.as_ref().is_some_and(|scan| {
+                !scan.report.recommended.is_empty()
+                    && scan.report.recommended.iter().all(|id| {
+                        scan.report
+                            .patches
+                            .iter()
+                            .any(|patch| &patch.id == id && patch.selectable())
+                    })
+            })
+    }
+
+    /// Select the exact recommendation from the current scan without starting a worker.
+    /// Example: call `session.select_recommended()` from the Recommended button.
+    pub fn select_recommended(&mut self) {
+        if !self.can_recommend() {
+            return;
+        }
+        let report = &mut self.scan.as_mut().expect("current scan").report;
+        for patch in &mut report.patches {
+            patch.selected = report.recommended.contains(&patch.id);
+        }
+        self.clear_results();
+        self.set_status(Status::Selection);
+    }
+
     /// Drop the review, manifest, and result text after any input that makes them stale.
     /// Example: `session.clear_results()` before offering a new output path.
     pub fn clear_results(&mut self) {
         self.review = None;
+        self.recipe_validated = false;
         self.manifest = None;
+        self.manifest_receipt = None;
+        self.built_plan = None;
         self.result_details.clear();
         self.verification_report = None;
         self.outcome = Outcome::Idle;
     }
 
-    /// Whether the current generated review can be explicitly applied.
-    /// Example: imported reviews always make `can_apply()` false.
-    pub fn can_apply(&self) -> bool {
+    /// Check whether the displayed selection can build directly to a new output.
+    /// Example: selecting an eligible scan row enables Build for the default output.
+    pub fn can_build(&self) -> bool {
         self.connected
             && !self.busy()
-            && self.review.as_ref().is_some_and(|r| r.generated)
-            && self.output.is_some()
             && self.image.is_some()
+            && self.output.is_some()
             && self.manifest.is_none()
+            && if self.imported_recipe().is_some() {
+                self.recipe_validated
+            } else {
+                self.scan.as_ref().is_some_and(|scan| {
+                    scan.report
+                        .patches
+                        .iter()
+                        .any(|patch| patch.selected && patch.selectable())
+                })
+            }
+    }
+
+    /// Return the imported selection snapshot when exact replay is active.
+    /// Example: after opening a recipe, `session.imported_recipe()` exposes its retained bytes.
+    pub fn imported_recipe(&self) -> Option<&Arc<Review>> {
+        self.review
+            .as_ref()
+            .filter(|review| review.recipe_path().is_some())
+    }
+
+    fn scanned_selection(&self) -> Result<ScannedSelection, PreparationError> {
+        let scan = self.scan.as_ref().ok_or(PreparationError::Scan)?;
+        let input_sha256 = self
+            .scan_input
+            .as_ref()
+            .and_then(|input| sha256_string(&input["sha256"]))
+            .ok_or(PreparationError::Scan)?;
+        let ids: Vec<_> = scan
+            .report
+            .patches
+            .iter()
+            .filter(|patch| patch.selected && patch.selectable())
+            .map(|patch| patch.qualified(&scan.alias))
+            .collect();
+        if ids.is_empty() {
+            return Err(PreparationError::Selection);
+        }
+        Ok(ScannedSelection {
+            source: self.source.clone(),
+            ids,
+            input_sha256: input_sha256.into(),
+            source_sha256: scan.snapshot_sha256.clone(),
+        })
     }
 
     /// Prepare one operation with immutable paths and generation tags.
     /// Example: pass `session.prepare(Action::Scan)?` to a worker's `Job::run`.
     pub fn prepare(&mut self, action: Action) -> Result<Job, PreparationError> {
+        self.prepare_operation(action, None)
+    }
+
+    /// Prepare a guarded export of the IDs currently selected in the findings.
+    /// Example: run `session.prepare_export("selection.json".into())?` on a worker.
+    pub fn prepare_export(&mut self, output: PathBuf) -> Result<Job, PreparationError> {
+        self.prepare_operation(Action::Export, Some(output))
+    }
+
+    fn prepare_operation(
+        &mut self,
+        action: Action,
+        export_path: Option<PathBuf>,
+    ) -> Result<Job, PreparationError> {
         if self.busy() {
             return Err(PreparationError::Busy);
         }
@@ -488,39 +636,55 @@ impl Session {
                 image: image()?,
                 source: self.source.clone(),
             },
-            Action::Plan | Action::Recommended => {
-                let scan = self.scan.as_ref().ok_or(PreparationError::Scan)?;
-                let selection = if action == Action::Recommended {
-                    vec!["recommended".into()]
-                } else {
-                    scan.report
-                        .patches
-                        .iter()
-                        .filter(|p| p.selected && p.selectable())
-                        .map(|p| p.qualified(&scan.alias))
-                        .collect::<Vec<_>>()
-                };
-                if selection.is_empty() {
-                    return Err(PreparationError::Selection);
+            Action::Preview => Request::Build {
+                image: image()?,
+                selection: PatchSelection::Scanned(self.scanned_selection()?),
+                destination: PatchDestination::Preview,
+            },
+            Action::Export => Request::Export {
+                image: image()?,
+                selection: self.scanned_selection()?,
+                output: export_path.ok_or(PreparationError::Output)?,
+            },
+            Action::ValidateRecipe => {
+                let recipe = self.imported_recipe().ok_or(PreparationError::Plan)?;
+                let image = image()?;
+                if self.scan.is_none() {
+                    return Err(PreparationError::Scan);
                 }
-                Request::Plan {
-                    image: image()?,
-                    source: self.source.clone(),
-                    selection,
-                    output: self
-                        .directory
-                        .path()
-                        .join(format!("plan-{}.json", self.next_operation)),
+                self.validate_generated(&recipe.document)
+                    .map_err(|_| PreparationError::RecipeMismatch)?;
+                Request::Build {
+                    image,
+                    selection: PatchSelection::Recipe(
+                        recipe
+                            .recipe_path()
+                            .map(Path::to_path_buf)
+                            .ok_or(PreparationError::Plan)?,
+                    ),
+                    destination: PatchDestination::Preview,
                 }
             }
-            Action::Apply => {
-                if !self.can_apply() {
+            Action::Build => {
+                let selection = if let Some(recipe) = self.imported_recipe() {
+                    PatchSelection::Recipe(
+                        recipe
+                            .recipe_path()
+                            .map(Path::to_path_buf)
+                            .ok_or(PreparationError::Plan)?,
+                    )
+                } else {
+                    PatchSelection::Scanned(self.scanned_selection()?)
+                };
+                if !self.can_build() {
                     return Err(PreparationError::Build);
                 }
-                Request::Patch {
+                Request::Build {
                     image: image()?,
-                    plan: self.review.as_ref().unwrap().path.clone(),
-                    output: self.output.clone().unwrap(),
+                    selection,
+                    destination: PatchDestination::Publish(
+                        self.output.clone().expect("new output"),
+                    ),
                 }
             }
             Action::Verify => {
@@ -528,23 +692,23 @@ impl Session {
                 if self.manifest.as_ref() != Some(&manifest_path(&output)) {
                     return Err(PreparationError::Manifest);
                 }
-                Request::Verify {
+                Request::VerifyResult {
                     input: image()?,
+                    manifest: manifest_path(&output),
                     output,
-                    plan: self
+                    recipe: self
                         .review
                         .as_ref()
-                        .ok_or(PreparationError::Plan)?
-                        .path
-                        .clone(),
+                        .filter(|_| self.manifest_receipt.is_none())
+                        .and_then(|review| review.recipe_path().map(Path::to_path_buf)),
                 }
             }
             Action::Sources => Request::CatalogList,
             Action::Tools => Request::ToolsDoctor,
         };
         let token = self.begin(action);
-        if matches!(action, Action::Plan | Action::Recommended) {
-            self.review = None;
+        if matches!(action, Action::Scan | Action::ValidateRecipe) {
+            self.recipe_validated = false;
         }
         Ok(Job {
             token,
@@ -613,27 +777,82 @@ impl Session {
                 if scan.sources.len() != 1 {
                     return Err(local_error("scan: expected exactly one source"));
                 }
+                if sha256_string(&scan.input["sha256"]).is_none()
+                    || !valid_sha256(&scan.sources[0].snapshot_sha256)
+                {
+                    return Err(local_error(
+                        "scan: expected lowercase SHA-256 digests for the input and source",
+                    ));
+                }
                 self.scan_input = Some(scan.input);
                 self.scan = scan.sources.pop();
-                self.review = None;
+                self.review = self
+                    .review
+                    .take()
+                    .filter(|review| review.recipe_path().is_some());
                 self.manifest = None;
+                self.manifest_receipt = None;
+                self.built_plan = None;
                 self.source_details = payload.extra.map(|v| pretty(&v)).unwrap_or_default();
                 self.set_status(Status::Scanned);
             }
-            Action::Plan | Action::Recommended => {
-                let review = payload
-                    .review
-                    .ok_or_else(|| local_error("plan: expected retained review bytes"))?;
-                self.validate_generated(&review.document)?;
-                self.review = Some(review);
-                self.manifest = None;
-                self.set_status(Status::Planned);
+            Action::Preview => {
+                let plan = self.validate_selection_response(&data, &payload.reply.version)?;
+                if data["dry_run"] != true {
+                    return Err(local_error("preview: expected a dry-run result"));
+                }
+                self.review = Some(Arc::new(Review::preview(plan.clone())));
+                self.set_status(Status::Previewed);
             }
-            Action::Apply => {
-                data["manifest_file"]
+            Action::Export => {
+                self.validate_selection_response(&data, &payload.reply.version)?;
+                let path = data["patch_file"]
                     .as_str()
-                    .ok_or_else(|| local_error("patch: expected manifest_file display path"))?;
-                self.manifest = self.output.as_ref().map(|path| manifest_path(path));
+                    .ok_or_else(|| local_error("export: expected a selection file path"))?;
+                self.set_detailed_status(
+                    Status::PlanExported,
+                    path,
+                    "",
+                    format!("Selection exported to {path}"),
+                );
+            }
+            Action::ValidateRecipe => {
+                if data["dry_run"] != true {
+                    return Err(local_error("selection file: expected a dry-run result"));
+                }
+                self.validate_replay_response(&data["plan"], &data, &payload.reply.version)?;
+                self.recipe_validated = true;
+                self.set_status(Status::RecipeValidated);
+            }
+            Action::Build => {
+                let plan = &data["manifest"]["plan"];
+                let imported = self.imported_recipe().cloned();
+                if imported.is_some() {
+                    self.validate_replay_response(plan, &data, &payload.reply.version)?;
+                } else {
+                    self.validate_direct_response(plan, &data, &payload.reply.version)?;
+                }
+                let output = self
+                    .output
+                    .as_deref()
+                    .ok_or_else(|| local_error("patch: expected output path"))?;
+                let manifest = manifest_path(output);
+                if data["manifest"]["schema"] != "bme.manifest/1"
+                    || data["output"] != output.to_string_lossy().as_ref()
+                    || data["manifest_file"] != manifest.to_string_lossy().as_ref()
+                {
+                    return Err(local_error(
+                        "patch receipt: expected the connected engine, scanned selection and requested output paths",
+                    ));
+                }
+                let digest = sha256_string(&data["manifest_sha256"]).ok_or_else(|| {
+                    local_error("patch receipt: expected a lowercase manifest SHA-256")
+                })?;
+                self.manifest_receipt = Some(digest.into());
+                self.built_plan = Some(imported.unwrap_or_else(|| {
+                    Arc::new(Review::from_document(plan.clone(), SelectionOrigin::Build))
+                }));
+                self.manifest = Some(manifest);
                 self.result_details = pretty(&data);
                 self.verification_report = None;
                 self.set_status(Status::Published);
@@ -644,16 +863,22 @@ impl Session {
                         "verification: expected an engine contract from the active connection",
                     )
                 })?;
+                self.validate_verification_receipt(
+                    &data["manifest_sha256"],
+                    Some(payload.reply.version.as_str()),
+                )?;
                 let complete = verification_complete(&data, contract)?;
                 self.outcome = if complete {
                     Outcome::Verified
                 } else {
                     Outcome::VerificationIncomplete
                 };
-                self.set_status(if complete {
-                    Status::Verified
-                } else {
+                self.set_status(if !complete {
                     Status::Incomplete
+                } else if self.manifest_receipt.is_none() && self.manifest.is_some() {
+                    Status::VerifiedOpened
+                } else {
+                    Status::Verified
                 });
                 self.log(&pretty(&data));
                 // The window renders the report itself in the selected language.
@@ -669,11 +894,71 @@ impl Session {
                 self.set_status(Status::Tools);
             }
             Action::Import => {
+                if self.manifest_receipt.take().is_some() {
+                    self.manifest = None;
+                    self.built_plan = None;
+                }
                 self.review = payload.review;
+                self.recipe_validated = false;
                 self.result_details.clear();
                 self.verification_report = None;
                 self.set_status(Status::Imported);
             }
+        }
+        Ok(())
+    }
+
+    fn validate_selection_response<'a>(
+        &self,
+        data: &'a Value,
+        version: &str,
+    ) -> Result<&'a Value, EngineError> {
+        let plan = &data["plan"];
+        self.validate_direct_response(plan, data, version)?;
+        Ok(plan)
+    }
+
+    fn validate_direct_response(
+        &self,
+        plan: &Value,
+        data: &Value,
+        version: &str,
+    ) -> Result<(), EngineError> {
+        self.validate_generated(plan)?;
+        let selection = self
+            .scanned_selection()
+            .map_err(|error| local_error(error.to_string()))?;
+        if self.engine_version.as_deref() != Some(version)
+            || plan["engine"]["version"] != version
+            || data["source_snapshot_sha256"] != selection.source_sha256
+            || plan["requested"] != serde_json::json!(selection.ids)
+        {
+            return Err(local_error(
+                "patch selection: expected the connected engine and exact scanned selection",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_replay_response(
+        &self,
+        plan: &Value,
+        data: &Value,
+        version: &str,
+    ) -> Result<(), EngineError> {
+        self.validate_generated(plan)?;
+        let recipe = self
+            .imported_recipe()
+            .ok_or_else(|| local_error("expected retained selection file"))?;
+        let scan = self.scan.as_ref().expect("validated scan");
+        if self.engine_version.as_deref() != Some(version)
+            || plan["engine"]["version"] != version
+            || data["source_snapshot_sha256"] != scan.snapshot_sha256
+            || *plan != recipe.document
+        {
+            return Err(local_error(
+                "selection file: expected exact replay against the current scan",
+            ));
         }
         Ok(())
     }
@@ -724,7 +1009,34 @@ impl Session {
         Ok(())
     }
 
-    fn fail(&mut self, action: Action, error: EngineError) {
+    fn validate_verification_receipt(
+        &self,
+        digest: &Value,
+        version: Option<&str>,
+    ) -> Result<(), EngineError> {
+        if let Some(expected) = &self.manifest_receipt
+            && (digest.as_str() != Some(expected.as_str())
+                || version.is_none()
+                || version != self.engine_version.as_deref())
+        {
+            return Err(local_error(format!(
+                "verification receipt: expected manifest SHA-256 {expected} from the connected engine | received {digest} from version {}",
+                version.unwrap_or("<missing>")
+            )));
+        }
+        Ok(())
+    }
+
+    fn fail(&mut self, action: Action, mut error: EngineError) {
+        if action == Action::Verify
+            && error.code.as_deref() == Some("VERIFICATION_INCOMPLETE")
+            && let Err(receipt_error) = self.validate_verification_receipt(
+                &error.details.as_ref().unwrap_or(&Value::Null)["manifest_sha256"],
+                error.version.as_deref().map(String::as_str),
+            )
+        {
+            error = receipt_error;
+        }
         if action == Action::Connect {
             self.connected = false;
             self.engine_attempted = true;
@@ -734,6 +1046,7 @@ impl Session {
         self.outcome = match error.code.as_deref() {
             Some("PUBLISH_INCOMPLETE") => Outcome::PublicationIncomplete,
             Some("VERIFICATION_INCOMPLETE") => Outcome::VerificationIncomplete,
+            _ if action == Action::Verify && self.manifest.is_some() => Outcome::VerificationFailed,
             _ if matches!(
                 error.kind,
                 ErrorKind::Interrupted | ErrorKind::Cancelled | ErrorKind::Timeout
@@ -743,15 +1056,23 @@ impl Session {
             }
             _ => Outcome::Failed,
         };
-        if matches!(action, Action::Apply | Action::Plan | Action::Recommended) {
-            self.review = None;
+        if matches!(action, Action::Build | Action::Preview | Action::Export)
+            && error.code.as_deref() == Some("PLAN_INPUT_CHANGED")
+        {
+            self.scan = None;
+            self.scan_input = None;
+            let recipe = self.imported_recipe().cloned();
+            self.clear_results();
+            self.review = recipe;
+            self.outcome = Outcome::Failed;
         }
         let message = error.to_string();
         let definite = matches!(
             error.kind,
             ErrorKind::Engine | ErrorKind::Configuration | ErrorKind::Launch
         );
-        if action == Action::Apply && !definite {
+        if action == Action::Build && !definite {
+            self.outcome = Outcome::PublicationUnknown;
             let fallback = format!(
                 "Publication outcome unknown. Inspect output artifacts before retrying. {message}"
             );
@@ -823,6 +1144,8 @@ impl Session {
     pub fn set_output(&mut self, output: Option<PathBuf>) {
         self.output = output;
         self.manifest = None;
+        self.manifest_receipt = None;
+        self.built_plan = None;
         self.result_details.clear();
         self.verification_report = None;
         self.outcome = Outcome::Idle;
@@ -831,6 +1154,8 @@ impl Session {
     /// Select a saved output and its conventional paired manifest for independent verification.
     /// Example: `session.open_output(PathBuf::from("/tmp/out.bin"))` uses `out.bin.manifest.json`.
     pub fn open_output(&mut self, output: PathBuf) {
+        self.manifest_receipt = None;
+        self.built_plan = None;
         self.manifest = Some(manifest_path(&output));
         self.output = Some(output);
         self.outcome = Outcome::Idle;
@@ -897,7 +1222,7 @@ impl ImportJob {
                 diagnostics: String::new(),
             },
             extra: None,
-            review: Some(Arc::new(Review::new(path, bytes, document, false))),
+            review: Some(Arc::new(Review::imported(path, bytes, document))),
         })
     }
 }
@@ -920,7 +1245,16 @@ impl Job {
     }
 
     fn execute(&self, engine: &Engine) -> Result<Payload, EngineError> {
-        if matches!(self.token.2, Action::Apply | Action::Verify) {
+        if matches!(
+            &self.request,
+            Request::VerifyResult {
+                recipe: Some(_),
+                ..
+            } | Request::Build {
+                selection: PatchSelection::Recipe(_),
+                ..
+            }
+        ) {
             // These checks run before the engine starts, so a refusal is definite.
             let refuse = |error: EngineError| EngineError {
                 kind: ErrorKind::Configuration,
@@ -930,7 +1264,10 @@ impl Job {
                 .reviewed
                 .as_ref()
                 .ok_or_else(|| refuse(local_error("review: expected retained plan")))?;
-            if read_plan(&review.path).map_err(refuse)? != review.bytes {
+            let path = review
+                .recipe_path()
+                .ok_or_else(|| refuse(local_error("expected a private recipe snapshot")))?;
+            if read_plan(path).map_err(refuse)? != review.bytes {
                 return Err(refuse(local_error(
                     "reviewed plan changed: expected exact reviewed bytes; generate and review again",
                 )));
@@ -995,23 +1332,10 @@ impl Job {
             }
             _ => (engine.run(&self.request, &self.cancel)?, None),
         };
-        let review = if let Request::Plan { output, .. } = &self.request {
-            let bytes = read_plan(output)?;
-            let document: Value = serde_json::from_slice(&bytes)
-                .map_err(|e| local_error(format!("plan file: expected JSON | received {e}")))?;
-            if document != reply.data["plan"] {
-                return Err(local_error(
-                    "plan file: expected the exact document returned by the engine",
-                ));
-            }
-            Some(Arc::new(Review::new(output.clone(), bytes, document, true)))
-        } else {
-            None
-        };
         Ok(Payload {
             reply,
             extra,
-            review,
+            review: None,
         })
     }
 }
@@ -1063,6 +1387,27 @@ fn run_doctor(
         }
         Err(error) => Err(error),
     }
+}
+
+fn sha256_string(value: &Value) -> Option<&str> {
+    value.as_str().filter(|digest| valid_sha256(digest))
+}
+
+fn valid_sha256(digest: &str) -> bool {
+    digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn default_patch_output(input: &Path) -> Option<PathBuf> {
+    let mut name = input.file_stem()?.to_os_string();
+    name.push(".patched");
+    if let Some(extension) = input.extension() {
+        name.push(".");
+        name.push(extension);
+    }
+    Some(input.with_file_name(name))
 }
 
 fn read_plan(path: &Path) -> Result<Vec<u8>, EngineError> {

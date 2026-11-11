@@ -27,9 +27,9 @@ export global UiText {
     out property <string> unknown-firmware: @tr("unknown or ambiguous");
 
     out property <string> save-copy: @tr("Save a new patched copy");
-    out property <string> export-plan: @tr("Export reviewed plan to a new file");
+    out property <string> export-plan: @tr("Export selection to a new file");
     out property <string> export-diagnostics: @tr("Export diagnostics to a new file");
-    out property <string> open-plan: @tr("Open a plan for review");
+    out property <string> open-plan: @tr("Open a selection file");
     out property <string> plan-filter: @tr("Plan");
     out property <string> choose-engine: @tr("Choose bme executable");
     out property <string> open-output: @tr("Open a built image with its paired manifest");
@@ -37,8 +37,8 @@ export global UiText {
     public pure function preferences-error(error: string) -> string { return @tr("Could not save preferences: {}", error); }
     out property <string> preferences-no-location: @tr("Could not save preferences: no writable configuration location is available.");
     public pure function preferences-protected(path: string) -> string { return @tr("Preferences not saved: {} could not be read. Fix or remove that file, then restart.", path); }
-    out property <string> generated-plan: @tr("Generated in this session");
-    out property <string> imported-plan: @tr("Read-only imported plan");
+    out property <string> generated-plan: @tr("Preview of selected changes");
+    out property <string> imported-plan: @tr("Imported selection file");
     out property <string> none: @tr("None");
     out property <string> unknown: @tr("unknown");
     public pure function plan-intro(firmware: string, alias: string, catalog: string, version: string, trust: string, requested: string, selected: string, carried: string, input: string, output: string, engine: string, codec: string) -> string {
@@ -64,33 +64,37 @@ export global UiText {
     public pure function check-skipped(name: string, reason: string) -> string { return @tr("SKIPPED  {}\n{}", name, reason); }
     out property <string> status-start: @tr("Choose a firmware image to get started.");
     out property <string> status-inputs: @tr("Inputs changed. Inspect and scan to continue.");
-    out property <string> status-imported-input: @tr("Imported plan remains read-only. Verify against the chosen original image and output.");
-    out property <string> status-selection: @tr("Selection changed. Generate a new plan to review.");
+    out property <string> status-imported-input: @tr("Scan the original image and matching catalog to validate the selection file.");
+    out property <string> status-selection: @tr("Selection changed.");
     out property <string> status-ready: @tr("Engine ready. Choose an image to inspect.");
     out property <string> status-inspected: @tr("Image inspected. Scan a source for matching corrections.");
-    out property <string> status-scanned: @tr("Scan complete. Select corrections or review the engine's recommendation.");
-    out property <string> status-planned: @tr("Review the resolved plan, then choose a new output and build a copy.");
+    out property <string> status-scanned: @tr("Scan complete. Select corrections or choose Recommended.");
+    out property <string> status-previewed: @tr("Preview complete.");
     out property <string> status-published: @tr("Patched copy published. Independent verification is next.");
+    out property <string> status-verified-opened: @tr("Verified against the opened manifest");
     out property <string> status-verified: @tr("Offline verification complete");
     out property <string> status-incomplete: @tr("Verification incomplete. Review skipped checks and retry after addressing them.");
     out property <string> status-sources: @tr("Registered sources loaded. Firmware operations remain offline.");
     out property <string> status-tools: @tr("Tool diagnostics complete.");
-    out property <string> status-imported: @tr("Imported plan: review and verification only. Choose its original image and output.");
+    out property <string> status-recipe-validated: @tr("Selection file validated. Choose an output and build a copy.");
+    out property <string> status-imported: @tr("Selection file opened. Choose its original image and catalog.");
     out property <string> status-stopping: @tr("Stopping operation…");
-    out property <string> status-back: @tr("Select corrections and generate a new plan to continue.");
+    out property <string> status-back: @tr("Select corrections to build a patched copy.");
     out property <string> status-closing-export: @tr("Finishing file export before closing…");
     out property <string> status-closing-build: @tr("Building the copy. Close the window after publication finishes.");
     out property <string> status-closing-stop: @tr("Stopping operation before closing…");
-    out property <string> status-export-needs-plan: @tr("Review a plan before exporting it.");
+    out property <string> status-export-needs-plan: @tr("Select corrections or open a selection file to export.");
     out property <string> operation-connect: @tr("Checking engine");
     out property <string> operation-inspect: @tr("Inspecting image");
     out property <string> operation-scan: @tr("Scanning image");
-    out property <string> operation-plan: @tr("Generating plan");
+    out property <string> operation-preview: @tr("Previewing changes");
+    out property <string> operation-export-selection: @tr("Exporting selection");
     out property <string> operation-apply: @tr("Building patched copy");
     out property <string> operation-verify: @tr("Verifying output");
     out property <string> operation-sources: @tr("Reading sources");
     out property <string> operation-tools: @tr("Checking tools");
-    out property <string> operation-import: @tr("Opening plan");
+    out property <string> operation-validate-recipe: @tr("Validating selection file");
+    out property <string> operation-import: @tr("Opening selection file");
     out property <string> operation-export: @tr("Exporting file");
     out property <string> operation-pick: @tr("Choosing file");
     out property <string> engine-disconnected: @tr("Engine not connected");
@@ -98,29 +102,32 @@ export global UiText {
     public pure function engine-ready(version: string) -> string { return @tr("bme {} · offline", version); }
     public pure function status-failed(detail: string) -> string { return @tr("Operation failed: {}", detail); }
     public pure function status-publication-unknown(detail: string) -> string { return @tr("Publication outcome unknown. Inspect output artifacts before retrying. {}", detail); }
+    out property <string> title-verification-failed: @tr("Verification failed for this output");
+    out property <string> title-publication-unknown: @tr("Publication outcome unknown");
     out property <string> title-incomplete: @tr("Verification incomplete");
     out property <string> title-publication: @tr("Publication incomplete: inspect remaining artifacts");
     out property <string> title-interrupted: @tr("Operation interrupted: review the outcome");
     out property <string> title-output: @tr("Output & verification");
     public pure function picker-error(error: string) -> string { return @tr("File picker unavailable: {}. Enter a path manually.", error); }
-    out property <string> exporting-plan: @tr("Exporting plan…");
+    out property <string> exporting-plan: @tr("Exporting selection…");
     out property <string> exporting-diagnostics: @tr("Exporting diagnostics…");
-    public pure function plan-exported(path: string) -> string { return @tr("Plan exported to {}", path); }
+    public pure function plan-exported(path: string) -> string { return @tr("Selection exported to {}", path); }
     public pure function diagnostics-exported(path: string) -> string { return @tr("Diagnostics exported to {}", path); }
-    public pure function plan-exists(path: string) -> string { return @tr("Plan export {}: file already exists; choose a new path.", path); }
+    public pure function plan-exists(path: string) -> string { return @tr("Selection export {}: file already exists. Choose a new path.", path); }
     public pure function diagnostics-exists(path: string) -> string { return @tr("Diagnostics export {}: file already exists; choose a new path.", path); }
-    public pure function plan-export-error(path: string, error: string) -> string { return @tr("Plan export {}: {}. A partial file may remain.", path, error); }
+    public pure function plan-export-error(path: string, error: string) -> string { return @tr("Selection export {}: {}. A partial file may remain.", path, error); }
     public pure function diagnostics-export-error(path: string, error: string) -> string { return @tr("Diagnostics export {}: {}. A partial file may remain.", path, error); }
     out property <string> precondition-busy: @tr("An operation is already running.");
     out property <string> precondition-engine: @tr("Connect a compatible bme engine first.");
     out property <string> precondition-image: @tr("Choose an original image first.");
-    out property <string> precondition-import: @tr("Plan import requires an explicit path.");
-    out property <string> precondition-scan: @tr("Scan this image and source before planning.");
+    out property <string> precondition-import: @tr("Choose a selection file to open.");
+    out property <string> precondition-scan: @tr("Scan the original image and selected catalog first.");
     out property <string> precondition-selection: @tr("Select an eligible correction first.");
-    out property <string> precondition-build: @tr("Build requires a current generated plan and a new output path.");
+    out property <string> precondition-build: @tr("Choose a new output path for the selected corrections.");
     out property <string> precondition-output: @tr("Choose a built output first.");
-    out property <string> precondition-plan: @tr("Open or generate the matching plan first.");
+    out property <string> precondition-plan: @tr("Open the matching selection file first.");
     out property <string> precondition-manifest: @tr("Choose an output with its paired manifest first.");
-    out property <string> precondition-wait-import: @tr("Wait for the active operation before importing a plan.");
+    out property <string> precondition-recipe-mismatch: @tr("The selection file must match the scan and use only corrections supported by the desktop.");
+    out property <string> precondition-wait-import: @tr("Wait for the active operation before opening a selection file.");
     out property <string> tool-paths: @tr("Paths");
 }

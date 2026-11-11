@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "e332c40433dea4b490bb83b93c344e0f05db8decf32e70d3ded96b93690a3ef5"
+      "sha256": "144dd36800d25c5e45abd2ddaa524c4777eea78157b23a1cc74d82e0ff5fdd9b"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -14,7 +14,7 @@
     {
       "source": "docs/architecture.md",
       "translation": "docs/pt-BR/architecture.md",
-      "sha256": "c289dc5427782ceac0773fa3b18da00034e657e98782b3d08d1bfa4dab2a446c"
+      "sha256": "b92dbbc6ce7989240ea4893fb5812e625fae2deb0205c264bdf03f4ccb1e106e"
     },
     {
       "source": "docs/baseline.md",
@@ -29,12 +29,12 @@
     {
       "source": "docs/guide/agents.md",
       "translation": "docs/pt-BR/guide/agents.md",
-      "sha256": "c4c930e62209390efbc52810f6db24c02e72d37b2b3436ad5fc515f6674f307f"
+      "sha256": "e381f5d65102ac144a17bb773198fa1a2e33bd0c59352d537f39d23653a63da0"
     },
     {
       "source": "docs/guide/breadcrumbs.md",
       "translation": "docs/pt-BR/guide/breadcrumbs.md",
-      "sha256": "79c59dad4819d82e8d8394d0234faf9123fc5c23b53ab1d442592d4e9010a00c"
+      "sha256": "5dae0847eca3adcfc31c6bc42d9fb86d437ace9194cf74cc21855f9f85a12115"
     },
     {
       "source": "docs/guide/catalogs.md",
@@ -44,7 +44,7 @@
     {
       "source": "docs/guide/flashing.md",
       "translation": "docs/pt-BR/guide/flashing.md",
-      "sha256": "d07e0784be92eca586c85e7801f7eb4b6aea1cc3e090e9b763b88b8ef2a9ea21"
+      "sha256": "d88f33339cd040f9890bfbfc6cae2488411af7dcb28914012c2f5b185bc64dbf"
     },
     {
       "source": "docs/guide/ghidra.md",
@@ -54,7 +54,7 @@
     {
       "source": "docs/guide/gui.md",
       "translation": "docs/pt-BR/guide/gui.md",
-      "sha256": "d4052299b1e9e9d4dbcf131705c3893e2e660ef9775dd96f8b273fe9c01b7314"
+      "sha256": "69cf570a026206737602158dd552dfac1ff863a82280993b1f5e36922c02fc64"
     },
     {
       "source": "docs/guide/porting.md",
@@ -69,12 +69,12 @@
     {
       "source": "docs/guide/trust.md",
       "translation": "docs/pt-BR/guide/trust.md",
-      "sha256": "fde5a508bf59ff82cb77d040ad51680daf032637b86c1ca1ed2e1c6b7be65d66"
+      "sha256": "6097662047d5bf6b2ce161c4a74337cd0cde0a2e1aed95d5be29c4fc29e8e01c"
     },
     {
       "source": "docs/guide/workflow.md",
       "translation": "docs/pt-BR/guide/workflow.md",
-      "sha256": "f8e80745c8cf8a4590a89801754a3bb83a39a9013e387f180feb83ea73ddec2f"
+      "sha256": "fb69e024238aa7a2654cdff8e7f3a0fdf43711667a4a57573b51d8f0b16960c1"
     },
     {
       "source": "docs/linux-desktop-qualification.md",

@@ -2,7 +2,7 @@
 
 English | [Brazilian Portuguese](README.pt-BR.md)
 
-`bme` inspects firmware images, finds cataloged defects, plans guarded patches and builds verified patched copies. The CLI is one executable with no runtime dependencies. Humans and agents use the same commands; add `--json` for one machine-readable document per run. `bme-gui` provides a Linux desktop interface to the same engine.
+`bme` inspects firmware images, finds cataloged defects, builds verified patched copies. The CLI is one executable with no runtime dependencies. Humans and agents use the same commands; add `--json` for one machine-readable document per run. `bme-gui` provides a Linux desktop interface to the same engine.
 
 `bme` never reads or writes a flash chip. Inputs are never modified and outputs are always new files.
 
@@ -20,9 +20,8 @@ Records for other boards can live in your own catalogs (`bme guide catalogs`, `b
 ```sh
 cargo build --release          # target/release/bme
 bme scan dump.bin
-bme plan dump.bin --select recommended -o plan.json
-bme patch dump.bin --plan plan.json -o fixed.bin
-bme verify dump.bin fixed.bin
+bme patch dump.bin --recommended
+bme verify dump.bin dump.patched.bin
 ```
 
 ```
@@ -47,7 +46,7 @@ cargo build --release -p biosmod-cli -p biosmod-gui
 target/release/bme-gui
 ```
 
-The desktop interface scans an image, reviews a plan, builds a new copy and independently verifies it. It follows the system light or dark theme, with a manual choice in Settings. The interface supports English and Brazilian Portuguese; English is the default. See the [desktop guide](docs/guide/gui.md) for dependencies, installation, limits and troubleshooting.
+The desktop interface scans an image, builds a copy from selected patches and independently verifies it. It follows the system light or dark theme, with a manual choice in Settings. The interface supports English and Brazilian Portuguese; English is the default. See the [desktop guide](docs/guide/gui.md) for dependencies, installation, limits and troubleshooting.
 
 ## What it does
 
@@ -76,7 +75,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 | ------------------------------------------------------------------ | ------------------------------------------------------------- |
 | `inspect`                                                          | descriptor regions, volumes and files                         |
 | `scan`                                                             | detected build and every patch state                          |
-| `plan`, `patch`, `verify`                                          | reviewed, reproducible builds                                 |
+| `patch`, `export`, `verify`                                          | builds, optional recipes and verification                                 |
 | `extract`, `replace`                                               | one module out, an edited module back in                      |
 | `derive`                                                           | draft a variant for another build by unique signatures        |
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | catalog sources and maintenance                               |
@@ -93,7 +92,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 - [Formats](docs/formats.md): supported firmware structures and limits
 - [Protocol](docs/guide/agents.md), [trust](docs/guide/trust.md), [catalogs](docs/guide/catalogs.md), [recovery](docs/guide/recovery.md)
 - [Linux desktop qualification](docs/linux-desktop-qualification.md): tested environments and limits
-- [Desktop guide](docs/guide/gui.md): Linux setup and reviewed build workflow
+- [Desktop guide](docs/guide/gui.md): Linux setup and build workflow
 - [Contributing](CONTRIBUTING.md), including board and patch submissions
 - [Baseline measurements](docs/baseline.md)
 

@@ -45,8 +45,12 @@ export component AppWindow inherits Window {
     in property <bool> can-inspect;
     in property <bool> can-scan;
     in property <bool> can-plan;
+    in property <bool> can-export-selection;
+    in property <bool> can-export-built-selection;
     in property <bool> can-recommend;
-    in property <bool> can-apply;
+    in property <bool> can-build;
+    in property <bool> building;
+    in property <int> selection-count;
     in property <bool> can-verify;
     in property <int> stage;
     in-out property <int> theme-choice: 0;
@@ -87,8 +91,8 @@ export component AppWindow inherits Window {
     callback scan();
     callback toggle-patch(int);
     callback recommended();
-    callback generate-plan();
-    callback apply-plan();
+    callback preview();
+    callback build();
     callback verify();
     callback cancel-operation();
     callback import-plan();
@@ -165,13 +169,13 @@ export component AppWindow inherits Window {
             spacing: Theme.space-sm;
             HorizontalLayout {
                 spacing: Theme.space-sm;
-                Stepper { current: root.stage < 2 ? 0 : root.reviewing ? 1 : root.status-tone == Tone.good ? 3 : 2; }
+                Stepper { current: root.stage >= 3 ? (root.status-tone == Tone.good ? 3 : 2) : root.building ? 1 : 0; }
                 Rectangle { horizontal-stretch: 1; }
                 if root.viewport-width >= 1000px: VerticalLayout {
                     alignment: center;
                     HorizontalLayout {
                         spacing: Theme.space-sm;
-                        Button { text: @tr("Open plan"); enabled: !root.busy; clicked => { root.import-plan(); } }
+                        Button { text: @tr("Open selection file"); enabled: !root.busy; clicked => { root.import-plan(); } }
                         Button { text: @tr("Open output"); enabled: !root.busy; clicked => { root.open-output(); } }
                         Button { text: root.paths-open ? @tr("Hide paths") : @tr("Enter paths"); enabled: !root.busy; clicked => { root.paths-open = !root.paths-open; } }
                     }
@@ -180,7 +184,7 @@ export component AppWindow inherits Window {
             if root.viewport-width < 1000px: HorizontalLayout {
                 spacing: Theme.space-sm;
                 Rectangle { horizontal-stretch: 1; }
-                Button { text: @tr("Open plan"); enabled: !root.busy; clicked => { root.import-plan(); } }
+                Button { text: @tr("Open selection file"); enabled: !root.busy; clicked => { root.import-plan(); } }
                 Button { text: @tr("Open output"); enabled: !root.busy; clicked => { root.open-output(); } }
                 Button { text: root.paths-open ? @tr("Hide paths") : @tr("Enter paths"); enabled: !root.busy; clicked => { root.paths-open = !root.paths-open; } }
             }
@@ -194,9 +198,9 @@ export component AppWindow inherits Window {
                     padding: Theme.space-md;
                     spacing: Theme.space-sm;
                     FieldRow {
-                        label: @tr("Plan");
-                        LineEdit { placeholder-text: @tr("Plan file path"); accessible-label: @tr("Plan file path"); text <=> root.manual-plan-path; enabled: !root.busy; }
-                        Button { text: @tr("Open plan"); enabled: !root.busy && root.manual-plan-path != ""; clicked => { root.open-plan-path(root.manual-plan-path); root.paths-open = false; } }
+                        label: @tr("Selection");
+                        LineEdit { placeholder-text: @tr("Selection file path"); accessible-label: @tr("Selection file path"); text <=> root.manual-plan-path; enabled: !root.busy; }
+                        Button { text: @tr("Open selection file"); enabled: !root.busy && root.manual-plan-path != ""; clicked => { root.open-plan-path(root.manual-plan-path); root.paths-open = false; } }
                     }
                     FieldRow {
                         label: @tr("Output");
@@ -205,8 +209,8 @@ export component AppWindow inherits Window {
                     }
                     FieldRow {
                         label: @tr("Save as");
-                        LineEdit { placeholder-text: @tr("New plan export path"); accessible-label: @tr("New plan export path"); text <=> root.manual-export-path; enabled: !root.busy && root.plan-details != ""; }
-                        Button { text: @tr("Save plan"); enabled: !root.busy && root.plan-details != "" && root.manual-export-path != ""; clicked => { root.export-plan-path(root.manual-export-path); root.paths-open = false; } }
+                        LineEdit { placeholder-text: @tr("New selection file path"); accessible-label: @tr("New selection file path"); text <=> root.manual-export-path; enabled: !root.busy && root.can-export-selection; }
+                        Button { text: @tr("Save selection"); enabled: !root.busy && root.can-export-selection && root.manual-export-path != ""; clicked => { root.export-plan-path(root.manual-export-path); root.paths-open = false; } }
                     }
                 }
             }
@@ -235,7 +239,7 @@ export component AppWindow inherits Window {
                             Chip { text: @tr("Source: {}", root.source); }
                         }
                     }
-                    if root.stage < 2: FieldRow {
+                    if root.stage < 3: FieldRow {
                         label: @tr("Source");
                         LineEdit {
                             placeholder-text: @tr("Catalog source alias");
@@ -256,6 +260,10 @@ export component AppWindow inherits Window {
                     if root.patches.length > 0: VerticalLayout {
                         alignment: center;
                         Chip { text: @tr("{n} finding" | "{n} findings" % root.patches.length); }
+                    }
+                    if root.selection-count > 0: VerticalLayout {
+                        alignment: center;
+                        Chip { text: @tr("{} selected", root.selection-count); }
                     }
                     Rectangle { horizontal-stretch: 1; }
                 }
@@ -283,68 +291,70 @@ export component AppWindow inherits Window {
                 }
                 if root.patches.length > 0: ListView {
                     vertical-stretch: 1;
-                    min-height: root.paths-open && root.viewport-height < 700px ? 0px : 80px;
+                    min-height: root.viewport-height >= 700px ? 80px : root.paths-open ? 0px : 48px;
                     for patch[i] in root.patches: PatchCard { patch: patch; enabled: !root.busy; toggled => { root.toggle-patch(i); } }
                 }
-                Caption { text: root.scan-facts.length > 0 ? @tr("Board profiles are catalog information, not physical board identification. Hardware-dependent findings and corrections that require joint selection cannot be applied here yet.") : @tr("Hardware-dependent findings and corrections that require joint selection cannot be applied here yet."); }
-                HorizontalLayout {
-                    spacing: Theme.space-sm;
-                    Button { text: @tr("Recommended"); enabled: root.can-recommend && !root.busy; clicked => { root.recommended(); } }
-                    Rectangle { horizontal-stretch: 1; }
-                    Button { text: @tr("Review selected"); primary: true; enabled: root.can-plan && !root.busy; clicked => { root.generate-plan(); } }
-                }
+                if root.viewport-height >= 700px: Caption { text: root.scan-facts.length > 0 ? @tr("Board profiles are catalog information, not physical board identification. Hardware-dependent findings and corrections that require joint selection cannot be applied here yet.") : @tr("Hardware-dependent findings and corrections that require joint selection cannot be applied here yet."); }
+
             }
             if root.reviewing: VerticalLayout {
                 spacing: Theme.space-md;
+                if root.viewport-width < 900px: SectionTitle { text: @tr("Selection details"); vertical-alignment: center; }
                 HorizontalLayout {
                     spacing: Theme.space-sm;
-                    SectionTitle { text: @tr("Review plan"); vertical-alignment: center; }
+                    if root.viewport-width >= 900px: SectionTitle { text: @tr("Selection details"); vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
-                    Button { text: @tr("Export plan…"); enabled: !root.busy && root.plan-details != ""; clicked => { root.export-plan(); } }
+                    Button { text: @tr("Export selection…"); enabled: !root.busy && root.can-export-selection; clicked => { root.export-plan(); } }
                     if root.stage >= 3: Button { text: @tr("Show output"); clicked => { root.show-review = false; } }
                     Button { text: @tr("Back to findings"); enabled: !root.busy; clicked => { root.show-review = false; root.back-to-selection(); } }
+                    if root.stage == 2: Button { text: @tr("Build patched copy"); primary: true; enabled: root.can-build && !root.busy; clicked => { root.build(); } }
                 }
-                Caption { text: @tr("Confirm the source, changes, and expected output before building."); }
+
                 TextEdit { text: root.plan-details; read-only: true; min-height: 50px; accessible-label: @tr("Plan details"); }
                 TextEdit { text: root.plan-snapshot; read-only: true; min-height: 50px; accessible-label: @tr("Complete plan and source snapshot"); }
-                Rectangle {
-                    background: Theme.surface;
-                    border-color: Theme.border;
-                    border-width: 1px;
-                    border-radius: Theme.radius;
-                    height: output-layout.preferred-height;
-                    output-layout := VerticalLayout {
-                        padding: Theme.space-md;
-                        spacing: Theme.space-sm;
-                        FieldRow {
-                            label: @tr("Output");
-                            LineEdit {
-                                placeholder-text: @tr("New output image path");
-                                accessible-label: @tr("New output image path");
-                                text <=> root.output-path;
-                                enabled: !root.busy;
-                                edited(value) => { root.output-edited(value); }
-                            }
-                            Button { text: @tr("Choose…"); enabled: !root.busy; clicked => { root.browse-output(); } }
+
+            }
+            if root.stage == 1 || root.stage == 2: Rectangle {
+                background: Theme.surface;
+                border-color: Theme.border;
+                border-width: 1px;
+                border-radius: Theme.radius;
+                height: output-layout.preferred-height;
+                output-layout := VerticalLayout {
+                    padding: root.viewport-height < 700px ? Theme.space-sm : Theme.space-md;
+                    spacing: Theme.space-sm;
+                    FieldRow {
+                        label: @tr("Output");
+                        LineEdit {
+                            placeholder-text: @tr("New output image path");
+                            accessible-label: @tr("New output image path");
+                            text <=> root.output-path;
+                            enabled: !root.busy;
+                            edited(value) => { root.output-edited(value); }
                         }
-                        if root.output-path != "": Caption { text: @tr("Manifest: {}", root.manifest-path); }
-                        HorizontalLayout {
-                            spacing: Theme.space-sm;
-                            Caption { text: @tr("The original image will not be overwritten."); vertical-alignment: center; }
-                            Rectangle { horizontal-stretch: 1; }
-                            Button { text: @tr("Build patched copy"); primary: true; enabled: root.can-apply && !root.busy; clicked => { root.apply-plan(); } }
-                        }
+                        Button { text: @tr("Choose…"); enabled: !root.busy; clicked => { root.browse-output(); } }
                     }
+                    if root.output-path != "" && root.viewport-height >= 700px: Caption { text: @tr("Manifest: {}", root.manifest-path); }
                 }
+            }
+            if root.stage == 1: HorizontalLayout {
+                spacing: Theme.space-sm;
+                Button { text: @tr("Recommended"); enabled: root.can-recommend && !root.busy; clicked => { root.recommended(); } }
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: @tr("Preview changes"); enabled: root.can-plan && !root.busy; clicked => { root.preview(); } }
+                Button { text: @tr("Export selection…"); enabled: root.can-export-selection && !root.busy; clicked => { root.export-plan(); } }
+                Button { text: @tr("Build patched copy"); primary: true; enabled: root.can-build && !root.busy; clicked => { root.build(); } }
             }
             if root.stage >= 3 && !root.show-review: VerticalLayout {
                 spacing: Theme.space-md;
+                if root.viewport-width < 900px: SectionTitle { text: root.result-title; color: root.status-tone != Tone.quiet ? Tones.color(root.status-tone) : Theme.text; vertical-alignment: center; }
                 HorizontalLayout {
                     spacing: Theme.space-sm;
-                    SectionTitle { text: root.result-title; color: root.status-tone != Tone.quiet ? Tones.color(root.status-tone) : Theme.text; vertical-alignment: center; }
+                    if root.viewport-width >= 900px: SectionTitle { text: root.result-title; color: root.status-tone != Tone.quiet ? Tones.color(root.status-tone) : Theme.text; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
-                    if root.plan-details != "": Button { text: @tr("Review plan"); clicked => { root.show-review = true; } }
+                    if root.plan-details != "": Button { text: @tr("Selection details"); clicked => { root.show-review = true; } }
                     Button { text: @tr("Back to findings"); enabled: !root.busy; clicked => { root.back-to-selection(); } }
+                    if root.can-export-built-selection: Button { text: @tr("Export selection…"); enabled: !root.busy; clicked => { root.export-plan(); } }
                 }
                 if root.output-path != "": Caption { text: @tr("Output: {}", root.output-path); }
                 if root.manifest-path != "": Caption { text: @tr("Manifest: {}", root.manifest-path); }

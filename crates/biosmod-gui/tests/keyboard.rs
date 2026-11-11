@@ -96,7 +96,8 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
     desktop.session.image = Some("/tmp/input.bin".into());
     desktop.session.scan = Some(serde_json::from_value(json!({
         "alias":"lab", "trust":"local", "catalog":"fixture", "catalog_version":"1",
-        "report":{"firmware":"synthetic","boards":[],"patches":[{
+        "snapshot_sha256": "0".repeat(64),
+        "report":{"firmware":"synthetic","boards":[],"recommended":[],"patches":[{
             "id":"PA","version":"1.0.0","title":"Correction","class":"correction",
             "tier":"optional","state":"present","plannable":true,"manual":false,"detail":"exact match"
         }]}
@@ -131,11 +132,8 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
         "second Space: expected the focused correction to toggle off"
     );
 
-    state.lock().unwrap().session.review = Some(std::sync::Arc::new(Review::new(
-        "/tmp/plan.json".into(),
-        b"{}".to_vec(),
+    state.lock().unwrap().session.review = Some(std::sync::Arc::new(Review::preview(
         json!({"schema":"bme.plan/1"}),
-        true,
     )));
     // Use a real callback to synchronize the generated-review screen.
     window.invoke_output_edited("/tmp/new.bin".into());
@@ -149,7 +147,7 @@ fn keyboard_focus_survives_patch_selection_and_image_invalidation() {
         0,
         "image edits must immediately invalidate the generated review"
     );
-    assert!(!window.get_can_apply());
+    assert!(!window.get_can_build());
     settle(&window);
     key(&window, "y".into());
     assert_eq!(

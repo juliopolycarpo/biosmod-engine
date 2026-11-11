@@ -34,9 +34,9 @@ fn output_edit_latency_with_retained_plan() {
         assert!(
             window
                 .get_plan_details()
-                .contains("Read-only imported plan")
+                .contains("Imported selection file")
         );
-        assert!(!window.get_can_apply(), "imported plan must stay read-only");
+        assert!(!window.get_can_build(), "imported plan must stay read-only");
         assert_eq!(
             state
                 .lock()

@@ -22,10 +22,10 @@ component StepDot inherits Rectangle {
 
 /// Three-step progress for the firmware workflow; `current` is the zero-based active step,
 /// and 3 marks every step done.
-/// Example: `Stepper { current: 1; }` marks Select done, Review active and Verify upcoming.
+/// Example: `Stepper { current: 1; }` marks Select done, Build active and Verify upcoming.
 export component Stepper inherits Rectangle {
     in property <int> current;
-    private property <[string]> names: [@tr("Select"), @tr("Review"), @tr("Verify")];
+    private property <[string]> names: [@tr("Select"), @tr("Build"), @tr("Verify")];
     accessible-role: text;
     accessible-label: root.current >= 3 ? @tr("All 3 steps complete") : @tr("Step {} of 3: {}", root.current + 1, root.names[root.current]);
     height: row.preferred-height;

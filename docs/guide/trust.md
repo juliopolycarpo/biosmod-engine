@@ -27,8 +27,8 @@ Updates are refused when the catalog id changes, when the version is older than 
 
 ## Mixing sources
 
-`--catalog` can repeat. One plan uses one source; selecting patches from two sources is refused. An unqualified id defined by two loaded sources is `TARGET_AMBIGUOUS`; qualify it as `ALIAS::ID`. The alias `official` is reserved.
+`--catalog` can repeat. One selection uses one source; selecting patches from two sources is refused. An unqualified id defined by two loaded sources is `TARGET_AMBIGUOUS`; qualify it as `ALIAS::ID`. The alias `official` is reserved.
 
-## Plans
+## Recipes
 
-A plan pins the source alias, trust, manifest digest and every consumed file. `patch --plan` reloads that source offline and refuses if anything differs. A plan file is data, not authority: editing it can change what is requested, never which checks run.
+An exported recipe pins the source alias, trust, manifest digest and every consumed file. `patch --from` reloads that source offline and refuses if anything differs. The recipe does not contain the catalog or grant permission to use an unsigned local source. Editing it cannot bypass validation.
