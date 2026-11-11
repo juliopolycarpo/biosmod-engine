@@ -156,8 +156,10 @@ pub fn tool_rows(ui: &AppWindow, report: &Value) -> Vec<ToolRowData> {
             let id = row["id"].as_str().unwrap_or_default();
             let health = row["health"].as_str().unwrap_or_default();
             let ready = health == "ready";
+            let optional = row["optional"] == true;
             let (state, tone) = match health {
                 "ready" => (text.get_tool_ready(), Tone::Good),
+                _ if optional && health == "missing" => (text.get_tool_optional(), Tone::Quiet),
                 "attention" => (text.get_tool_attention(), Tone::Attention),
                 _ => (text.get_tool_missing(), Tone::Danger),
             };
@@ -168,11 +170,13 @@ pub fn tool_rows(ui: &AppWindow, report: &Value) -> Vec<ToolRowData> {
                 "jdk" => text.get_tool_purpose_jdk(),
                 "git" => text.get_tool_purpose_git(),
                 "flashrom" => text.get_tool_purpose_flashrom(),
+                "nasm" => text.get_tool_purpose_nasm(),
                 _ => row["purpose"].as_str().unwrap_or_default().into(),
             };
             let own_install = id == "ghidra" && row["install"]["method"] == "bme";
             let automatic = row["install"]["automatic"] == true;
             let can_install = own_install && automatic && !ready;
+            let blocked = row["install"]["blocked"].as_str().unwrap_or_default();
             let location = match (row["path"].as_str(), row["origin"].as_str()) {
                 (Some(path), Some(origin)) => format!("{path} ({origin})"),
                 (Some(path), None) => path.to_string(),
@@ -197,7 +201,9 @@ pub fn tool_rows(ui: &AppWindow, report: &Value) -> Vec<ToolRowData> {
                         .into()
                 },
                 can_install,
-                install_unavailable: own_install && !automatic && !ready,
+                install_unavailable: own_install && !automatic && !ready && blocked.is_empty(),
+                blocked: blocked.into(),
+                optional,
                 can_choose: custom,
                 can_reset: custom && row["origin"] == "config",
                 ready,

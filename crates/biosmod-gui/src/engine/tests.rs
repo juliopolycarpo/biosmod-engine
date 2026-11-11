@@ -207,8 +207,7 @@ fn handshake_requires_matching_identity_and_advertised_contract() {
         "verify",
         "catalog validate|index|show|import-x99fix",
         "catalog add|list|remove",
-        "tools doctor|paths|status",
-        "tools set|unset",
+        "tools doctor|paths",
     ]
     .map(|name| json!({"name": name}));
     let docs = [
@@ -1005,7 +1004,7 @@ impl HandshakeWarningsEngine {
         capabilities.as_object_mut().unwrap().extend(json!({
             "engine": capability_version, "protocol":"bme/1", "desktop_workflow":1, "direct_patch_workflow":1,
             "commands":[{"name":"inspect"},{"name":"scan"},{"name":"export"},{"name":"patch"},{"name":"patch --dry-run"},{"name":"verify"},
-                {"name":"catalog validate|index|show|import-x99fix"},{"name":"catalog add|list|remove"},{"name":"tools doctor|paths|status"},{"name":"tools set|unset"}],
+                {"name":"catalog validate|index|show|import-x99fix"},{"name":"catalog add|list|remove"},{"name":"tools doctor|paths"}],
             "documents":[{"name":"plan","schema":"bme.plan/1"},{"name":"manifest","schema":"bme.manifest/1"},{"name":"catalog","schema":"bme.catalog/1"},{"name":"patch","schema":"bme.patch/1"}]
         }).as_object().unwrap().clone());
         for (name, version, data) in [

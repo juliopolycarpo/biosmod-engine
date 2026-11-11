@@ -663,6 +663,7 @@ fn preview_engine(state: &mut Desktop, path: Option<PathBuf>) {
     state.session.engine_contract = None;
     state.session.engine_attempted = false;
     state.session.flash.supported = false;
+    state.session.tools_supported = false;
     state.engine_path = engine;
 }
 
@@ -1148,6 +1149,7 @@ fn localized_status_with_extra(
             PreparationError::WaitImport => t.get_precondition_wait_import(),
             PreparationError::RecipeMismatch => t.get_precondition_recipe_mismatch(),
             PreparationError::FlashUnsupported => t.get_precondition_flash_unsupported(),
+            PreparationError::ToolsUnsupported => t.get_precondition_tools_unsupported(),
             PreparationError::Programmer => t.get_precondition_programmer(),
             PreparationError::FlashBackup => t.get_precondition_flash_backup(),
             PreparationError::FlashImage => t.get_precondition_flash_image(),

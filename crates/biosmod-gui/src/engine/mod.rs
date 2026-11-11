@@ -72,6 +72,9 @@ pub enum Request {
     },
     /// Every tool the engine runs, with version, location and install command.
     ToolsStatus,
+    /// Where the engine keeps its files and which flashrom a chip command would run.
+    /// Cheap: it runs no tool.
+    ToolsPaths,
     /// Save an existing Ghidra directory or flashrom executable in the configuration.
     ToolsSet {
         tool: LocatableTool,
@@ -139,6 +142,7 @@ impl Request {
             Self::Export { .. } => "export",
             Self::VerifyResult { .. } => "verify",
             Self::ToolsStatus => "tools status",
+            Self::ToolsPaths => "tools paths",
             Self::ToolsSet { .. } => "tools set",
             Self::ToolsUnset { .. } => "tools unset",
             Self::ToolsSetupGhidra => "tools setup ghidra",
@@ -1300,8 +1304,7 @@ fn validate_handshake(version: &Reply, capabilities: &Reply) -> Result<(), Engin
         "verify",
         "catalog validate|index|show|import-x99fix",
         "catalog add|list|remove",
-        "tools doctor|paths|status",
-        "tools set|unset",
+        "tools doctor|paths",
     ] {
         if !commands
             .iter()

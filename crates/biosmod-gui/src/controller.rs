@@ -138,6 +138,8 @@ pub enum PreparationError {
     WaitImport,
     RecipeMismatch,
     FlashUnsupported,
+    /// The engine predates `tools status`, `tools set` and `tools unset`.
+    ToolsUnsupported,
     Programmer,
     FlashBackup,
     FlashImage,
@@ -161,6 +163,7 @@ impl std::fmt::Display for PreparationError {
             Self::WaitImport => "Wait for the active operation before opening a selection file.",
             Self::RecipeMismatch => "The selection file must match the scan and use only corrections supported by the desktop.",
             Self::FlashUnsupported => "The connected bme engine has no flash chip commands. Use the bundled engine.",
+            Self::ToolsUnsupported => "The connected bme engine cannot list or change tools. Use the bundled engine.",
             Self::Programmer => "Enter a flashrom programmer such as internal or ch341a_spi.",
             Self::FlashBackup => "Choose a backup file first.",
             Self::FlashImage => "Choose the image to write first.",
@@ -449,6 +452,8 @@ pub struct Session {
     pub tool_report: Option<Arc<Value>>,
     /// The change the next `Action::ToolChange` or `Action::ToolInstall` performs.
     pending_tool_change: Option<ToolChange>,
+    /// The engine advertises `tools_workflow`: it can report and change tools.
+    pub tools_supported: bool,
     pub diagnostics: String,
     pub flash: FlashState,
 }
@@ -489,6 +494,7 @@ impl Session {
             source_details: String::new(),
             tool_report: None,
             pending_tool_change: None,
+            tools_supported: false,
             diagnostics: String::new(),
             flash: FlashState::default(),
         };
@@ -964,6 +970,13 @@ impl Session {
                 }
             }
             Action::Sources => Request::CatalogList,
+            Action::Tools if !self.tools_supported => {
+                return Err(PreparationError::ToolsUnsupported);
+            }
+            Action::ToolChange | Action::ToolInstall if !self.tools_supported => {
+                self.pending_tool_change = None;
+                return Err(PreparationError::ToolsUnsupported);
+            }
             Action::Tools => Request::ToolsStatus,
             Action::ToolChange | Action::ToolInstall => match self.pending_tool_change.take() {
                 Some(ToolChange::Choose { tool, path }) if action == Action::ToolChange => {
@@ -1040,6 +1053,7 @@ impl Session {
                 self.engine_attempted = true;
                 self.engine_version = Some(payload.reply.version.clone());
                 self.flash.supported = data["flash_workflow"] == 1;
+                self.tools_supported = data["tools_workflow"] == 1;
                 self.set_status(Status::Ready);
             }
             Action::Inspect => {
@@ -1409,6 +1423,7 @@ impl Session {
             self.engine_version = None;
             self.engine_contract = None;
             self.flash.supported = false;
+            self.tools_supported = false;
         }
         if action.is_flash() {
             self.fail_flash(action, error);
@@ -1698,7 +1713,7 @@ impl Job {
             if self.request.is_flash() {
                 // Root never reads the user's configuration, so every chip command is told
                 // which flashrom the user saved. Without one, the engine looks in PATH.
-                let saved = saved_flashrom(&bound, &self.cancel);
+                let saved = saved_flashrom(&bound, &self.cancel)?;
                 bound = bound.with_flashrom(saved);
             }
             bound_engine = bound;
@@ -1761,22 +1776,24 @@ impl Job {
     }
 }
 
-/// The flashrom executable saved with `bme tools set`, or `None` when none is saved
-/// or the engine cannot say.
+/// The flashrom executable saved with `bme tools set`, or `None` when none is saved.
 ///
-/// Example: a report whose flashrom row has origin `config` and path `/opt/fr/flashrom`
-/// yields `Some("/opt/fr/flashrom")`.
-fn saved_flashrom(engine: &Engine, cancel: &AtomicBool) -> Option<PathBuf> {
-    let report = engine.run(&Request::ToolsStatus, cancel).ok()?;
-    saved_flashrom_in(&report.data)
+/// A failed lookup is an error, not `None`: an elevated command that silently skipped the
+/// saved path would run whatever flashrom `PATH` offers instead.
+///
+/// Example: a `tools paths` reply whose flashrom has origin `config` and path
+/// `/opt/fr/flashrom` yields `Some("/opt/fr/flashrom")`.
+fn saved_flashrom(engine: &Engine, cancel: &AtomicBool) -> Result<Option<PathBuf>, EngineError> {
+    let reply = engine.run(&Request::ToolsPaths, cancel)?;
+    Ok(saved_flashrom_in(&reply.data))
 }
 
-fn saved_flashrom_in(report: &Value) -> Option<PathBuf> {
-    let row = report["tools"]
-        .as_array()?
-        .iter()
-        .find(|row| row["id"] == "flashrom" && row["origin"] == "config")?;
-    row["path"].as_str().map(PathBuf::from)
+fn saved_flashrom_in(paths: &Value) -> Option<PathBuf> {
+    let flashrom = &paths["flashrom"];
+    if flashrom["origin"] != "config" {
+        return None;
+    }
+    flashrom["path"].as_str().map(PathBuf::from)
 }
 
 /// Accept a `tools status` report that carries a list of typed tool rows.

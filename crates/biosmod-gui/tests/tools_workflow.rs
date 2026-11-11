@@ -59,7 +59,15 @@ fn session_lists_tools_then_chooses_and_resets_a_flashrom() {
         .collect();
     assert_eq!(
         ids,
-        ["ghidra", "firmware-utils", "java", "jdk", "git", "flashrom"]
+        [
+            "ghidra",
+            "firmware-utils",
+            "java",
+            "jdk",
+            "git",
+            "flashrom",
+            "nasm"
+        ]
     );
 
     let program = common::fake_flashrom_program(directory.path());

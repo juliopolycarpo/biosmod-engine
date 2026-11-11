@@ -1229,6 +1229,11 @@ msgstr "Ausente"
 
 #: ui/translations.slint:135
 msgctxt "UiText"
+msgid "Not installed (optional)"
+msgstr "Não instalado (opcional)"
+
+#: ui/translations.slint:135
+msgctxt "UiText"
 msgid "Download and install"
 msgstr "Baixar e instalar"
 
@@ -1283,6 +1288,11 @@ msgstr "Compila a extensão do Ghidra durante a instalação."
 msgctxt "UiText"
 msgid "Fetches the Ghidra extension source during installation."
 msgstr "Baixa o código da extensão do Ghidra durante a instalação."
+
+#: ui/translations.slint:147
+msgctxt "UiText"
+msgid "Assembles patch sources when you rebuild their hunks."
+msgstr "Monta o código-fonte dos patches quando você reconstrói seus trechos."
 
 #: ui/translations.slint:146
 msgctxt "UiText"
@@ -1384,6 +1394,12 @@ msgctxt "UiText"
 msgid ""
 "The connected bme engine has no flash chip commands. Use the bundled engine."
 msgstr "O mecanismo bme conectado não tem os comandos de gravação do chip. Use o mecanismo incluído."
+
+#: ui/translations.slint:166
+msgctxt "UiText"
+msgid ""
+"The connected bme engine cannot list or change tools. Use the bundled engine."
+msgstr "O mecanismo bme conectado não consegue listar nem alterar ferramentas. Use o mecanismo incluído."
 
 #: ui/translations.slint:148
 msgctxt "UiText"

@@ -1770,3 +1770,55 @@ fn window_stays_open_while_the_chip_is_written() {
         "(close request): expected the chip operation to continue untouched"
     );
 }
+
+#[test]
+fn a_blocked_ghidra_install_shows_the_reason_and_no_install_button() {
+    let window = AppWindow::new().unwrap();
+    let report = json!({"tools": [{
+        "id": "ghidra", "name": "Ghidra", "purpose": "", "health": "missing",
+        "version": null, "path": "/data/ghidra", "origin": "config",
+        "detail": "support/analyzeHeadless not found in this directory",
+        "install": {"method": "bme", "command": null, "automatic": false,
+            "blocked": "a saved location is in use: run `bme tools unset ghidra`, then install"},
+        "custom_location": true, "optional": false
+    }]});
+    let card = &tool_rows(&window, &report)[0];
+    assert_eq!(
+        (card.can_install, card.install_unavailable, card.can_reset),
+        (false, false, true),
+        "(ghidra card, saved location): expected no install button and a Reset button"
+    );
+    assert!(
+        card.blocked.contains("bme tools unset ghidra"),
+        "(ghidra card): expected the unblock command | received {:?}",
+        card.blocked
+    );
+    assert_eq!(
+        card.install_command.as_str(),
+        "",
+        "{:?}",
+        card.install_command
+    );
+}
+
+#[test]
+fn a_missing_optional_tool_is_quiet_not_an_error() {
+    let window = AppWindow::new().unwrap();
+    let report = json!({"tools": [{
+        "id": "nasm", "name": "NASM", "purpose": "", "health": "missing",
+        "version": null, "path": null, "origin": "PATH", "detail": "not found in PATH",
+        "install": {"method": "package-manager", "command": "sudo apt install nasm", "automatic": false, "blocked": null},
+        "custom_location": false, "optional": true
+    }]});
+    let card = &tool_rows(&window, &report)[0];
+    assert_eq!(
+        card.state.as_str(),
+        window.global::<UiText>().get_tool_optional().as_str(),
+        "(nasm card): expected the optional state word"
+    );
+    assert!(
+        matches!(card.tone, crate::ui::Tone::Quiet) && !card.can_choose,
+        "(nasm card): expected a quiet tone and no Choose button"
+    );
+    assert_eq!(card.install_command.as_str(), "sudo apt install nasm");
+}

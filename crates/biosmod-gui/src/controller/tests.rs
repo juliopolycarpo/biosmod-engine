@@ -435,6 +435,7 @@ case "$1" in
   status)
     printf '%s' 'status warning' >&2
     reply status '{rows}' 0.1.0 ;;
+  paths) reply paths '{{"flashrom":null}}' 0.1.0 ;;
   set) reply set '{{"tool":"flashrom"}}' 0.1.0 ;;
   unset) reply unset '{{"tool":"flashrom"}}' 0.1.0 ;;
   setup) printf '%s' 'install note' >&2; reply "setup ghidra" '{{"startup_check":true}}' 0.1.0 ;;
@@ -473,6 +474,7 @@ esac
 fn connected_session() -> Session {
     let mut session = Session::new().unwrap();
     session.connected = true;
+    session.tools_supported = true;
     session.engine_contract = Some(fake_engine_contract());
     session
 }
@@ -612,9 +614,9 @@ fn a_tool_change_followed_by_a_status_of_another_version_is_rejected() {
     let fake = FakeToolsEngine::new();
     fake.alter(
         r#"0.1.0 ;;
-  set)"#,
+  paths)"#,
         r#"0.2.0 ;;
-  set)"#,
+  paths)"#,
     );
     let mut session = connected_session();
     session.queue_tool_change(ToolChange::Reset {
@@ -648,11 +650,7 @@ fn tools_honor_cancellation_before_starting() {
 }
 
 #[cfg(unix)]
-#[test]
-fn flash_commands_learn_the_saved_flashrom_before_running() {
-    let fake = FakeToolsEngine::new();
-    fake.alter(r#""origin":"none""#, r#""origin":"config""#);
-    fake.alter(r#""path":null"#, r#""path":"/opt/fr/flashrom""#);
+fn write_flash_doctor(fake: &FakeToolsEngine) {
     std::fs::write(
         fake.directory.path().join("flash"),
         r#"echo "$@" >> "$(dirname "$0")/calls.log"
@@ -660,15 +658,70 @@ printf '%s' '{"product":"biosmod-engine","protocol":"bme/1","version":"0.1.0","c
 "#,
     )
     .unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn flash_commands_learn_the_saved_flashrom_before_running() {
+    let fake = FakeToolsEngine::new();
+    fake.alter(
+        r#"'{"flashrom":null}'"#,
+        r#"'{"flashrom":{"path":"/opt/fr/flashrom","origin":"config"}}'"#,
+    );
+    write_flash_doctor(&fake);
     let mut session = connected_session();
     session.flash.supported = true;
     let job = session.prepare(Action::FlashDoctor).unwrap();
     job.execute(&fake.engine()).unwrap();
     let calls = fake.calls();
-    assert_eq!(calls[0], "status --json --offline");
+    assert_eq!(
+        calls[0], "paths --json --offline",
+        "(flash job): expected the cheap paths lookup, not a tool probe"
+    );
     assert_eq!(
         calls[1],
         "doctor --programmer=internal --json --offline --flashrom=/opt/fr/flashrom"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn flash_commands_add_no_flashrom_flag_without_a_saved_one() {
+    let fake = FakeToolsEngine::new();
+    write_flash_doctor(&fake);
+    let mut session = connected_session();
+    session.flash.supported = true;
+    session
+        .prepare(Action::FlashDoctor)
+        .unwrap()
+        .execute(&fake.engine())
+        .unwrap();
+    assert_eq!(
+        fake.calls()[1],
+        "doctor --programmer=internal --json --offline"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_flashrom_lookup_stops_the_flash_command_instead_of_using_path() {
+    let fake = FakeToolsEngine::new();
+    fake.alter("  paths) reply paths", "  paths) exit 3; reply paths");
+    write_flash_doctor(&fake);
+    let mut session = connected_session();
+    session.flash.supported = true;
+    let result = session
+        .prepare(Action::FlashDoctor)
+        .unwrap()
+        .execute(&fake.engine());
+    assert!(
+        result.is_err(),
+        "(flash job, failing tools paths): expected an error | received a reply"
+    );
+    assert!(
+        fake.calls().iter().all(|call| !call.starts_with("doctor")),
+        "(flash job): expected no flash command after a failed lookup | received {:?}",
+        fake.calls()
     );
 }
 
@@ -959,4 +1012,26 @@ fn connecting_enables_flash_only_for_engines_that_advertise_it() {
         .accept(Action::Connect, reply_payload(capabilities(Value::Null)))
         .unwrap();
     assert!(!session.flash.supported);
+}
+
+#[test]
+fn an_engine_without_tools_workflow_refuses_the_tools_page_and_drops_the_queued_change() {
+    let mut session = Session::new().unwrap();
+    session.connected = true;
+    session.engine_contract = Some(fake_engine_contract());
+    session.queue_tool_change(ToolChange::InstallGhidra);
+    for action in [Action::Tools, Action::ToolInstall] {
+        let error = session.prepare(action).err();
+        assert_eq!(
+            error,
+            Some(PreparationError::ToolsUnsupported),
+            "({action:?}, engine without tools_workflow): expected a refusal"
+        );
+    }
+    session.tools_supported = true;
+    assert_eq!(
+        session.prepare(Action::ToolInstall).err(),
+        Some(PreparationError::Engine),
+        "(queued change): expected the refused install to have dropped the queue"
+    );
 }

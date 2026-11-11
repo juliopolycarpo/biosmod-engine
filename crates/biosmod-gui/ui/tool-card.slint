@@ -18,6 +18,10 @@ export struct ToolRowData {
     can-install: bool,
     /// bme installs this tool itself, but not on this platform.
     install-unavailable: bool,
+    /// Why the install cannot run now, and what to do first; empty when nothing blocks it.
+    blocked: string,
+    /// bme runs without this tool; a missing one is not a problem.
+    optional: bool,
     can-choose: bool,
     can-reset: bool,
     /// The tool is usable, so nothing needs fixing.
@@ -72,17 +76,23 @@ export component ToolCard inherits Rectangle {
                     Rectangle { horizontal-stretch: 1; }
                     if root.tool.can-install: Button {
                         text: root.install-label;
+                        // Every card has the same buttons: the name tells them apart.
+                        accessible-label: "\{root.install-label} (\{root.tool.name})";
                         primary: !root.tool.ready;
                         enabled: root.enabled;
                         clicked => { root.install(); }
                     }
                     if root.tool.can-choose: Button {
                         text: root.choose-label;
+                        // Every card has the same buttons: the name tells them apart.
+                        accessible-label: "\{root.choose-label} (\{root.tool.name})";
                         enabled: root.enabled;
                         clicked => { root.choose(); }
                     }
                     if root.tool.can-reset: Button {
                         text: root.reset-label;
+                        // Every card has the same buttons: the name tells them apart.
+                        accessible-label: "\{root.reset-label} (\{root.tool.name})";
                         enabled: root.enabled;
                         clicked => { root.reset(); }
                     }
@@ -99,6 +109,7 @@ export component ToolCard inherits Rectangle {
                     color: Theme.warning;
                 }
                 if root.tool.install-unavailable: Caption { text: root.install-unavailable-label; }
+                if !root.tool.ready && root.tool.blocked != "": Caption { text: root.tool.blocked; }
                 if root.tool.can-install: Caption { text: root.install-note-label; }
                 if !root.tool.ready && root.tool.install-command != "": HorizontalLayout {
                     spacing: Theme.space-sm;
