@@ -112,3 +112,77 @@ fn choosing_a_folder_without_ghidra_fails_naming_the_folder() {
         session.status_detail
     );
 }
+
+/// Press each card button through its accessible action and record which tool it named.
+#[test]
+fn card_buttons_call_back_with_the_id_of_their_own_tool() {
+    use biosmod_gui::ui::AppWindow;
+    use i_slint_backend_testing::ElementHandle;
+    use slint::{ComponentHandle, ModelRc, VecModel};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    i_slint_backend_testing::init_no_event_loop();
+    let window = AppWindow::new().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(760.0, 900.0));
+    let calls = Rc::new(RefCell::new(Vec::<String>::new()));
+    let record = |kind: &'static str| {
+        let calls = calls.clone();
+        move |id: slint::SharedString| calls.borrow_mut().push(format!("{kind}:{id}"))
+    };
+    window.on_tool_install(record("install"));
+    window.on_tool_choose(record("choose"));
+    window.on_tool_reset(record("reset"));
+    let row = |id: &str, name: &str, health: &str, origin: &str, automatic: bool, custom: bool| {
+        serde_json::json!({
+            "id": id, "name": name, "purpose": "", "health": health, "version": null,
+            "path": null, "origin": origin, "detail": "",
+            "install": {"method": "bme", "command": "bme tools setup ghidra", "automatic": automatic, "blocked": null},
+            "custom_location": custom, "optional": false
+        })
+    };
+    let report = serde_json::json!({"tools": [
+        row("ghidra", "Ghidra", "missing", "managed", true, true),
+        row("flashrom", "flashrom", "ready", "config", false, true),
+    ]});
+    window.set_tool_rows(ModelRc::new(VecModel::from(
+        biosmod_gui::desktop::tool_rows(&window, &report),
+    )));
+    window.set_page(1);
+    slint::platform::update_timers_and_animations();
+
+    // Labels follow the desktop language, so find a card's buttons by the tool name every
+    // label ends with, in the order the card shows them: install, choose, reset.
+    let card_buttons = |name: &str| -> Vec<ElementHandle> {
+        ElementHandle::find_by_element_type_name(&window, "Button")
+            .filter(|button| {
+                button
+                    .accessible_label()
+                    .is_some_and(|label| label.ends_with(&format!("({name})")))
+            })
+            .collect()
+    };
+    let ghidra = card_buttons("Ghidra");
+    let flashrom = card_buttons("flashrom");
+    assert_eq!(
+        (ghidra.len(), flashrom.len()),
+        (2, 2),
+        "(tools page): expected Ghidra install and choose, flashrom choose and reset"
+    );
+    ghidra[0].invoke_accessible_default_action();
+    ghidra[1].invoke_accessible_default_action();
+    flashrom[0].invoke_accessible_default_action();
+    flashrom[1].invoke_accessible_default_action();
+    assert_eq!(
+        *calls.borrow(),
+        [
+            "install:ghidra",
+            "choose:ghidra",
+            "choose:flashrom",
+            "reset:flashrom"
+        ],
+        "(card buttons): expected each press to name its own tool"
+    );
+}

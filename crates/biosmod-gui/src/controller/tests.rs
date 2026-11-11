@@ -1035,3 +1035,37 @@ fn an_engine_without_tools_workflow_refuses_the_tools_page_and_drops_the_queued_
         "(queued change): expected the refused install to have dropped the queue"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_failed_flashrom_lookup_before_a_write_does_not_claim_the_chip_changed() {
+    let fake = FakeToolsEngine::new();
+    fake.alter("  paths) reply paths", "  paths) exit 3; reply paths");
+    write_flash_doctor(&fake);
+    let mut session = connected_session();
+    session.flash.supported = true;
+    session.flash.acknowledged = true;
+    session.flash.checked = Some(CheckedWrite {
+        programmer: "internal".into(),
+        image: "/tmp/image.bin".into(),
+        backup: "/tmp/backup.bin".into(),
+        whole_chip: false,
+        image_sha256: "0".repeat(64),
+    });
+    let job = session.prepare(Action::FlashWrite).unwrap();
+    assert!(session.finish(job.run(&fake.engine())));
+    assert_eq!(
+        (session.status_kind, session.outcome),
+        (Status::Failed, Outcome::Failed),
+        "(flash write, failing tools paths): expected a plain failure, nothing ran | received {:?} and {:?}",
+        session.status_kind,
+        session.outcome
+    );
+    assert!(
+        fake.calls()
+            .iter()
+            .all(|call| !call.starts_with("doctor") && !call.contains("write")),
+        "(flash write): expected no flash command | received {:?}",
+        fake.calls()
+    );
+}

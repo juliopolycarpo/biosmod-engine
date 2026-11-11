@@ -1784,7 +1784,19 @@ impl Job {
 /// Example: a `tools paths` reply whose flashrom has origin `config` and path
 /// `/opt/fr/flashrom` yields `Some("/opt/fr/flashrom")`.
 fn saved_flashrom(engine: &Engine, cancel: &AtomicBool) -> Result<Option<PathBuf>, EngineError> {
-    let reply = engine.run(&Request::ToolsPaths, cancel)?;
+    // Nothing reached the chip. A configuration error is a definite refusal, so a failed
+    // write check does not claim the chip may hold a partial image.
+    let reply = engine.run(&Request::ToolsPaths, cancel).map_err(|error| {
+        let mut refusal = EngineError::new(
+            ErrorKind::Configuration,
+            format!(
+                "flashrom lookup: expected the saved flashrom from `tools paths` | received {}",
+                error.message
+            ),
+        );
+        refusal.diagnostics = error.diagnostics;
+        refusal
+    })?;
     Ok(saved_flashrom_in(&reply.data))
 }
 
