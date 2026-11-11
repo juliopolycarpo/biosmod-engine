@@ -46,7 +46,8 @@ pub struct Ctx {
 /// Dispatch a parsed command.
 pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
     // Flash commands often run as root through sudo or pkexec, where the home
-    // directory is root's: they must not read or create per-user configuration.
+    // directory is root's: they never create configuration, and only a non-root run
+    // reads `tools.flashrom` (see `flash::run`).
     let command = match command {
         Command::Flash(sub) => return crate::flash::run(out, sub),
         other => other,

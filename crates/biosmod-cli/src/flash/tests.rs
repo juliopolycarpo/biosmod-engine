@@ -1233,3 +1233,15 @@ fn a_broken_configuration_is_not_read_when_an_override_or_root_chooses_flashrom(
         );
     }
 }
+
+#[test]
+fn a_flash_command_without_a_home_directory_reads_no_configuration() {
+    let configuration = user_configuration(&|_| None);
+    assert!(
+        configuration
+            .as_ref()
+            .is_ok_and(|config| config.tools.flashrom.is_none()),
+        "(flash, no HOME or XDG variables): expected the default configuration | received {:?}",
+        configuration.err()
+    );
+}

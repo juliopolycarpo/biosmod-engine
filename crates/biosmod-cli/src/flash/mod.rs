@@ -65,7 +65,7 @@ pub fn run(out: Out, command: FlashCommand) -> Result<Reply> {
         host.euid == Some(0),
         command.flashrom_override(),
         &variable,
-        || crate::config::Paths::from_env().and_then(|paths| Config::load(&paths)),
+        || user_configuration(&|key| std::env::var_os(key).filter(|v| !v.is_empty())),
     )?;
     let (flashrom, flashrom_flag) = choose_flashrom(
         host.euid == Some(0),
@@ -83,6 +83,25 @@ pub fn run(out: Out, command: FlashCommand) -> Result<Reply> {
         boards: bundled_boards(),
     };
     dispatch(&env, command)
+}
+
+/// The per-user configuration a non-root flash command reads `tools.flashrom` from.
+///
+/// Without a configuration directory (no `HOME`, `XDG_CONFIG_HOME` or `BME_CONFIG_HOME`) no
+/// file can hold a saved flashrom, so the defaults apply. Flash commands never use the cache
+/// or data directories, so a missing one does not stop them.
+///
+/// Example: `user_configuration(&|key| std::env::var_os(key))` loads `~/.config/biosmod-engine/config.toml`.
+fn user_configuration(get: &dyn Fn(&str) -> Option<OsString>) -> Result<Config> {
+    let unused = |key: &str| {
+        get(key).or_else(|| {
+            matches!(key, "BME_CACHE_HOME" | "BME_DATA_HOME").then(|| "/nonexistent".into())
+        })
+    };
+    match crate::config::Paths::resolve(&unused, std::env::consts::OS) {
+        Ok(paths) => Config::load(&paths),
+        Err(_) => Ok(Config::default()),
+    }
 }
 
 /// Pick the flashrom executable and the flag a root re-run would need to repeat the choice.
