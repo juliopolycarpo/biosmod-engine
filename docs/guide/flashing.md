@@ -2,45 +2,98 @@
 
 English | [Brazilian Portuguese](../pt-BR/guide/flashing.md)
 
-`bme` does not flash. These steps are for writing its output with an external SPI programmer. A bad image leaves a board that will not POST; only flash if you can recover with a programmer (`bme guide recovery`).
+On Linux, `bme flash` drives [flashrom](https://flashrom.org) to diagnose the system, find the chip, back it up and write an image. The desktop interface has the same steps on its **Flash chip** page. A bad or interrupted write leaves a board that will not POST; only flash if you can recover with an external programmer and your backup (`bme guide recovery`).
 
-## 1. Read the chip twice and keep the dump
+`flash doctor` runs as any user. The other commands need access to the programmer, which usually means root: run them with `sudo`.
 
-Power the board off and unplug it. With a CH341A and a SOIC-8 clip:
+## 1. Diagnose
 
 ```sh
-flashrom -p ch341a_spi -r dump1.bin
-flashrom -p ch341a_spi -r dump2.bin
-cmp dump1.bin dump2.bin && sha256sum dump1.bin
+bme flash doctor                      # the chip of this machine (programmer: internal)
+bme flash doctor -p ch341a_spi        # an external programmer
 ```
 
-Two identical reads mean the clip is seated. The dump also holds board-specific data: the Intel ME region, a GbE MAC address if present, serial numbers and NVRAM settings. Keep it.
+It prints the board and firmware the system reports, the catalog board profile with the same vendor and model, the flashrom version, and one line per condition that helps or blocks chip access:
 
-## 2. Build from that dump
+| Check | What it reads |
+| --- | --- |
+| `flashrom` | the executable in `PATH`, `/usr/sbin`, `/sbin`, `/usr/local/sbin`, or the one named by `BME_FLASHROM` |
+| `privileges` | whether the command runs as root |
+| `kernel-lockdown`, `secure-boot` | lockdown blocks the internal programmer; it usually comes with Secure Boot |
+| `internal-access` | `iomem=relaxed`, or a kernel driver that claims the SPI controller |
+| `bios-write-protection` | `BIOS_CNTL` of the Intel PCH (root only): with `SMM_BWP` set the BIOS region cannot be written from the OS |
+| `mtd` | kernel flash devices usable as `-p linux_mtd:dev=N` |
+| `usb-programmer` | connected CH341A, FT2232H, FT232H or Dediprog programmers |
+
+`FAIL` stops every chip operation until fixed. `WARN` names what to try if an operation is refused. The doctor never starts a programmer.
+
+`-p` takes any flashrom programmer: `internal`, `ch341a_spi`, `linux_mtd:dev=0`, `ft2232_spi:type=2232H`. With an external programmer, power the board off, unplug it and seat the clip first.
+
+## 2. Find the chip
 
 ```sh
-bme scan dump1.bin
-bme patch dump1.bin --recommended -o patched.bin
-bme verify dump1.bin patched.bin
+sudo bme flash probe -p ch341a_spi
+```
+
+If several chip definitions match, read the marking on the chip and pass one to the next commands with `--chip`.
+
+## 3. Back up
+
+```sh
+sudo bme flash backup -p ch341a_spi -o dump.bin
+```
+
+The chip is read twice and the dump is saved only if both reads are identical and not blank. The file is new (nothing is overwritten) and is handed back to the user who ran `sudo`. The dump holds board-specific data: the Intel ME region, a GbE MAC address if present, serial numbers and NVRAM settings. Keep it; it is the only way back.
+
+On some boards the internal programmer cannot read the ME region. `--region` reads around it:
+
+```sh
+sudo bme flash backup -o bios.bin --region bios
+```
+
+That dump holds the descriptor and the named regions, with erased bytes elsewhere. It can restore those regions, not the whole chip.
+
+## 4. Build from that dump
+
+```sh
+bme scan dump.bin
+bme patch dump.bin --recommended -o patched.bin
+bme verify dump.bin patched.bin
 ```
 
 Read `patched.bin.manifest.json`: it lists every changed component and region.
 
-## 3. Write only the BIOS region
+## 5. Check, then write
 
 ```sh
-flashrom -p ch341a_spi --ifd -i bios -w patched.bin
+sudo bme flash write patched.bin --backup dump.bin -p ch341a_spi --dry-run
+sudo bme flash write patched.bin --backup dump.bin -p ch341a_spi --confirm <image sha256>
 ```
 
-`--ifd -i bios` leaves the ME and GbE regions untouched. flashrom verifies after writing; read the chip back once more and compare the BIOS region if you want a second check.
+`flash write` refuses unless all of these hold:
 
-## 4. Test one change at a time
+- the image parses as firmware and has the size of the backup;
+- the image equals the backup outside the regions being written;
+- the chip, read now, equals the backup in the descriptor and in those regions;
+- `--confirm` repeats the image SHA-256 that `--dry-run` printed.
+
+By default only the `bios` region of the Intel flash descriptor is written, so the ME and GbE regions stay untouched. `--region NAME` selects other regions; `--whole-chip` writes every byte and is required for chips without a descriptor. After flashrom writes and verifies, `bme` reads the written regions back and compares them with the image.
+
+`FLASH_REFUSED` means nothing was written. `FLASH_FAILED` means the write or the read-back failed and the chip may hold a partial image: if the board is still running, leave it on and follow `bme guide recovery`.
+
+After a successful write the old dump no longer matches the chip. To write again, or to restore, take a new backup first.
+
+## 6. Test one change at a time
 
 Boot several times, cold and warm, and note the POST codes. Then move to the next change. If something regresses you will know which change caused it.
 
-## In-OS flashers
+## Desktop interface
 
-AMI's tools may reject a modified image or refuse to write some regions. A programmer avoids that and keeps a recovery path. bme does not document in-OS flashing.
+**Flash chip** runs the same commands: **Diagnose**, **Find chip**, **Back up chip**, **Check** (the dry run) and **Flash chip**. With **Ask for administrator rights** ticked, the chip commands run through `pkexec`, which needs a polkit agent (every major desktop has one). **Flash chip** stays disabled until a check passed for the current programmer, image and backup and you tick the recovery confirmation.
+
+## Limits
+
+Only Linux is supported; elsewhere write the image with a programmer and its own software. `bme` does not use vendor flashers: AMI's tools may reject a modified image or refuse to write some regions. Writing from the OS does not bypass firmware write protection, Intel Boot Guard or signature checks. A matching read-back shows what the chip holds, not that the board will boot.
 
 ## Evidence
 

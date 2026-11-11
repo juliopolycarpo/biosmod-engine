@@ -4,17 +4,17 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "144dd36800d25c5e45abd2ddaa524c4777eea78157b23a1cc74d82e0ff5fdd9b"
+      "sha256": "f67d485fbed9089a4bea119c4ab5f27841f6c307cbd5d50043e5b7b68e005fa3"
     },
     {
       "source": "CONTRIBUTING.md",
       "translation": "CONTRIBUTING.pt-BR.md",
-      "sha256": "2f8e4081407b7958dd07d9b7dd8dbc32c9944dbb71d9198dc94b12c7f04e770b"
+      "sha256": "877507ecf639da52e122998652a1e1bb72571d379aa2618822e67687b498bcee"
     },
     {
       "source": "docs/architecture.md",
       "translation": "docs/pt-BR/architecture.md",
-      "sha256": "b92dbbc6ce7989240ea4893fb5812e625fae2deb0205c264bdf03f4ccb1e106e"
+      "sha256": "80a6162f7fd532a8849a08ac7f8db0df2e5d15128eeabf1c9cbae6551592a601"
     },
     {
       "source": "docs/baseline.md",
@@ -44,7 +44,7 @@
     {
       "source": "docs/guide/flashing.md",
       "translation": "docs/pt-BR/guide/flashing.md",
-      "sha256": "d88f33339cd040f9890bfbfc6cae2488411af7dcb28914012c2f5b185bc64dbf"
+      "sha256": "ffa4bf56c916a327753d03697045f58e3a4a0a18c4e10ec9323f9df10f0e44d6"
     },
     {
       "source": "docs/guide/ghidra.md",
@@ -54,7 +54,7 @@
     {
       "source": "docs/guide/gui.md",
       "translation": "docs/pt-BR/guide/gui.md",
-      "sha256": "69cf570a026206737602158dd552dfac1ff863a82280993b1f5e36922c02fc64"
+      "sha256": "908862f7d38534c2b1b04bed0e5906c410a1229ed518663b2d79ce5e81c510e9"
     },
     {
       "source": "docs/guide/porting.md",
@@ -64,7 +64,7 @@
     {
       "source": "docs/guide/recovery.md",
       "translation": "docs/pt-BR/guide/recovery.md",
-      "sha256": "930d0a9f06bd1d5d38c190675a9740442b85f3689c37b00ca2fdc68d5a7e3d51"
+      "sha256": "bbc6fe1bab49275247083975b37b971ffa0db5cdfbdca3f5f058b41d10f9816f"
     },
     {
       "source": "docs/guide/trust.md",
@@ -74,7 +74,7 @@
     {
       "source": "docs/guide/workflow.md",
       "translation": "docs/pt-BR/guide/workflow.md",
-      "sha256": "fb69e024238aa7a2654cdff8e7f3a0fdf43711667a4a57573b51d8f0b16960c1"
+      "sha256": "c0648ad84f049437bca0ca4f4c1425a36cd0c62c64e055bd2475813095f3a1a8"
     },
     {
       "source": "docs/linux-desktop-qualification.md",

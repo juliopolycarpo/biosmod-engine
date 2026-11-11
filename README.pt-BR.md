@@ -4,7 +4,7 @@
 
 `bme` inspeciona imagens de firmware, encontra defeitos catalogados, gera cópias modificadas e verificadas. A CLI é um único executável sem dependências de execução. Pessoas e agentes usam os mesmos comandos; adicione `--json` para obter um documento legível por máquina por execução. `bme-gui` oferece uma interface gráfica Linux para a mesma engine.
 
-O `bme` nunca lê ou grava um chip flash. As entradas nunca são modificadas e as saídas são sempre novos arquivos.
+As entradas nunca são modificadas e as saídas são sempre novos arquivos. Somente os comandos `bme flash` acessam um chip flash: no Linux eles diagnosticam o sistema, localizam o chip, fazem o backup e gravam uma imagem pelo flashrom, e a gravação exige um backup que corresponda ao chip.
 
 O primeiro catálogo cobre duas placas AMI Aptio auditadas em [x99-bios-fixes](https://github.com/juliopolycarpo/x99-bios-fixes):
 
@@ -33,6 +33,14 @@ Firmware: mnx99mr9apro-230322 (board profile machinist-mr9a-pro-q87-rev-1.2), 33
   …
 Plannable on this exact build: A02, A03, A07, B01-B06, B02-B03, B05, B08, B09, B10, B11, H01 (--allow-hold --assert superio-nct5532d), …
 Recommended: B01-B06 B02-B03
+```
+
+Para ler e gravar o chip no Linux:
+
+```sh
+bme flash doctor
+sudo bme flash backup -o dump.bin
+sudo bme flash write dump.patched.bin --backup dump.bin --dry-run
 ```
 
 Leia `bme guide flashing` antes de gravar qualquer chip e mantenha um caminho de recuperação com gravador (`bme guide recovery`).
@@ -81,6 +89,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | fontes e manutenção de catálogos |
 | `tools doctor/setup ghidra/analyze/paths` | Ghidra 12.2 com ghidra-firmware-utils |
 | `diag breadcrumbs decode/read` | diagnóstico de checkpoint MRC do MR9A (read usa somente portas 72h/73h) |
+| `flash doctor`, `flash probe`, `flash backup`, `flash write` | diagnosticar, localizar, fazer backup e gravar o chip pelo flashrom (Linux) |
 | `dev synthetic` | imagem e catálogo sintéticos para experimentar com segurança |
 | `version`, `capabilities`, `schema`, `guide` | contratos e documentação incorporada |
 

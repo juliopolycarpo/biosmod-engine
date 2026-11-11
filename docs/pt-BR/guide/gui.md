@@ -2,7 +2,7 @@
 
 [English](../../guide/gui.md) | Português (Brasil)
 
-`bme-gui` é um cliente gráfico para `bme`. Ele lê imagens de firmware e cria novos arquivos de saída; não acessa chips flash. A verificação examina a imagem offline e não comprova segurança de inicialização, compatibilidade física com a placa ou aceitação pela verificação de assinatura da plataforma.
+`bme-gui` é um cliente gráfico para `bme`. Ele lê imagens de firmware e cria novos arquivos de saída. Somente a página **Gravar chip** acessa um chip flash, por meio de `bme flash` e do flashrom. A verificação examina a imagem offline e não comprova segurança de inicialização, compatibilidade física com a placa ou aceitação pela verificação de assinatura da plataforma.
 
 ## Compilar e executar
 
@@ -49,6 +49,21 @@ O código do projeto é MIT. A distribuição gráfica usa a Slint Royalty-free 
 **Abrir arquivo de seleção** carrega uma receita exata para reprodução após validação com a imagem, o catálogo e o mecanismo atuais. A interface mantém uma cópia privada e não permite que a receita conceda permissões não suportadas ou troque o catálogo selecionado. Uma receita exige o catálogo fixado e a compilação correspondente do mecanismo. Para reabrir uma saída, escolha a imagem original e a saída; o manifesto deve estar ao lado dela em `<output>.manifest.json`. Um arquivo de seleção opcional também pode ser usado para comparação.
 
 O estado de catálogos e ferramentas é somente leitura na interface. Use a CLI para registrar ou atualizar catálogos e gerenciar ferramentas externas de análise.
+
+## Gravar chip
+
+A página **Gravar chip** funciona no Linux com o flashrom instalado e um mecanismo que anuncie `flash_workflow: 1`. `bme guide flashing` explica cada passo e suas recusas.
+
+1. Informe um programador do flashrom (`internal` para esta máquina, `ch341a_spi` para um CH341A) e pressione **Diagnosticar**. O relatório mostra a placa, o perfil de placa correspondente no catálogo e o que ajuda ou impede o acesso ao chip.
+2. **Localizar chip** identifica o chip. Se várias definições corresponderem, use a CLI com `--chip`; a página não tem campo para o chip.
+3. Escolha um novo arquivo de backup com **Novo…** e pressione **Fazer backup do chip**. O chip é lido duas vezes; arquivos existentes não são sobrescritos.
+4. Gere uma cópia com patches a partir desse backup na página Fluxo de trabalho. **Gravar esta saída…**, na visão de resultados, leva a saída como imagem.
+5. **Conferir** compara o chip com o backup e lista as regiões e o número de bytes que vão mudar. Nada é gravado. **Chip inteiro** serve para chips sem Intel flash descriptor.
+6. Marque a confirmação de recuperação e pressione **Gravar chip**. A gravação repete exatamente o programador, a imagem e o backup conferidos; editar qualquer um deles exige nova conferência. O chip é lido novamente em seguida.
+
+Com **Pedir direitos de administrador** marcado, Localizar chip, Fazer backup do chip, Conferir e Gravar chip executam o `bme` pelo `pkexec`, que mostra a janela de autenticação do ambiente gráfico. Desmarque quando a interface já tiver acesso ao gravador, por exemplo por regras udev para um gravador USB. Diagnosticar nunca pede; execute `sudo bme flash doctor` para incluir os bits de proteção de escrita do BIOS.
+
+Backup, conferência e gravação não podem ser cancelados, e a janela permanece aberta até terminarem. Se uma gravação falhar depois de iniciada, o status informa que o chip pode conter uma imagem parcial: mantenha a placa ligada e siga `bme guide recovery`.
 
 ## Configurações e diagnóstico
 
