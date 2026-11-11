@@ -231,11 +231,19 @@ fn system_install(probe: &Probe, package: Package) -> Install {
 /// [`leftover_directory`]. Setup refuses it without `--force`, and `--force` deletes it, so the
 /// row names the directory and leaves that command to the user instead of offering a button.
 ///
-/// Outside Linux setup refuses to run, so there is no command to offer; the row then asks for
-/// a copy installed by hand.
+/// Outside Linux setup refuses to run, so no reason or command applies; the row then asks for a
+/// copy installed by hand.
 ///
 /// Example: with `origin` `config` the install is blocked by `bme tools unset ghidra`.
 fn ghidra_install(origin: &str, unready: &[&str], leftover: Option<&Path>, linux: bool) -> Install {
+    if !linux {
+        return Install {
+            method: "bme",
+            command: None,
+            automatic: false,
+            blocked: None,
+        };
+    }
     let blocked = match (origin, leftover) {
         ("config", _) => Some(
             "a saved location is in use and bme installs only into its own directory: run `bme tools unset ghidra`, then `bme tools setup ghidra`"
@@ -254,7 +262,7 @@ fn ghidra_install(origin: &str, unready: &[&str], leftover: Option<&Path>, linux
             "{other} points elsewhere and bme installs only into its own directory: unset it, then run `bme tools setup ghidra`"
         )),
     };
-    let available = linux && blocked.is_none();
+    let available = blocked.is_none();
     Install {
         method: "bme",
         command: available.then(|| "bme tools setup ghidra".to_string()),
@@ -342,7 +350,13 @@ fn ghidra_rows(probe: &Probe, unready: &[&str]) -> Vec<ToolRow> {
         origin: home.origin,
         detail: match (found, extension) {
             (false, _) => "needs Ghidra first".into(),
-            (true, Some(c)) => c.detail.clone(),
+            (true, Some(c)) if probe.linux => c.detail.clone(),
+            // Setup refuses to run here, so drop the hint that names it.
+            (true, Some(c)) => c
+                .detail
+                .strip_suffix(super::SETUP_HINT)
+                .unwrap_or(&c.detail)
+                .to_string(),
             (true, None) => String::new(),
         },
         install: ghidra_install(home.origin, unready, leftover.as_deref(), probe.linux),

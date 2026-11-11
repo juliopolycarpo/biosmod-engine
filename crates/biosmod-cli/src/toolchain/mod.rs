@@ -95,6 +95,9 @@ const EXTENSION_PATCH: &[u8] =
     include_bytes!("../../../../tools/ghidra/ghidra-firmware-utils-12.2.patch");
 const EXTENSION: &str = "ghidra-firmware-utils";
 const MARKER: &str = "bme-install.json";
+
+/// Appended to a missing extension's detail; `tools status` drops it where setup cannot run.
+const SETUP_HINT: &str = " (run `bme tools setup ghidra`)";
 const DOWNLOAD_LIMIT: u64 = 2 << 30;
 
 #[derive(Debug, Clone, clap::Args)]
@@ -292,10 +295,7 @@ fn ghidra_checks(env: &Env, home: &GhidraHome) -> Vec<Check> {
     let ext_version = property(&extension.join("extension.properties"), "version");
     let compatible = data_ok && (ext_version.is_none() || ext_version == version);
     let detail = match (data_ok, &ext_version) {
-        (false, _) => format!(
-            "{}: not installed (run `bme tools setup ghidra`)",
-            extension.display()
-        ),
+        (false, _) => format!("{}: not installed{SETUP_HINT}", extension.display()),
         (true, Some(v)) if !compatible => format!(
             "built for Ghidra {v} | installed Ghidra {}",
             version.as_deref().unwrap_or("unknown")

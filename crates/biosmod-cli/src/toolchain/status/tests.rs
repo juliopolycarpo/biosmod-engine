@@ -591,6 +591,28 @@ fn outside_linux_the_ghidra_row_offers_no_setup_command_that_would_refuse() {
 }
 
 #[test]
+fn outside_linux_no_blocked_reason_points_to_a_setup_that_would_refuse() {
+    let mut scene = Scene::new(FakeInstalledTools::complete().without("javac"));
+    scene.linux = false;
+    let home = pinned_ghidra(&scene);
+    fs::remove_dir_all(home.path.join("Ghidra/Extensions/ghidra-firmware-utils")).unwrap();
+    let rows = scene.rows(&home);
+    for id in ["ghidra", "firmware-utils"] {
+        let install = &row(&rows, id).install;
+        assert_eq!(
+            (install.command.as_deref(), install.blocked.as_deref()),
+            (None, None),
+            "({id} install, not Linux, JDK missing, unmarked Ghidra): expected no command or reason"
+        );
+    }
+    let text = render(&rows);
+    assert!(
+        !text.contains("bme tools setup ghidra"),
+        "(tools status text, not Linux): expected no setup command | received {text}"
+    );
+}
+
+#[test]
 fn every_status_probe_together_fits_inside_the_gui_engine_timeout() {
     // The GUI runs `tools status` after each tool change with its default 120 s engine timeout.
     const GUI_ENGINE_TIMEOUT: Duration = Duration::from_secs(120);
