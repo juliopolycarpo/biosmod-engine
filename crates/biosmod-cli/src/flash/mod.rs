@@ -259,13 +259,35 @@ fn installed_flashrom(env: &Env) -> Option<Flashrom> {
     Some(Flashrom { path, version })
 }
 
+/// A warning when the `--flashrom` path the next `sudo` step repeats would be refused by root.
+///
+/// A non-root run does not check the file, so without this a group-writable saved flashrom
+/// reads as ready and the suggested `sudo bme flash probe --flashrom <path>` then fails.
+///
+/// Example: a saved 0775 `/home/me/flashrom` yields a `flashrom-root` warning naming mode 775.
+fn root_refusal_check(env: &Env) -> Option<host::Check> {
+    if env.host.euid == Some(0) {
+        return None;
+    }
+    let path = env.flashrom_flag.as_deref()?;
+    let error = flashrom::validate_privileged_flashrom(path).err()?;
+    Some(host::Check {
+        check: "flashrom-root",
+        state: State::Warn,
+        detail: error.message,
+    })
+}
+
 /// `flash doctor`: read-only diagnosis; never starts a programmer.
 ///
 /// Example: `bme flash doctor --programmer ch341a_spi` lists what blocks a CH341A read.
 pub fn doctor(env: &Env, programmer: &str) -> Result<Reply> {
     flashrom::validate_programmer(programmer)?;
     let installed = installed_flashrom(env);
-    let checks = env.host.checks(programmer, installed.as_ref());
+    let mut checks = env.host.checks(programmer, installed.as_ref());
+    if let Some(warning) = root_refusal_check(env) {
+        checks.push(warning);
+    }
     let dmi = env.host.dmi();
     let boards: Vec<Value> = env
         .boards

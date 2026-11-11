@@ -1235,6 +1235,35 @@ fn a_broken_configuration_is_not_read_when_an_override_or_root_chooses_flashrom(
 }
 
 #[test]
+fn the_doctor_warns_when_root_would_refuse_the_saved_flashrom() {
+    let sysfs = FakeSysfs::mr9a();
+    let directory = tempfile::tempdir().unwrap();
+    let program = executable_file(directory.path(), "flashrom", 0o775);
+    let chip = FakeFlashChip::holding(&[0; 16]);
+    let mut env = env(&chip, sysfs.host(1000));
+    env.flashrom = Some(program.clone());
+    env.flashrom_flag = Some(program.clone());
+    let reply = doctor(&env, "internal").unwrap();
+    let warning = reply.data["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["check"] == "flashrom-root")
+        .cloned();
+    assert!(
+        warning
+            .as_ref()
+            .is_some_and(|check| check["state"] == "warn"
+                && check["detail"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("mode 775")),
+        "(flash doctor, saved flashrom mode 775): expected a flashrom-root warning naming the mode | received {}",
+        reply.data["checks"]
+    );
+}
+
+#[test]
 fn a_flash_command_without_a_home_directory_reads_no_configuration() {
     let configuration = user_configuration(&|_| None);
     assert!(
