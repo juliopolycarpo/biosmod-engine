@@ -395,7 +395,10 @@ pub fn doctor(ctx: &Ctx, deep: bool) -> Result<Reply> {
 pub fn paths(ctx: &Ctx) -> Result<Reply> {
     let profile = Profile::pinned();
     let home = ghidra_home(&ctx.config, &ctx.paths.data, &profile);
-    let data = json!({"config": display_path(&ctx.paths.config_file()), "cache": display_path(&ctx.paths.cache), "data": display_path(&ctx.paths.data), "ghidra_home": home, "profile": profile});
+    let get = |key: &str| std::env::var_os(key);
+    let flashrom = crate::flash::resolve_flashrom(&get, ctx.config.tools.flashrom.as_deref())
+        .map(|(path, origin)| json!({"path": display_path(&path), "origin": origin.label()}));
+    let data = json!({"config": display_path(&ctx.paths.config_file()), "cache": display_path(&ctx.paths.cache), "data": display_path(&ctx.paths.data), "ghidra_home": home, "flashrom": flashrom, "profile": profile});
     let text = format!(
         "config   {}\ncache    {}\ndata     {}\nghidra   {} ({})\n",
         ctx.paths.config_file().display(),

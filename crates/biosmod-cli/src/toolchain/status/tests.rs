@@ -28,6 +28,7 @@ impl FakeInstalledTools {
                 ("java", "openjdk version \"21.0.5\" 2026-10-21"),
                 ("javac", "javac 21.0.5"),
                 ("git", "git version 2.53.0"),
+                ("nasm", "NASM version 2.16.01 compiled on Jan  1 2026"),
                 ("flashrom", "flashrom v1.6.0 on Linux 7.0 (x86_64)"),
             ]),
             calls: RefCell::new(Vec::new()),
@@ -474,4 +475,101 @@ fn set_ghidra_needs_the_headless_script() {
             .as_deref(),
         Some(home.as_path())
     );
+}
+
+#[test]
+fn a_saved_ghidra_location_blocks_the_managed_install_and_says_how_to_unblock_it() {
+    let scene = Scene::new(FakeInstalledTools::complete());
+    let missing = GhidraHome {
+        path: scene.root.path().join("not-installed"),
+        origin: "config",
+    };
+    let rows = scene.rows(&missing);
+    let install = &row(&rows, "ghidra").install;
+    assert!(
+        !install.automatic && install.command.is_none(),
+        "(ghidra install, origin config): expected no automatic install | received {install:?}"
+    );
+    assert!(
+        install
+            .blocked
+            .as_deref()
+            .is_some_and(|reason| reason.contains("bme tools unset ghidra")),
+        "(ghidra install, origin config): expected the unset command | received {:?}",
+        install.blocked
+    );
+    let environment = GhidraHome {
+        path: scene.root.path().join("not-installed"),
+        origin: "GHIDRA_INSTALL_DIR",
+    };
+    let rows = scene.rows(&environment);
+    assert!(
+        row(&rows, "ghidra")
+            .install
+            .blocked
+            .as_deref()
+            .is_some_and(|reason| reason.starts_with("GHIDRA_INSTALL_DIR points elsewhere")),
+        "(ghidra install, origin environment): expected the variable named | received {:?}",
+        row(&rows, "ghidra").install
+    );
+}
+
+#[test]
+fn setup_waits_for_java_and_git_because_it_checks_them_first() {
+    let scene = Scene::new(
+        FakeInstalledTools::complete()
+            .without("git")
+            .without("javac"),
+    );
+    let managed = GhidraHome {
+        path: scene.root.path().join("not-installed"),
+        origin: "managed",
+    };
+    let rows = scene.rows(&managed);
+    let install = &row(&rows, "ghidra").install;
+    assert!(!install.automatic, "{install:?}");
+    let reason = install.blocked.as_deref().unwrap_or_default();
+    assert!(
+        reason.contains("Git") && reason.contains("Java JDK"),
+        "(ghidra install): expected the missing prerequisites named | received {reason:?}"
+    );
+    let ready = Scene::new(FakeInstalledTools::complete());
+    let rows = ready.rows(&GhidraHome {
+        path: ready.root.path().join("not-installed"),
+        origin: "managed",
+    });
+    let install = &row(&rows, "ghidra").install;
+    assert_eq!(
+        (install.automatic, install.blocked.as_deref()),
+        (cfg!(target_os = "linux"), None),
+        "(ghidra install, prerequisites ready)"
+    );
+}
+
+#[test]
+fn a_missing_nasm_is_optional_and_does_not_make_the_report_not_ready() {
+    let mut scene = Scene::new(FakeInstalledTools::complete().without("nasm"));
+    scene.configured_flashrom = Some("/opt/fr/flashrom".into());
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    let nasm = row(&rows, "nasm");
+    assert_eq!(nasm.health, Health::Missing);
+    assert!(nasm.optional && !nasm.custom_location, "{nasm:?}");
+    assert_eq!(
+        nasm.install.command.as_deref(),
+        Some("sudo apt install nasm")
+    );
+    let text = render(&rows);
+    assert!(
+        text.contains("Every required tool is ready. Optional:")
+            && text.contains("nasm (optional)"),
+        "(tools status): expected nasm listed as optional | received {text}"
+    );
+}
+
+#[test]
+fn nasm_reports_its_version_when_installed() {
+    let scene = Scene::new(FakeInstalledTools::complete());
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    assert_eq!(row(&rows, "nasm").version.as_deref(), Some("2.16.01"));
+    assert_eq!(row(&rows, "nasm").health, Health::Ready);
 }

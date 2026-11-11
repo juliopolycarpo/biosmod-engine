@@ -46,8 +46,10 @@ pub struct Install {
     pub method: &'static str,
     /// The command that installs the tool, when one is known for this system.
     pub command: Option<String>,
-    /// Whether bme can run the installation itself on this system.
+    /// Whether bme can run the installation itself on this system right now.
     pub automatic: bool,
+    /// Why bme cannot install the tool now, with what to do first.
+    pub blocked: Option<String>,
 }
 
 /// What `tools status` knows about one tool.
@@ -65,6 +67,8 @@ pub struct ToolRow {
     pub install: Install,
     /// Whether `tools set` can point this tool at another location.
     pub custom_location: bool,
+    /// bme runs fine without this tool; a missing one does not make the report not ready.
+    pub optional: bool,
 }
 
 /// Tools whose location the user can choose.
@@ -89,6 +93,7 @@ impl Locatable {
 #[derive(Debug, Clone, Copy)]
 enum Package {
     Flashrom,
+    Nasm,
     Git,
     Jdk(u32),
 }
@@ -117,6 +122,7 @@ fn package_command(os_release: &str, package: Package) -> Option<String> {
             "sudo apt install",
             match package {
                 Package::Flashrom => "flashrom".to_string(),
+                Package::Nasm => "nasm".to_string(),
                 Package::Git => "git".to_string(),
                 Package::Jdk(n) => format!("openjdk-{n}-jdk"),
             },
@@ -126,6 +132,7 @@ fn package_command(os_release: &str, package: Package) -> Option<String> {
             "sudo dnf install",
             match package {
                 Package::Flashrom => "flashrom".to_string(),
+                Package::Nasm => "nasm".to_string(),
                 Package::Git => "git".to_string(),
                 Package::Jdk(n) => format!("java-{n}-openjdk-devel"),
             },
@@ -135,6 +142,7 @@ fn package_command(os_release: &str, package: Package) -> Option<String> {
             "sudo pacman -S",
             match package {
                 Package::Flashrom => "flashrom".to_string(),
+                Package::Nasm => "nasm".to_string(),
                 Package::Git => "git".to_string(),
                 Package::Jdk(n) => format!("jdk{n}-openjdk"),
             },
@@ -175,10 +183,19 @@ pub struct Probe<'a> {
 ///
 /// Example: `status(&probe)` returns rows for ghidra, firmware-utils, java, jdk, git and flashrom.
 pub fn status(probe: &Probe) -> Vec<ToolRow> {
-    let mut rows = ghidra_rows(probe);
-    rows.extend(java_rows(probe));
-    rows.push(git_row(probe));
+    let java = java_rows(probe);
+    let git = git_row(probe);
+    let unready: Vec<&str> = java
+        .iter()
+        .chain([&git])
+        .filter(|row| row.health != Health::Ready)
+        .map(|row| row.name)
+        .collect();
+    let mut rows = ghidra_rows(probe, &unready);
+    rows.extend(java);
+    rows.push(git);
     rows.push(flashrom_row(probe));
+    rows.push(nasm_row(probe));
     rows
 }
 
@@ -189,18 +206,42 @@ fn system_install(probe: &Probe, package: Package) -> Install {
             .os_release
             .and_then(|text| package_command(text, package)),
         automatic: false,
+        blocked: None,
     }
 }
 
-fn ghidra_install() -> Install {
+/// How bme installs Ghidra, or why it cannot right now.
+///
+/// `setup` writes only to bme's own directory and checks Java and git before it downloads, so
+/// a saved or environment location and a missing prerequisite each block it.
+///
+/// Example: with `origin` `config` the install is blocked by `bme tools unset ghidra`.
+fn ghidra_install(origin: &str, unready: &[&str]) -> Install {
+    let blocked = match origin {
+        "config" => Some(
+            "a saved location is in use and bme installs only into its own directory: run `bme tools unset ghidra`, then install"
+                .to_string(),
+        ),
+        "managed" if unready.is_empty() => None,
+        "managed" => Some(format!(
+            "{} must be ready first: setup checks it before downloading anything",
+            unready.join(" and ")
+        )),
+        other => Some(format!(
+            "{other} points elsewhere and bme installs only into its own directory: unset it, then install"
+        )),
+    };
     Install {
         method: "bme",
-        command: Some("bme tools setup ghidra".into()),
-        automatic: cfg!(target_os = "linux"),
+        command: blocked
+            .is_none()
+            .then(|| "bme tools setup ghidra".to_string()),
+        automatic: cfg!(target_os = "linux") && blocked.is_none(),
+        blocked,
     }
 }
 
-fn ghidra_rows(probe: &Probe) -> Vec<ToolRow> {
+fn ghidra_rows(probe: &Probe, unready: &[&str]) -> Vec<ToolRow> {
     let home = probe.ghidra;
     let checks = ghidra_checks(probe.env, home);
     let by_name = |name: &str| checks.iter().find(|c| c.check == name);
@@ -233,8 +274,9 @@ fn ghidra_rows(probe: &Probe) -> Vec<ToolRow> {
         path: Some(lossy(&home.path)),
         origin: home.origin,
         detail,
-        install: ghidra_install(),
+        install: ghidra_install(home.origin, unready),
         custom_location: true,
+        optional: false,
     };
     let extension_ok = found && extension.is_some_and(|c| c.ok);
     let firmware_utils = ToolRow {
@@ -262,8 +304,9 @@ fn ghidra_rows(probe: &Probe) -> Vec<ToolRow> {
             (true, Some(c)) => c.detail.clone(),
             (true, None) => String::new(),
         },
-        install: ghidra_install(),
+        install: ghidra_install(home.origin, unready),
         custom_location: false,
+        optional: false,
     };
     vec![ghidra, firmware_utils]
 }
@@ -304,6 +347,7 @@ fn java_rows(probe: &Probe) -> Vec<ToolRow> {
             detail: check.detail,
             install: system_install(probe, Package::Jdk(min)),
             custom_location: false,
+            optional: false,
         }
     })
     .collect()
@@ -335,6 +379,7 @@ fn git_row(probe: &Probe) -> ToolRow {
         detail,
         install: system_install(probe, Package::Git),
         custom_location: false,
+        optional: false,
     }
 }
 
@@ -352,6 +397,7 @@ fn flashrom_row(probe: &Probe) -> ToolRow {
             detail: "not found in PATH or the sbin directories".into(),
             install,
             custom_location: true,
+            optional: false,
         };
     };
     let finished = probe.env.runner.run(
@@ -385,6 +431,52 @@ fn flashrom_row(probe: &Probe) -> ToolRow {
         detail,
         install,
         custom_location: true,
+        optional: false,
+    }
+}
+
+/// NASM assembles `catalog/provenance` sources when a maintainer rebuilds a patch's hunks.
+/// bme never runs it, so the row only detects it and never counts against `ready`.
+fn nasm_row(probe: &Probe) -> ToolRow {
+    let finished = probe.env.runner.run(
+        &Invocation::new("nasm")
+            .arg("--version")
+            .timeout(Duration::from_secs(60)),
+    );
+    let (health, version, detail) = match finished {
+        Ok(f) if f.success() => {
+            let line = f
+                .stdout
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let version = line
+                .strip_prefix("NASM version ")
+                .and_then(|rest| rest.split_whitespace().next())
+                .map(str::to_string);
+            (Health::Ready, version, line)
+        }
+        Ok(f) => (Health::Missing, None, format!("nasm: {}", f.describe())),
+        Err(_) => (
+            Health::Missing,
+            None,
+            "not found in PATH; only needed to rebuild a patch from its assembly source".into(),
+        ),
+    };
+    ToolRow {
+        id: "nasm",
+        name: "NASM",
+        purpose: "assembles patch sources when you rebuild their hunks (optional)",
+        health,
+        version,
+        path: first_on_path(probe.get, "nasm").map(|p| lossy(&p)),
+        origin: "PATH",
+        detail,
+        install: system_install(probe, Package::Nasm),
+        custom_location: false,
+        optional: true,
     }
 }
 
@@ -413,10 +505,18 @@ pub fn render(rows: &[ToolRow]) -> String {
         text += "\nEvery tool is ready.\n";
         return text;
     }
-    text += "\nNext steps\n";
+    let needed = pending.iter().any(|row| !row.optional);
+    text += if needed {
+        "\nNext steps\n"
+    } else {
+        "\nEvery required tool is ready. Optional:\n"
+    };
     for row in pending {
-        text += &format!("  {}: {}\n", row.id, row.detail);
-        if let Some(command) = &row.install.command {
+        let tag = if row.optional { " (optional)" } else { "" };
+        text += &format!("  {}{tag}: {}\n", row.id, row.detail);
+        if let Some(reason) = &row.install.blocked {
+            text += &format!("    blocked:  {reason}\n");
+        } else if let Some(command) = &row.install.command {
             text += &format!("    install:  {command}\n");
         } else {
             text += "    install:  use your package manager\n";
@@ -445,7 +545,7 @@ pub fn run_status(ctx: &Ctx) -> Result<Reply> {
         sbin: &SBIN_DIRECTORIES,
         os_release: os_release.as_deref(),
     });
-    let ready = rows.iter().all(|r| r.health == Health::Ready);
+    let ready = rows.iter().all(|r| r.optional || r.health == Health::Ready);
     let text = render(&rows);
     Ok(Reply::new(
         json!({"ready": ready, "platform": std::env::consts::OS, "tools": rows}),

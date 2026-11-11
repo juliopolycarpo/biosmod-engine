@@ -228,6 +228,18 @@ fn flash_doctor_uses_the_flashrom_saved_by_tools_set() {
     let flashrom = tools.iter().find(|tool| tool["id"] == "flashrom").unwrap();
     assert_eq!(flashrom["origin"], "config", "{status}");
     assert_eq!(flashrom["path"], s(&program), "{status}");
+
+    // `tools paths` names the saved flashrom without running anything, for callers that only
+    // need to learn which one a flash command would use.
+    let paths = sandbox.run(["tools", "paths", "--json"]).json();
+    assert_eq!(
+        (
+            paths["data"]["flashrom"]["origin"].as_str(),
+            paths["data"]["flashrom"]["path"].as_str()
+        ),
+        (Some("config"), Some(s(&program))),
+        "(tools paths flashrom): expected the saved flashrom | received {paths}"
+    );
 }
 
 #[test]
@@ -273,7 +285,15 @@ fn tools_status_exits_zero_and_set_rejects_a_directory() {
         .collect();
     assert_eq!(
         ids,
-        ["ghidra", "firmware-utils", "java", "jdk", "git", "flashrom"],
+        [
+            "ghidra",
+            "firmware-utils",
+            "java",
+            "jdk",
+            "git",
+            "flashrom",
+            "nasm"
+        ],
         "{document}"
     );
 
