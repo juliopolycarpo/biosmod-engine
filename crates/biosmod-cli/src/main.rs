@@ -1,9 +1,11 @@
 //! `bme`: inspect firmware images, plan guarded patches, build verified copies.
 //!
-//! Nothing here reads or writes a flash chip. Outputs are always new files.
+//! Outputs are always new files. Only the `flash` commands touch a flash chip,
+//! through flashrom; `flash write` is the single command that changes one.
 
 mod commands;
 mod config;
+mod flash;
 mod output;
 mod publish;
 mod sources;
@@ -19,7 +21,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "bme", version, about = "Biosmod Engine: scan firmware images, build patched copies and verify them.", long_about = None)]
 #[command(
-    after_help = "Workflow:\n  bme scan dump.bin\n  bme patch dump.bin --recommended\n  bme verify dump.bin dump.patched.bin\nAgents: add --json for one machine-readable document on stdout; see `bme capabilities --json`."
+    after_help = "Workflow:\n  bme scan dump.bin\n  bme patch dump.bin --recommended\n  bme verify dump.bin dump.patched.bin\nChip (Linux): bme flash doctor, then `bme guide flashing`\nAgents: add --json for one machine-readable document on stdout; see `bme capabilities --json`."
 )]
 pub struct Cli {
     /// Emit one JSON document on stdout (including failures).
@@ -73,6 +75,9 @@ pub enum Command {
     /// Diagnostics outside the correction catalog.
     #[command(subcommand)]
     Diag(DiagCommand),
+    /// Diagnose, find, back up and write the system flash chip through flashrom (Linux).
+    #[command(subcommand)]
+    Flash(FlashCommand),
     /// Developer helpers.
     #[command(subcommand)]
     Dev(DevCommand),
@@ -359,6 +364,64 @@ pub enum BreadcrumbCommand {
     },
 }
 
+#[derive(Args)]
+pub struct FlashTargetArgs {
+    /// flashrom programmer: internal (this machine), ch341a_spi, linux_mtd:dev=0, ...
+    #[arg(long, short, default_value = "internal")]
+    pub programmer: String,
+    /// flashrom chip definition, when probing reports several.
+    #[arg(long, short)]
+    pub chip: Option<String>,
+}
+
+#[derive(Args)]
+pub struct FlashWriteArgs {
+    /// The image to write, built from the backup.
+    pub image: PathBuf,
+    /// A dump of what the chip holds now (from `flash backup`).
+    #[arg(long)]
+    pub backup: PathBuf,
+    #[command(flatten)]
+    pub target: FlashTargetArgs,
+    /// Descriptor region to write (repeatable; default: bios).
+    #[arg(long = "region", value_name = "NAME", conflicts_with = "whole_chip")]
+    pub regions: Vec<String>,
+    /// Write every byte, for chips without an Intel flash descriptor.
+    #[arg(long)]
+    pub whole_chip: bool,
+    /// Run every check, including the chip comparison, without writing.
+    #[arg(long, conflicts_with = "confirm")]
+    pub dry_run: bool,
+    /// The image SHA-256 printed by --dry-run; required to write.
+    #[arg(long, value_name = "SHA256")]
+    pub confirm: Option<biosmod_core::util::Digest256>,
+}
+
+#[derive(Subcommand)]
+pub enum FlashCommand {
+    /// Report what will help or block chip access on this system (read-only).
+    Doctor {
+        /// The flashrom programmer you plan to use.
+        #[arg(long, short, default_value = "internal")]
+        programmer: String,
+    },
+    /// Detect the flash chip without reading it.
+    Probe(FlashTargetArgs),
+    /// Read the chip twice and save the dump as a new file.
+    Backup {
+        #[command(flatten)]
+        target: FlashTargetArgs,
+        /// Read only these descriptor regions (repeatable), e.g. when the ME region is locked.
+        #[arg(long = "region", value_name = "NAME")]
+        regions: Vec<String>,
+        /// New dump file (must not exist).
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Write an image after checking it against a backup of the chip.
+    Write(FlashWriteArgs),
+}
+
 #[derive(Subcommand)]
 pub enum DevCommand {
     /// Write a synthetic image and catalog (no vendor code) to try the workflow.
@@ -400,6 +463,12 @@ fn command_name(command: &Command) -> &'static str {
             ToolsCommand::Paths => "tools paths",
         },
         Command::Diag(_) => "diag breadcrumbs",
+        Command::Flash(f) => match f {
+            FlashCommand::Doctor { .. } => "flash doctor",
+            FlashCommand::Probe(_) => "flash probe",
+            FlashCommand::Backup { .. } => "flash backup",
+            FlashCommand::Write(_) => "flash write",
+        },
         Command::Dev(_) => "dev synthetic",
     }
 }

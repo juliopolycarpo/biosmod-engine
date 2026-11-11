@@ -45,6 +45,12 @@ pub struct Ctx {
 
 /// Dispatch a parsed command.
 pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
+    // Flash commands often run as root through sudo or pkexec, where the home
+    // directory is root's: they must not read or create per-user configuration.
+    let command = match command {
+        Command::Flash(sub) => return crate::flash::run(out, sub),
+        other => other,
+    };
     let paths = Paths::from_env()?;
     let config = Config::load(&paths)?;
     let mut ctx = Ctx {
@@ -71,6 +77,7 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Tools(sub) => tools(&ctx, sub),
         Command::Diag(DiagCommand::Breadcrumbs(sub)) => diag::breadcrumbs(sub),
         Command::Dev(DevCommand::Synthetic { output }) => diag::synthetic(&output),
+        Command::Flash(_) => unreachable!("flash commands return before configuration loads"),
     }
 }
 

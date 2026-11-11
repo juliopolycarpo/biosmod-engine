@@ -13,7 +13,7 @@ pub const GUIDES: &[(&str, &str, &str)] = &[
     ),
     (
         "flashing",
-        "what to do before and after writing a chip",
+        "backing up and writing the chip, in the OS or with a programmer",
         include_str!("../../../../docs/guide/flashing.md"),
     ),
     (
@@ -87,6 +87,11 @@ fn commands() -> Value {
         {"name": "tools setup ghidra", "writes": ["tool install", "cache"], "network": true},
         {"name": "tools analyze", "writes": ["Ghidra project", "exports"], "network": false},
         {"name": "diag breadcrumbs decode|read", "writes": [], "network": false, "summary": "read uses ports 72h/73h only"},
+        {"name": "flash doctor", "writes": [], "network": false, "summary": "read-only system diagnosis for chip access (sysfs, flashrom version)"},
+        {"name": "flash probe", "writes": [], "network": false, "summary": "detect the flash chip through flashrom"},
+        {"name": "flash backup", "writes": ["chip dump"], "network": false, "summary": "read the chip twice and save identical reads as a new file"},
+        {"name": "flash write", "writes": ["flash chip"], "network": false, "summary": "write an image after matching a backup against the chip; requires --confirm <image sha256>"},
+        {"name": "flash write --dry-run", "writes": [], "network": false, "summary": "run every write check, including the chip comparison, without writing"},
         {"name": "dev synthetic", "writes": ["synthetic image and catalog"], "network": false},
         {"name": "version|capabilities|schema|guide", "writes": [], "network": false}
     ])
@@ -99,6 +104,7 @@ pub fn capabilities() -> Reply {
         "protocol": PROTOCOL,
         "desktop_workflow": 1,
         "direct_patch_workflow": 1,
+        "flash_workflow": 1,
         "codec": biosmod_core::codec::identity(),
         "commands": commands(),
         "documents": schema::NAMES.iter().map(|(name, id)| json!({"name": name, "schema": id})).collect::<Vec<_>>(),
@@ -114,7 +120,8 @@ pub fn capabilities() -> Reply {
         "exit_codes": {"ok": exit::OK, "failed": exit::FAILED, "usage": exit::USAGE, "publication_incomplete": exit::INCOMPLETE},
         "error_codes": codes,
         "guarantees": [
-            "never reads or writes a flash chip",
+            "only the flash commands access a flash chip, through flashrom; flash write is the only command that changes one",
+            "flash write requires a backup equal to the chip, an image that parses and the image SHA-256 as confirmation, then reads the chip back",
             "outputs are new files; inputs are never modified",
             "firmware commands never use the network",
             "every output is re-parsed and compared outside an allowlist before publication"
