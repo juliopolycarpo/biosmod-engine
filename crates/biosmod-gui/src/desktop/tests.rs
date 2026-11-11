@@ -1824,3 +1824,32 @@ fn a_missing_optional_tool_is_quiet_not_an_error() {
     );
     assert_eq!(card.install_command.as_str(), "sudo apt install nasm");
 }
+
+#[test]
+fn a_missing_extension_beside_a_ready_ghidra_offers_the_install_button() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = AppWindow::new().unwrap();
+    let install = json!({"method": "bme", "command": "bme tools setup ghidra", "automatic": true, "blocked": null});
+    let report = json!({"tools": [
+        {"id": "ghidra", "name": "Ghidra", "purpose": "", "health": "ready", "version": "12.2",
+            "path": "/data/ghidra", "origin": "managed", "detail": "", "install": install,
+            "custom_location": true, "optional": false},
+        {"id": "firmware-utils", "name": "ghidra-firmware-utils", "purpose": "", "health": "missing",
+            "version": null, "path": "/data/ghidra/Ghidra/Extensions/ghidra-firmware-utils",
+            "origin": "managed", "detail": "not installed", "install": install,
+            "custom_location": false, "optional": false}
+    ]});
+    let cards = tool_rows(&window, &report);
+    let extension = &cards[1];
+    assert_eq!(
+        (extension.can_install, extension.install_command.as_str()),
+        (true, ""),
+        "(firmware-utils card, Ghidra ready): expected can_install: true and no command text | received can_install: {} and command {:?}",
+        extension.can_install,
+        extension.install_command
+    );
+    assert!(
+        !cards[0].can_install,
+        "(ghidra card, ready): expected no install button"
+    );
+}

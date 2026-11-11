@@ -13,7 +13,7 @@ pub(super) fn bind(ui: &AppWindow, state: &Shared) {
     let weak = ui.as_weak();
     ui.on_tool_install(move |id| {
         if let Some(ui) = weak.upgrade()
-            && id == "ghidra"
+            && matches!(id.as_str(), "ghidra" | "firmware-utils")
         {
             begin(&ui, &shared, ToolChange::InstallGhidra);
         }
@@ -173,7 +173,10 @@ pub fn tool_rows(ui: &AppWindow, report: &Value) -> Vec<ToolRowData> {
                 "nasm" => text.get_tool_purpose_nasm(),
                 _ => row["purpose"].as_str().unwrap_or_default().into(),
             };
-            let own_install = id == "ghidra" && row["install"]["method"] == "bme";
+            // Setup installs Ghidra and the extension together. The Ghidra card offers it; once
+            // Ghidra is ready, the extension card is the one left to offer it.
+            let own_install = (id == "ghidra" || (id == "firmware-utils" && ghidra_ready))
+                && row["install"]["method"] == "bme";
             let automatic = row["install"]["automatic"] == true;
             let can_install = own_install && automatic && !ready;
             let blocked = row["install"]["blocked"].as_str().unwrap_or_default();
