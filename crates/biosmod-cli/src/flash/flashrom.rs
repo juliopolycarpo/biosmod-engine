@@ -79,6 +79,56 @@ pub fn resolve_flashrom_in(
         .map(|found| (found, FlashromOrigin::Path))
 }
 
+/// Refuse a flashrom path that a root process should not run.
+///
+/// Root executes the file, so it must be an absolute path to a regular file that neither the
+/// group nor other users can write. Non-root runs are not checked: they run what the user could
+/// run anyway.
+/// Example: `validate_privileged_flashrom(Path::new("/usr/sbin/flashrom"))?`.
+pub fn validate_privileged_flashrom(path: &Path) -> Result<()> {
+    let fail = |received: String| {
+        Error::new(
+            Code::Usage,
+            format!(
+                "flashrom (running as root): expected an absolute path to a regular file that only its owner can write | received {received}"
+            ),
+        )
+    };
+    if !path.is_absolute() {
+        return Err(fail(format!("{} (not absolute)", path.display())));
+    }
+    let metadata =
+        std::fs::metadata(path).map_err(|error| fail(format!("{} ({error})", path.display())))?;
+    if !metadata.is_file() {
+        return Err(fail(format!("{} (not a regular file)", path.display())));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = metadata.permissions().mode() & 0o777;
+        if mode & 0o022 != 0 {
+            return Err(fail(format!(
+                "{} (mode {mode:03o} lets the group or others write it)",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Quote `path` as one shell word, for a command the user copies.
+///
+/// Example: `shell_word(Path::new("/opt/my tools/flashrom"))` is `'/opt/my tools/flashrom'`.
+pub fn shell_word(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    let plain = |c: char| c.is_ascii_alphanumeric() || "/._-+:=,".contains(c);
+    if !text.is_empty() && text.chars().all(plain) {
+        text.into_owned()
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    }
+}
+
 /// Accept a flashrom programmer such as `internal`, `ch341a_spi` or `linux_mtd:dev=0`.
 ///
 /// The value becomes one argument of a possibly privileged process, so it may not

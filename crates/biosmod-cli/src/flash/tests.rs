@@ -210,6 +210,7 @@ fn env<'a>(chip: &'a FakeFlashChip, host: Host) -> Env<'a> {
         runner: chip,
         host,
         flashrom: Some(PathBuf::from("/usr/sbin/flashrom")),
+        flashrom_flag: None,
         out: Out {
             json: true,
             quiet: true,
@@ -1037,5 +1038,110 @@ fn unprivileged_backups_keep_their_owner() {
         reply.data["owner_uid"],
         Value::Null,
         "(owner): expected no ownership change without root"
+    );
+}
+
+fn executable_file(directory: &Path, name: &str, mode: u32) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let path = directory.join(name);
+    std::fs::write(&path, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+    path
+}
+
+#[test]
+fn root_runs_only_an_absolute_regular_file_nobody_else_can_write() {
+    let directory = tempfile::tempdir().unwrap();
+    let good = executable_file(directory.path(), "flashrom", 0o755);
+    super::flashrom::validate_privileged_flashrom(&good).unwrap();
+
+    let writable = executable_file(directory.path(), "loose", 0o757);
+    let error = super::flashrom::validate_privileged_flashrom(&writable).unwrap_err();
+    assert!(
+        error.message.contains("mode 757") && error.message.contains("loose"),
+        "(root flashrom): expected the mode and path of a world-writable file | received {}",
+        error.message
+    );
+    let error =
+        super::flashrom::validate_privileged_flashrom(Path::new("relative/flashrom")).unwrap_err();
+    assert!(error.message.contains("not absolute"), "{}", error.message);
+    let error = super::flashrom::validate_privileged_flashrom(directory.path()).unwrap_err();
+    assert!(
+        error.message.contains("not a regular file"),
+        "{}",
+        error.message
+    );
+}
+
+#[test]
+fn shell_words_quote_only_what_the_shell_would_split() {
+    use super::flashrom::shell_word;
+    assert_eq!(
+        shell_word(Path::new("/opt/fr/flashrom")),
+        "/opt/fr/flashrom"
+    );
+    assert_eq!(
+        shell_word(Path::new("/opt/my tools/fr")),
+        "'/opt/my tools/fr'"
+    );
+    assert_eq!(shell_word(Path::new("/o'k/fr")), "'/o'\\''k/fr'");
+}
+
+#[test]
+fn a_saved_flashrom_is_repeated_for_root_but_a_typed_flag_is_not() {
+    let directory = tempfile::tempdir().unwrap();
+    let saved = executable_file(directory.path(), "saved-flashrom", 0o755);
+    let typed = executable_file(directory.path(), "typed-flashrom", 0o755);
+
+    let (path, flag) = choose_flashrom(false, None, &no_variables, Some(&saved)).unwrap();
+    assert_eq!(
+        (path, flag),
+        (Some(saved.clone()), Some(saved.clone())),
+        "(saved flashrom): expected the saved path and a flag that repeats it"
+    );
+    let (path, flag) = choose_flashrom(false, Some(&typed), &no_variables, Some(&saved)).unwrap();
+    assert_eq!((path, flag), (Some(typed.clone()), None));
+    let (path, flag) = choose_flashrom(false, None, &no_variables, None).unwrap();
+    assert_eq!(
+        flag, None,
+        "(path lookup): expected no flag for a PATH result, path {path:?}"
+    );
+}
+
+#[test]
+fn root_refuses_a_loose_flashrom_before_running_anything() {
+    let directory = tempfile::tempdir().unwrap();
+    let loose = executable_file(directory.path(), "flashrom", 0o777);
+    let error = choose_flashrom(true, Some(&loose), &no_variables, None).unwrap_err();
+    assert!(error.message.contains("mode 777"), "{}", error.message);
+    let from_environment = {
+        let value = loose.clone().into_os_string();
+        move |key: &str| (key == "BME_FLASHROM").then(|| value.clone())
+    };
+    let error = choose_flashrom(true, None, &from_environment, None).unwrap_err();
+    assert!(error.message.contains("mode 777"), "{}", error.message);
+}
+
+#[test]
+fn the_probe_next_step_repeats_the_saved_flashrom() {
+    let chip = FakeFlashChip::holding(&[0; 2048]);
+    let mut env = root_env(&chip);
+    env.flashrom_flag = Some(PathBuf::from("/opt/my tools/flashrom"));
+    let reply = probe(&env, &target_args("ch341a_spi")).unwrap();
+    assert!(
+        reply.text.contains(
+            "Next: sudo bme flash backup --programmer ch341a_spi --flashrom '/opt/my tools/flashrom' -o dump.bin"
+        ),
+        "(flash probe): expected the next step to repeat the saved flashrom | received {}",
+        reply.text
+    );
+    env.flashrom_flag = None;
+    let reply = probe(&env, &target_args("ch341a_spi")).unwrap();
+    assert!(
+        reply
+            .text
+            .contains("backup --programmer ch341a_spi -o dump.bin"),
+        "(flash probe): expected no flag without a saved flashrom | received {}",
+        reply.text
     );
 }

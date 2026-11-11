@@ -43,6 +43,9 @@ pub struct Env<'a> {
     pub runner: &'a dyn Runner,
     pub host: Host,
     pub flashrom: Option<PathBuf>,
+    /// The flashrom path a root re-run needs on its command line: set when the path came
+    /// from the configuration or the environment, which `sudo` and `pkexec` do not carry over.
+    pub flashrom_flag: Option<PathBuf>,
     pub out: Out,
     /// Process environment lookup (who invoked sudo or pkexec).
     pub variable: &'a dyn Fn(&str) -> Option<OsString>,
@@ -63,19 +66,61 @@ pub fn run(out: Out, command: FlashCommand) -> Result<Reply> {
     } else {
         configured_flashrom(&out)
     };
-    let flashrom = command
-        .flashrom_override()
-        .cloned()
-        .or_else(|| resolve_flashrom(&variable, configured.as_deref()).map(|(path, _)| path));
+    let (flashrom, flashrom_flag) = choose_flashrom(
+        host.euid == Some(0),
+        command.flashrom_override(),
+        &variable,
+        configured.as_deref(),
+    )?;
     let env = Env {
         runner: &crate::toolchain::System,
         host,
         flashrom,
+        flashrom_flag,
         out,
         variable: &variable,
         boards: bundled_boards(),
     };
     dispatch(&env, command)
+}
+
+/// Pick the flashrom executable and the flag a root re-run would need to repeat the choice.
+///
+/// A path chosen explicitly, by environment or by configuration is checked first when the
+/// process is root, because root would execute it.
+///
+/// Example: with a saved `/opt/fr/flashrom` and no override, a user run gets that path and the
+/// flag `/opt/fr/flashrom`; a `--flashrom` argument needs no flag because the user typed it.
+fn choose_flashrom(
+    root: bool,
+    flag: Option<&PathBuf>,
+    variable: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    configured: Option<&Path>,
+) -> Result<(Option<PathBuf>, Option<PathBuf>)> {
+    if let Some(path) = flag {
+        if root {
+            flashrom::validate_privileged_flashrom(path)?;
+        }
+        return Ok((Some(path.clone()), None));
+    }
+    let Some((path, origin)) = resolve_flashrom(variable, configured) else {
+        return Ok((None, None));
+    };
+    if root && origin != flashrom::FlashromOrigin::Path {
+        flashrom::validate_privileged_flashrom(&path)?;
+    }
+    let repeat = (origin != flashrom::FlashromOrigin::Path).then(|| path.clone());
+    Ok((Some(path), repeat))
+}
+
+/// ` --flashrom <path>` for a command the user runs next as root, or nothing.
+///
+/// Example: with a saved `/opt/fr/flashrom` it is ` --flashrom /opt/fr/flashrom`.
+fn flashrom_flag(env: &Env) -> String {
+    env.flashrom_flag
+        .as_deref()
+        .map(|path| format!(" --flashrom {}", flashrom::shell_word(path)))
+        .unwrap_or_default()
 }
 
 /// `tools.flashrom` from the per-user configuration; a broken file only costs a warning here.
@@ -229,10 +274,13 @@ pub fn doctor(env: &Env, programmer: &str) -> Result<Reply> {
         })
         .collect();
     text += &table(&rows);
-    text += if ready {
-        "\nNext: sudo bme flash probe, then sudo bme flash backup -o dump.bin\n"
+    text += &if ready {
+        format!(
+            "\nNext: sudo bme flash probe{flag}, then sudo bme flash backup{flag} -o dump.bin\n",
+            flag = flashrom_flag(env)
+        )
     } else {
-        "\nFix the FAIL lines before reading or writing the chip.\n"
+        "\nFix the FAIL lines before reading or writing the chip.\n".to_string()
     };
     Ok(Reply::new(
         json!({
@@ -320,8 +368,9 @@ pub fn probe(env: &Env, args: &FlashTargetArgs) -> Result<Reply> {
         )
     } else {
         format!(
-            "Next: sudo bme flash backup --programmer {} -o dump.bin\n",
-            target.programmer
+            "Next: sudo bme flash backup --programmer {}{} -o dump.bin\n",
+            target.programmer,
+            flashrom_flag(env)
         )
     };
     Ok(Reply::new(
