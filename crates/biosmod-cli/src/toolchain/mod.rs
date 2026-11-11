@@ -22,7 +22,7 @@ use crate::output::{Reply, display_path};
 use crate::transport::{Https, Offline, Transport};
 use biosmod_core::{Code, Error, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Read, Write};
@@ -398,12 +398,26 @@ pub fn doctor(ctx: &Ctx, deep: bool) -> Result<Reply> {
     checks_reply(checks, &home)
 }
 
+/// The flashrom a chip command would run, as `tools paths` reports it to the desktop app.
+///
+/// Example: `flashrom_location(&|_| None, Some(Path::new("/opt/fr/flashrom")))` is
+/// `{"path": "/opt/fr/flashrom", "origin": "config"}`. A relative path is made absolute.
+fn flashrom_location(
+    get: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    configured: Option<&Path>,
+) -> Option<Value> {
+    crate::flash::resolve_flashrom(get, configured).map(|(path, origin)| {
+        // pkexec starts root in another directory, so a relative override must not reach it.
+        let path = std::path::absolute(&path).unwrap_or(path);
+        json!({"path": display_path(&path), "origin": origin.label()})
+    })
+}
+
 pub fn paths(ctx: &Ctx) -> Result<Reply> {
     let profile = Profile::pinned();
     let home = ghidra_home(&ctx.config, &ctx.paths.data, &profile);
     let get = |key: &str| std::env::var_os(key);
-    let flashrom = crate::flash::resolve_flashrom(&get, ctx.config.tools.flashrom.as_deref())
-        .map(|(path, origin)| json!({"path": display_path(&path), "origin": origin.label()}));
+    let flashrom = flashrom_location(&get, ctx.config.tools.flashrom.as_deref());
     let data = json!({"config": display_path(&ctx.paths.config_file()), "cache": display_path(&ctx.paths.cache), "data": display_path(&ctx.paths.data), "ghidra_home": home, "flashrom": flashrom, "profile": profile});
     let text = format!(
         "config   {}\ncache    {}\ndata     {}\nghidra   {} ({})\n",
