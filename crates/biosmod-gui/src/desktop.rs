@@ -1,5 +1,9 @@
 //! Slint event-loop wiring. Workers never hold a strong window reference.
 
+mod flash;
+
+pub use flash::flash_summary;
+
 use crate::controller::{
     Action, Outcome, PreparationError, Review, Session, Status, manifest_path, write_new_file,
 };
@@ -26,6 +30,7 @@ pub struct Desktop {
     closing: bool,
     presented_review: RefCell<Option<Arc<Review>>>,
     presented_tools: RefCell<Option<ToolPresentation>>,
+    presented_flash: RefCell<Option<flash::FlashPresentation>>,
     export_writer: Arc<dyn ExportWriter>,
 }
 type ToolPresentation = (
@@ -66,6 +71,7 @@ impl Desktop {
             closing: false,
             presented_review: RefCell::new(None),
             presented_tools: RefCell::new(None),
+            presented_flash: RefCell::new(None),
             export_writer: Arc::new(NewFileWriter),
         })
     }
@@ -120,6 +126,12 @@ fn bind_with_language_selector(
     action!(on_verify, Action::Verify);
     action!(on_refresh_sources, Action::Sources);
     action!(on_show_tools, Action::Tools);
+    action!(on_flash_doctor, Action::FlashDoctor);
+    action!(on_flash_probe, Action::FlashProbe);
+    action!(on_flash_backup, Action::FlashBackup);
+    action!(on_flash_check, Action::FlashCheck);
+    action!(on_flash_write, Action::FlashWrite);
+    flash::bind(ui, &state);
     macro_rules! edit {
         ($callback:ident, $kind:expr) => {{
             let state = state.clone();
@@ -173,6 +185,9 @@ fn bind_with_language_selector(
     picker!(on_open_output, PathKind::ExistingOutput);
     picker!(on_export_diagnostics, PathKind::Diagnostics);
     picker!(on_export_plan, PathKind::ExportPlan);
+    picker!(on_browse_flash_backup_new, PathKind::FlashBackupNew);
+    picker!(on_browse_flash_backup, PathKind::FlashBackup);
+    picker!(on_browse_flash_image, PathKind::FlashImage);
     let shared = state.clone();
     let weak = ui.as_weak();
     ui.on_export_plan_path(move |path| {
@@ -287,6 +302,14 @@ fn bind_with_language_selector(
         if state.exporting || state.session.activity() == Some(Action::Export) {
             state.closing = true;
             state.session.set_status(Status::ClosingExport);
+            if let Some(ui) = weak.upgrade() {
+                sync(&ui, &state);
+            }
+            return slint::CloseRequestResponse::KeepWindowShown;
+        }
+        if state.session.flashing() {
+            // A chip operation runs to its end; closing now would orphan a root process.
+            state.session.set_status(Status::ClosingFlash);
             if let Some(ui) = weak.upgrade() {
                 sync(&ui, &state);
             }
@@ -453,6 +476,9 @@ enum PathKind {
     ExistingOutput,
     Diagnostics,
     ExportPlan,
+    FlashBackupNew,
+    FlashBackup,
+    FlashImage,
 }
 
 fn change(ui: &AppWindow, shared: &Shared, kind: PathKind, value: &str) {
@@ -503,6 +529,9 @@ fn pick(ui: &AppWindow, shared: &Shared, kind: PathKind) {
         PathKind::Plan => text.get_open_plan(),
         PathKind::Engine => text.get_choose_engine(),
         PathKind::ExistingOutput => text.get_open_output(),
+        PathKind::FlashBackupNew => text.get_flash_save_backup(),
+        PathKind::FlashBackup => text.get_flash_open_backup(),
+        PathKind::FlashImage => text.get_flash_open_image(),
         _ => text.get_open_image(),
     }
     .to_string();
@@ -533,6 +562,13 @@ fn pick(ui: &AppWindow, shared: &Shared, kind: PathKind) {
                 dialog
                     .set_title(&title)
                     .set_file_name("bme-diagnostics.txt")
+                    .save_file()
+                    .await
+            }
+            PathKind::FlashBackupNew => {
+                dialog
+                    .set_title(&title)
+                    .set_file_name("bios-backup.bin")
                     .save_file()
                     .await
             }
@@ -596,6 +632,10 @@ fn apply_picked(state: &mut Desktop, kind: PathKind, path: PathBuf) {
             set_engine(state, Some(path));
         }
         PathKind::ExistingOutput => state.session.open_output(path),
+        PathKind::FlashBackupNew | PathKind::FlashBackup => {
+            state.session.edit_flash(|flash| flash.backup = Some(path));
+        }
+        PathKind::FlashImage => state.session.edit_flash(|flash| flash.image = Some(path)),
         PathKind::Plan | PathKind::ExportPlan | PathKind::Diagnostics => {}
         PathKind::Source => {}
     }
@@ -622,6 +662,7 @@ fn preview_engine(state: &mut Desktop, path: Option<PathBuf>) {
     state.session.engine_version = None;
     state.session.engine_contract = None;
     state.session.engine_attempted = false;
+    state.session.flash.supported = false;
     state.engine_path = engine;
 }
 
@@ -993,6 +1034,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
         ui.set_source_details(session.source_details.as_str().into());
     }
     sync_tool_details(ui, state);
+    flash::sync_flash(ui, state);
     if ui.get_diagnostics().as_str() != session.diagnostics {
         ui.set_diagnostics(session.diagnostics.as_str().into());
     }
@@ -1072,6 +1114,11 @@ pub fn localized_activity(ui: &AppWindow, action: Action) -> SharedString {
         Action::Tools => t.get_operation_tools(),
         Action::Import => t.get_operation_import(),
         Action::ValidateRecipe => t.get_operation_validate_recipe(),
+        Action::FlashDoctor => t.get_operation_flash_doctor(),
+        Action::FlashProbe => t.get_operation_flash_probe(),
+        Action::FlashBackup => t.get_operation_flash_backup(),
+        Action::FlashCheck => t.get_operation_flash_check(),
+        Action::FlashWrite => t.get_operation_flash_write(),
     }
 }
 
@@ -1112,6 +1159,14 @@ fn localized_status_with_extra(
         Status::ClosingBuild => t.get_status_closing_build(),
         Status::ClosingStop => t.get_status_closing_stop(),
         Status::ExportNeedsPlan => t.get_status_export_needs_plan(),
+        Status::FlashDiagnosed => t.get_status_flash_diagnosed(),
+        Status::FlashProbed => t.get_status_flash_probed(),
+        Status::FlashBackedUp => t.invoke_status_flash_backed_up(detail.into()),
+        Status::FlashChecked => t.get_status_flash_checked(),
+        Status::FlashWritten => t.get_status_flash_written(),
+        Status::FlashOutcomeUnknown => t.invoke_status_flash_unknown(detail.into()),
+        Status::ClosingFlash => t.get_status_closing_flash(),
+        Status::FlashInputs => t.get_status_flash_inputs(),
         Status::Activity(action) => localized_activity(ui, action),
         Status::Precondition(error) => match error {
             PreparationError::Busy => t.get_precondition_busy(),
@@ -1126,6 +1181,12 @@ fn localized_status_with_extra(
             PreparationError::Manifest => t.get_precondition_manifest(),
             PreparationError::WaitImport => t.get_precondition_wait_import(),
             PreparationError::RecipeMismatch => t.get_precondition_recipe_mismatch(),
+            PreparationError::FlashUnsupported => t.get_precondition_flash_unsupported(),
+            PreparationError::Programmer => t.get_precondition_programmer(),
+            PreparationError::FlashBackup => t.get_precondition_flash_backup(),
+            PreparationError::FlashImage => t.get_precondition_flash_image(),
+            PreparationError::FlashCheck => t.get_precondition_flash_check(),
+            PreparationError::FlashAcknowledge => t.get_precondition_flash_acknowledge(),
         },
         Status::Failed => t.invoke_status_failed(detail.into()),
         Status::PublicationUnknown => t.invoke_status_publication_unknown(detail.into()),
@@ -1301,10 +1362,11 @@ pub fn verification_summary(ui: &AppWindow, report: &serde_json::Value) -> Share
 /// Example: `status_tone(Outcome::Verified)` is `Tone::Good`; a failure is `Tone::Danger`.
 pub fn status_tone(outcome: Outcome) -> Tone {
     match outcome {
-        Outcome::Verified => Tone::Good,
-        Outcome::Failed | Outcome::PublicationIncomplete | Outcome::VerificationFailed => {
-            Tone::Danger
-        }
+        Outcome::Verified | Outcome::ChipWritten => Tone::Good,
+        Outcome::Failed
+        | Outcome::PublicationIncomplete
+        | Outcome::VerificationFailed
+        | Outcome::ChipWriteUnknown => Tone::Danger,
         Outcome::Interrupted | Outcome::VerificationIncomplete | Outcome::PublicationUnknown => {
             Tone::Attention
         }
@@ -1479,6 +1541,10 @@ fn sync_paths(ui: &AppWindow, state: &Desktop) {
     ui.set_output_path(display_path(state.session.output.as_ref()));
     ui.set_engine_path(state.engine_path.to_string_lossy().as_ref().into());
     ui.set_source(state.session.source.as_str().into());
+    let flash = &state.session.flash;
+    ui.set_flash_programmer(flash.programmer.as_str().into());
+    ui.set_flash_backup_path(display_path(flash.backup.as_ref()));
+    ui.set_flash_image_path(display_path(flash.image.as_ref()));
 }
 
 fn display_path(path: Option<&PathBuf>) -> SharedString {

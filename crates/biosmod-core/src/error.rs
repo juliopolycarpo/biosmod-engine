@@ -35,12 +35,14 @@ pub enum Code {
     ToolSetupFailed,
     ToolFailed,
     PlatformUnsupported,
+    FlashRefused,
+    FlashFailed,
     Internal,
 }
 
 impl Code {
     /// Every code, in documentation order.
-    pub const ALL: [Code; 27] = [
+    pub const ALL: [Code; 29] = [
         Code::Usage,
         Code::Io,
         Code::CatalogInvalid,
@@ -67,6 +69,8 @@ impl Code {
         Code::ToolSetupFailed,
         Code::ToolFailed,
         Code::PlatformUnsupported,
+        Code::FlashRefused,
+        Code::FlashFailed,
         Code::Internal,
     ];
 
@@ -99,6 +103,8 @@ impl Code {
             Code::ToolSetupFailed => "TOOL_SETUP_FAILED",
             Code::ToolFailed => "TOOL_FAILED",
             Code::PlatformUnsupported => "PLATFORM_UNSUPPORTED",
+            Code::FlashRefused => "FLASH_REFUSED",
+            Code::FlashFailed => "FLASH_FAILED",
             Code::Internal => "INTERNAL",
         }
     }
@@ -152,6 +158,10 @@ impl Code {
             }
             Code::ToolFailed => "an external tool ran but failed or timed out",
             Code::PlatformUnsupported => "the operation is not implemented on this platform",
+            Code::FlashRefused => "a flash chip safety check failed; nothing was written",
+            Code::FlashFailed => {
+                "a flash chip write or its read-back failed; the chip may hold a partial image"
+            }
             Code::Internal => "an internal invariant failed; please report it",
         }
     }

@@ -2,7 +2,7 @@
 
 English | [Brazilian Portuguese](../pt-BR/guide/workflow.md)
 
-`bme` never opens a flash chip or modifies the input image.
+These commands never open a flash chip or modify the input image; chip access is separate (`bme guide flashing`).
 
 ```sh
 bme scan dump.bin

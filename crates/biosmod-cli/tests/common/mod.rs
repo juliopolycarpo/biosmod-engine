@@ -53,8 +53,18 @@ impl Sandbox {
 
     /// Run `bme` with arguments.
     pub fn run<I: IntoIterator<Item = S>, S: AsRef<std::ffi::OsStr>>(&self, args: I) -> Run {
+        self.run_with_env(args, &[])
+    }
+
+    /// Run `bme` with arguments and extra environment variables.
+    pub fn run_with_env<I: IntoIterator<Item = S>, S: AsRef<std::ffi::OsStr>>(
+        &self,
+        args: I,
+        variables: &[(&str, &Path)],
+    ) -> Run {
         let output = Command::new(env!("CARGO_BIN_EXE_bme"))
             .args(args)
+            .envs(variables.iter().copied())
             .env("BME_CONFIG_HOME", self.path("config"))
             .env("BME_CACHE_HOME", self.path("cache"))
             .env("BME_DATA_HOME", self.path("data"))

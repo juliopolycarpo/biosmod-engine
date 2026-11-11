@@ -7,7 +7,7 @@ Três crates em um workspace:
 | Crate | Responsabilidade | Nunca faz |
 |---|---|---|
 | `biosmod-core` (biblioteca) | análise de firmware, modelos e validação de catálogo, correspondência de patches, planejamento, reconstrução e verificação | I/O de sistema de arquivos, rede ou terminal |
-| `biosmod-cli` (executável `bme`) | argumentos, arquivos, fontes de catálogo, configuração, downloads, subprocessos e saída | interpretar firmware por conta própria |
+| `biosmod-cli` (executável `bme`) | argumentos, arquivos, fontes de catálogo, configuração, downloads, subprocessos (Ghidra, flashrom) e saída | interpretar firmware por conta própria |
 | `biosmod-gui` (executável `bme-gui`) | apresentação, estado da sessão e supervisão do subprocesso `bme` | interpretar ou modificar firmware independentemente |
 
 Funções do core recebem bytes e um `FileSource` e retornam `Result`s tipados com um `Code` estável. A CLI os encapsula no envelope `bme/1`.
@@ -41,13 +41,20 @@ A interface chama um `bme` compatível como subprocesso. Ela vincula a geração
 7. **Verificar**: analisar novamente; cada patch selecionado e mantido deve ser lido como `fixed`; cada byte fora da lista permitida deve ser igual à entrada; hashes de módulos PE devem corresponder.
 8. **Publicar** (CLI): preparar imagem e manifesto no diretório de saída, sincronizar e criar links primeiro para o manifesto e depois para a imagem, sem substituir nada. Uma falha após publicar o manifesto o remove; se isso também falhar, `PUBLISH_INCOMPLETE` informa o que restou.
 
+## Acesso ao chip flash
+
+`bme flash` é o único caminho de código que chega a um chip, e faz isso executando o flashrom; o `bme` não tem drivers de gravadores. `flash doctor` lê sysfs, procfs e efivarfs. `flash probe` e `flash backup` leem o chip. `flash write` é o único comando que o altera, depois destas verificações: a imagem é reconhecida e tem o tamanho do backup, a imagem é igual ao backup fora das regiões gravadas, o chip lido agora é igual ao backup, e quem chama repete o SHA-256 da imagem. Os limites das regiões vêm do analisador de flash descriptor do núcleo e chegam ao flashrom como um arquivo de layout. As regiões gravadas são lidas novamente e comparadas.
+
+Os comandos flash retornam antes de a configuração do usuário ser carregada, porque com `sudo` ou `pkexec` o diretório pessoal é o do root. A interface executa os comandos do chip pelo `pkexec` quando solicitado e os trata como não interrompíveis: ela não pode sinalizar um processo root, e uma gravação precisa terminar.
+
 ## Limites de confiança
 
 - Arquivos de catálogo são entrada não confiável: limites de tamanho, análise estrita, hashes do índice, regras de caminhos e validação semântica.
 - Receitas não são confiáveis: `patch --from` recalcula e compara tudo.
 - Catálogos remotos só são confiáveis por uma chave minisign configurada localmente e como cópias validadas.
 - Arquivos de ferramentas baixados só são confiáveis por hashes fixados.
+- O flashrom vem do `PATH`, dos diretórios sbin ou de `BME_FLASHROM`; sua saída só é interpretada para nomes de chip, e todo resultado relevante é conferido lendo o chip.
 
 ## Ausências deliberadas
 
-Não há daemon, infraestrutura de plugins, banco de dados ou código de gravação de chips. A interface usa o mesmo protocolo `--json` dos demais clientes.
+Não há daemon, infraestrutura de plugins, banco de dados ou drivers de gravadores. A interface usa o mesmo protocolo `--json` dos demais clientes.

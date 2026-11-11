@@ -2,7 +2,7 @@
 
 English | [Brazilian Portuguese](../pt-BR/guide/gui.md)
 
-`bme-gui` is a desktop client for `bme`. It reads firmware images and creates new output files; it does not access flash chips. Verification checks the image offline and does not establish boot safety, physical board compatibility or acceptance by platform signature enforcement.
+`bme-gui` is a desktop client for `bme`. It reads firmware images and creates new output files. Only its **Flash chip** page accesses a flash chip, through `bme flash` and flashrom. Verification checks the image offline and does not establish boot safety, physical board compatibility or acceptance by platform signature enforcement.
 
 ## Build and run
 
@@ -49,6 +49,21 @@ The project's code is MIT. The desktop distribution uses the Slint Royalty-free 
 **Open selection file** loads an exact recipe for replay after validation against the current image, catalog and engine. The GUI retains a private copy and does not let the recipe grant unsupported permissions or switch the selected catalog. A recipe requires its pinned catalog and matching engine build. To reopen an output, choose the original image and output; its manifest must be beside it at `<output>.manifest.json`. An optional selection file can also be used for matching.
 
 Catalog and tool status are read-only in the GUI. Use the CLI to register or update catalogs and manage external analysis tools.
+
+## Flash chip
+
+The **Flash chip** page works on Linux with flashrom installed and an engine that advertises `flash_workflow: 1`. `bme guide flashing` explains each step and its refusals.
+
+1. Enter a flashrom programmer (`internal` for this machine, `ch341a_spi` for a CH341A) and press **Diagnose**. The report lists the board, the matching catalog board profile and what helps or blocks chip access.
+2. **Find chip** names the chip. If several definitions match, use the CLI with `--chip`; the page has no chip field.
+3. Choose a new backup file with **New…** and press **Back up chip**. The chip is read twice; existing files are not overwritten.
+4. Build a patched copy from that backup on the Workflow page. **Flash this output…** on the results view carries the output over as the image.
+5. **Check** compares the chip with the backup and lists the regions and the number of bytes that will change. Nothing is written. **Whole chip** is for chips without an Intel flash descriptor.
+6. Tick the recovery confirmation and press **Flash chip**. The write repeats exactly the checked programmer, image and backup; editing any of them requires a new check. The chip is read back afterwards.
+
+With **Ask for administrator rights** ticked, Find chip, Back up chip, Check and Flash chip run `bme` through `pkexec`, which shows the desktop's authentication dialog. Untick it when the GUI already runs with access to the programmer, for example through udev rules for a USB programmer. Diagnose never asks; run `sudo bme flash doctor` to include the BIOS write-protection bits.
+
+Backup, check and write cannot be cancelled, and the window stays open until they finish. If a write fails after it started, the status says the chip may hold a partial image: keep the board powered and follow `bme guide recovery`.
 
 ## Settings and diagnostics
 

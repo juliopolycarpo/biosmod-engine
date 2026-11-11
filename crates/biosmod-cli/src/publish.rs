@@ -159,6 +159,19 @@ pub fn publish(persist: &dyn Persist, output: &Path, image: &[u8], manifest: &[u
     .with_details(json!({"manifest": manifest_target.to_string_lossy(), "staged_image": kept, "cause": cause.code})))
 }
 
+/// Publish one file at `output` without replacing anything.
+///
+/// The bytes are staged next to the target and synced before they appear under
+/// the final name. Example: `publish_file(Path::new("dump.bin"), &chip_bytes)?`.
+pub fn publish_file(output: &Path, bytes: &[u8]) -> Result<()> {
+    let staged = stage(output, bytes)?;
+    Filesystem
+        .persist(staged, output)
+        .map_err(|(_, e)| persist_error(output, e))?;
+    sync_parent(output);
+    Ok(())
+}
+
 fn sync_parent(path: &Path) {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty())
         && let Ok(dir) = fs::File::open(parent)
@@ -210,6 +223,21 @@ mod tests {
         let error = publish(&Filesystem, &out, b"other", b"{}").unwrap_err();
         assert_eq!(error.code, Code::OutputExists, "{error}");
         assert_eq!(fs::read(&out).unwrap(), b"image");
+    }
+
+    #[test]
+    fn single_file_publication_never_replaces() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("dump.bin");
+        publish_file(&out, b"first").unwrap();
+        let error = publish_file(&out, b"second").unwrap_err();
+        assert_eq!(error.code, Code::OutputExists, "{error}");
+        assert_eq!(fs::read(&out).unwrap(), b"first");
+        assert_eq!(
+            fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "(output directory): expected only dump.bin | staged files remain"
+        );
     }
 
     #[test]

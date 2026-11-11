@@ -2,7 +2,7 @@
 
 [English](../../guide/workflow.md) | Português (Brasil)
 
-O `bme` nunca acessa um chip flash nem modifica a imagem de entrada.
+Estes comandos nunca acessam um chip flash nem modificam a imagem de entrada; o acesso ao chip é separado (`bme guide flashing`).
 
 ```sh
 bme scan dump.bin

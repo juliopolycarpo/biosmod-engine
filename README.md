@@ -4,7 +4,7 @@ English | [Brazilian Portuguese](README.pt-BR.md)
 
 `bme` inspects firmware images, finds cataloged defects, builds verified patched copies. The CLI is one executable with no runtime dependencies. Humans and agents use the same commands; add `--json` for one machine-readable document per run. `bme-gui` provides a Linux desktop interface to the same engine.
 
-`bme` never reads or writes a flash chip. Inputs are never modified and outputs are always new files.
+Inputs are never modified and outputs are always new files. Only the `bme flash` commands touch a flash chip: on Linux they diagnose the system, find the chip, back it up and write an image through flashrom, and a write requires a backup that matches the chip.
 
 The first catalog covers two AMI Aptio boards audited in [x99-bios-fixes](https://github.com/juliopolycarpo/x99-bios-fixes):
 
@@ -35,6 +35,14 @@ Plannable on this exact build: A02, A03, A07, B01-B06, B02-B03, B05, B08, B09, B
 Recommended: B01-B06 B02-B03
 ```
 
+To read and write the chip on Linux:
+
+```sh
+bme flash doctor
+sudo bme flash backup -o dump.bin
+sudo bme flash write dump.patched.bin --backup dump.bin --dry-run
+```
+
 Read `bme guide flashing` before writing anything to a chip, and keep a programmer recovery path (`bme guide recovery`).
 
 ## Desktop interface
@@ -46,7 +54,7 @@ cargo build --release -p biosmod-cli -p biosmod-gui
 target/release/bme-gui
 ```
 
-The desktop interface scans an image, builds a copy from selected patches and independently verifies it. It follows the system light or dark theme, with a manual choice in Settings. The interface supports English and Brazilian Portuguese; English is the default. See the [desktop guide](docs/guide/gui.md) for dependencies, installation, limits and troubleshooting.
+The desktop interface scans an image, builds a copy from selected patches and independently verifies it. Its **Flash chip** page diagnoses the system, backs up the chip and writes a checked image. It follows the system light or dark theme, with a manual choice in Settings. The interface supports English and Brazilian Portuguese; English is the default. See the [desktop guide](docs/guide/gui.md) for dependencies, installation, limits and troubleshooting.
 
 ## What it does
 
@@ -81,6 +89,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | catalog sources and maintenance                               |
 | `tools doctor/setup ghidra/analyze/paths`                          | Ghidra 12.2 with ghidra-firmware-utils                        |
 | `diag breadcrumbs decode/read`                                     | MR9A MRC checkpoint diagnostic (read uses ports 72h/73h only) |
+| `flash doctor`, `flash probe`, `flash backup`, `flash write`       | diagnose, find, back up and write the chip via flashrom (Linux) |
 | `dev synthetic`                                                    | a synthetic image and catalog to try everything safely        |
 | `version`, `capabilities`, `schema`, `guide`                       | contracts and built-in documentation                          |
 

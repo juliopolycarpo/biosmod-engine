@@ -7,7 +7,7 @@ Three crates in one workspace:
 | Crate                            | Owns                                                                                                   | Never does                                |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
 | `biosmod-core` (library)         | firmware parsing, catalog models and validation, patch matching, planning, rebuilding and verification | filesystem, network or terminal I/O       |
-| `biosmod-cli` (binary `bme`)     | arguments, files, catalog sources, configuration, downloads, subprocesses, output                      | interpret firmware on its own             |
+| `biosmod-cli` (binary `bme`)     | arguments, files, catalog sources, configuration, downloads, subprocesses (Ghidra, flashrom), output   | interpret firmware on its own             |
 | `biosmod-gui` (binary `bme-gui`) | presentation, session state and `bme` subprocess supervision                                  | interpret or patch firmware independently |
 
 Core functions take bytes and a `FileSource` and return typed `Result`s with a stable `Code`. The CLI wraps them in the `bme/1` envelope.
@@ -41,13 +41,20 @@ The GUI invokes a compatible `bme` as a subprocess. It binds direct builds to th
 7. **Verify**: re-parse; every selected and carried patch must read `fixed`; every byte outside the allowlist must equal the input; PE module hashes must match.
 8. **Publish** (CLI): stage image and manifest in the output directory, sync, link the manifest then the image without replacing anything. A failure after the manifest is published removes it; if that fails too, `PUBLISH_INCOMPLETE` names what remains.
 
+## Flash chip access
+
+`bme flash` is the only code path that reaches a chip, and it does so by running flashrom; `bme` has no programmer drivers. `flash doctor` reads sysfs, procfs and efivarfs. `flash probe` and `flash backup` read the chip. `flash write` is the single command that changes it, after these checks: the image parses and has the backup's size, the image equals the backup outside the written regions, the chip read now equals the backup, and the caller repeats the image SHA-256. Region boundaries come from the core's flash descriptor parser and reach flashrom as a layout file. The written regions are read back and compared.
+
+Flash commands return before per-user configuration loads, because under `sudo` or `pkexec` the home directory is root's. The GUI runs the chip commands through `pkexec` when asked to, and treats them as uninterruptible: it cannot signal a root process, and a write must finish.
+
 ## Trust boundaries
 
 - Catalog files are untrusted input: size limits, strict parsing, index hashes, path rules, then semantic validation.
 - Recipes are untrusted: `patch --from` recomputes everything and compares.
 - Remote catalogs are trusted only through a locally configured minisign key, and only as validated snapshots.
 - Downloaded tool archives are trusted only through pinned digests.
+- flashrom is taken from `PATH`, the sbin directories or `BME_FLASHROM`; its output is parsed only for chip names, and every result that matters is checked by reading the chip.
 
 ## Deliberately absent
 
-No daemon, plugin framework, database or flashing code. The GUI uses the same `--json` protocol as other clients.
+No daemon, plugin framework, database or programmer drivers. The GUI uses the same `--json` protocol as other clients.

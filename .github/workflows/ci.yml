@@ -65,6 +65,8 @@ jobs:
           bme export "$RUNNER_TEMP/syn/synthetic.bin" lab::PA lab::DG -o "$RUNNER_TEMP/selection.json"
           bme patch "$RUNNER_TEMP/syn/synthetic.bin" --from "$RUNNER_TEMP/selection.json" -o "$RUNNER_TEMP/replay.bin" --offline
           cmp "$RUNNER_TEMP/syn/synthetic.patched.bin" "$RUNNER_TEMP/replay.bin"
+          # Read-only on every OS: no programmer is started.
+          bme flash doctor --json > /dev/null
 
   msrv:
     runs-on: ubuntu-latest
