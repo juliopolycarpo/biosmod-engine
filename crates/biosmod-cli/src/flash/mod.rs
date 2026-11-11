@@ -101,7 +101,7 @@ fn choose_flashrom(
         if root {
             flashrom::validate_privileged_flashrom(path)?;
         }
-        return Ok((Some(path.clone()), Some(path.clone())));
+        return Ok((Some(path.clone()), Some(repeatable(path))));
     }
     let Some((path, origin)) = resolve_flashrom(variable, configured) else {
         return Ok((None, None));
@@ -109,8 +109,15 @@ fn choose_flashrom(
     if root && origin != flashrom::FlashromOrigin::Path {
         flashrom::validate_privileged_flashrom(&path)?;
     }
-    let repeat = (origin != flashrom::FlashromOrigin::Path).then(|| path.clone());
+    let repeat = (origin != flashrom::FlashromOrigin::Path).then(|| repeatable(&path));
     Ok((Some(path), repeat))
+}
+
+/// `path` made absolute for the `sudo` next step, which root refuses in relative form.
+///
+/// Example: `repeatable(Path::new("bin/flashrom"))` is `<current directory>/bin/flashrom`.
+fn repeatable(path: &Path) -> PathBuf {
+    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// ` --flashrom <path>` for a command the user runs next as root, or nothing.

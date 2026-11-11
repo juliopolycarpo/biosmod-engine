@@ -1088,6 +1088,25 @@ fn shell_words_quote_only_what_the_shell_would_split() {
 }
 
 #[test]
+fn a_relative_flashrom_is_repeated_as_an_absolute_path_for_root() {
+    let from_environment = |key: &str| (key == "BME_FLASHROM").then(|| "bin/flashrom".into());
+    let (path, flag) = choose_flashrom(false, None, &from_environment, None).unwrap();
+    assert_eq!(path, Some(PathBuf::from("bin/flashrom")));
+    let flag = flag.expect("(BME_FLASHROM): expected a repeated flag | received none");
+    assert!(
+        flag.is_absolute() && flag.ends_with("bin/flashrom"),
+        "(BME_FLASHROM bin/flashrom): expected an absolute flag that root accepts | received {}",
+        flag.display()
+    );
+    let typed = PathBuf::from("bin/flashrom");
+    let (_, flag) = choose_flashrom(false, Some(&typed), &no_variables, None).unwrap();
+    assert!(
+        flag.as_deref().is_some_and(Path::is_absolute),
+        "(--flashrom bin/flashrom): expected an absolute flag | received {flag:?}"
+    );
+}
+
+#[test]
 fn a_saved_flashrom_is_repeated_for_root_but_a_typed_flag_is_not() {
     let directory = tempfile::tempdir().unwrap();
     let saved = executable_file(directory.path(), "saved-flashrom", 0o755);
