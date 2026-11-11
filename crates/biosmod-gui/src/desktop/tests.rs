@@ -1773,6 +1773,7 @@ fn window_stays_open_while_the_chip_is_written() {
 
 #[test]
 fn a_blocked_ghidra_install_shows_the_reason_and_no_install_button() {
+    i_slint_backend_testing::init_no_event_loop();
     let window = AppWindow::new().unwrap();
     let report = json!({"tools": [{
         "id": "ghidra", "name": "Ghidra", "purpose": "", "health": "missing",
@@ -1803,6 +1804,7 @@ fn a_blocked_ghidra_install_shows_the_reason_and_no_install_button() {
 
 #[test]
 fn a_missing_optional_tool_is_quiet_not_an_error() {
+    i_slint_backend_testing::init_no_event_loop();
     let window = AppWindow::new().unwrap();
     let report = json!({"tools": [{
         "id": "nasm", "name": "NASM", "purpose": "", "health": "missing",
