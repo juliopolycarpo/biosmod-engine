@@ -606,6 +606,63 @@ fn every_status_probe_together_fits_inside_the_gui_engine_timeout() {
     );
 }
 
+/// Record `dir` as installed by the pinned profile, as setup does.
+fn mark_installed(dir: &Path) {
+    fs::write(
+        dir.join(crate::toolchain::MARKER),
+        serde_json::to_vec(&Profile::pinned()).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_managed_directory_setup_did_not_install_blocks_setup_with_the_force_command() {
+    let scene = Scene::new(FakeInstalledTools::complete());
+    let leftover = scene.root.path().join("data/tools/ghidra_12.2_PUBLIC");
+    fs::create_dir_all(leftover.join("Ghidra")).unwrap();
+    let rows = scene.rows(&GhidraHome {
+        path: leftover.clone(),
+        origin: "managed",
+    });
+    let install = &row(&rows, "ghidra").install;
+    assert_eq!(
+        (install.automatic, install.command.as_deref()),
+        (false, None),
+        "(ghidra install, unmarked managed directory): expected no install button or command"
+    );
+    let reason = install.blocked.as_deref().unwrap_or_default();
+    assert!(
+        reason.contains(&leftover.display().to_string())
+            && reason.contains("bme tools setup ghidra --force"),
+        "(ghidra install, unmarked managed directory): expected the directory and the --force command | received {reason:?}"
+    );
+}
+
+#[test]
+fn a_managed_ghidra_without_its_extension_can_still_be_set_up() {
+    let scene = Scene::new(FakeInstalledTools::complete());
+    let home = pinned_ghidra(&scene);
+    mark_installed(&home.path);
+    fs::remove_dir_all(home.path.join("Ghidra/Extensions/ghidra-firmware-utils")).unwrap();
+    let rows = scene.rows(&home);
+    let install = &row(&rows, "firmware-utils").install;
+    assert_eq!(
+        (install.automatic, install.blocked.as_deref()),
+        (true, None),
+        "(firmware-utils install, marked Ghidra, no extension directory)"
+    );
+    let extension = home.path.join("Ghidra/Extensions/ghidra-firmware-utils");
+    fs::create_dir_all(&extension).unwrap();
+    let rows = scene.rows(&home);
+    let reason = row(&rows, "firmware-utils").install.blocked.clone();
+    assert!(
+        reason
+            .as_deref()
+            .is_some_and(|text| text.contains(&extension.display().to_string())),
+        "(firmware-utils install, unmarked extension directory): expected it named | received {reason:?}"
+    );
+}
+
 #[test]
 fn a_missing_nasm_is_optional_and_does_not_make_the_report_not_ready() {
     let mut scene = Scene::new(FakeInstalledTools::complete().without("nasm"));

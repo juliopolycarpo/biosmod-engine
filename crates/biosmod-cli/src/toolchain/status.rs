@@ -227,22 +227,30 @@ fn system_install(probe: &Probe, package: Package) -> Install {
 /// `setup` writes only to bme's own directory and checks Java and git before it downloads, so
 /// a saved or environment location and a missing prerequisite each block it.
 ///
+/// `leftover` is a directory in bme's own location that setup did not install, see
+/// [`leftover_directory`]. Setup refuses it without `--force`, and `--force` deletes it, so the
+/// row names the directory and leaves that command to the user instead of offering a button.
+///
 /// Outside Linux setup refuses to run, so there is no command to offer; the row then asks for
 /// a copy installed by hand.
 ///
 /// Example: with `origin` `config` the install is blocked by `bme tools unset ghidra`.
-fn ghidra_install(origin: &str, unready: &[&str], linux: bool) -> Install {
-    let blocked = match origin {
-        "config" => Some(
+fn ghidra_install(origin: &str, unready: &[&str], leftover: Option<&Path>, linux: bool) -> Install {
+    let blocked = match (origin, leftover) {
+        ("config", _) => Some(
             "a saved location is in use and bme installs only into its own directory: run `bme tools unset ghidra`, then `bme tools setup ghidra`"
                 .to_string(),
         ),
-        "managed" if unready.is_empty() => None,
-        "managed" => Some(format!(
+        ("managed", Some(directory)) => Some(format!(
+            "{} exists but bme did not install it: move it away, or run `bme tools setup ghidra --force` to delete and replace it",
+            directory.display()
+        )),
+        ("managed", None) if unready.is_empty() => None,
+        ("managed", None) => Some(format!(
             "{} must be ready first: `bme tools setup ghidra` checks it before downloading anything",
             unready.join(" and ")
         )),
-        other => Some(format!(
+        (other, _) => Some(format!(
             "{other} points elsewhere and bme installs only into its own directory: unset it, then run `bme tools setup ghidra`"
         )),
     };
@@ -255,8 +263,27 @@ fn ghidra_install(origin: &str, unready: &[&str], linux: bool) -> Install {
     }
 }
 
+/// The first directory `bme tools setup ghidra` would refuse to replace without `--force`.
+///
+/// Setup keeps a Ghidra directory only when it carries this profile's marker and the headless
+/// script, and an extension directory only when it carries the marker. Anything else that exists
+/// at those paths was copied in, left by another profile or damaged.
+///
+/// Example: a managed `ghidra_12.2_PUBLIC` holding only `Ghidra/` returns that directory.
+fn leftover_directory(home: &Path, profile: &super::Profile) -> Option<PathBuf> {
+    let ghidra_kept = super::marker_matches(home, profile) && super::headless(home).is_file();
+    if home.exists() && !ghidra_kept {
+        return Some(home.to_path_buf());
+    }
+    let extension = super::extension_dir(home);
+    (extension.exists() && !super::marker_matches(&extension, profile)).then_some(extension)
+}
+
 fn ghidra_rows(probe: &Probe, unready: &[&str]) -> Vec<ToolRow> {
     let home = probe.ghidra;
+    let leftover = (home.origin == "managed")
+        .then(|| leftover_directory(&home.path, &probe.env.profile))
+        .flatten();
     let checks = ghidra_checks(probe.env, home);
     let by_name = |name: &str| checks.iter().find(|c| c.check == name);
     let found = by_name("ghidra").is_some_and(|c| c.ok);
@@ -288,7 +315,7 @@ fn ghidra_rows(probe: &Probe, unready: &[&str]) -> Vec<ToolRow> {
         path: Some(lossy(&home.path)),
         origin: home.origin,
         detail,
-        install: ghidra_install(home.origin, unready, probe.linux),
+        install: ghidra_install(home.origin, unready, leftover.as_deref(), probe.linux),
         custom_location: true,
         optional: false,
     };
@@ -318,7 +345,7 @@ fn ghidra_rows(probe: &Probe, unready: &[&str]) -> Vec<ToolRow> {
             (true, Some(c)) => c.detail.clone(),
             (true, None) => String::new(),
         },
-        install: ghidra_install(home.origin, unready, probe.linux),
+        install: ghidra_install(home.origin, unready, leftover.as_deref(), probe.linux),
         custom_location: false,
         optional: false,
     };
