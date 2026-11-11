@@ -25,7 +25,7 @@ It prints the board and firmware the system reports, the catalog board profile w
 | `mtd` | kernel flash devices usable as `-p linux_mtd:dev=N` |
 | `usb-programmer` | connected CH341A, FT2232H, FT232H or Dediprog programmers |
 
-Root never reads your configuration, and it runs only an absolute path to a regular file that neither the group nor other users can write: a looser `--flashrom` or `BME_FLASHROM` is refused before anything starts. The desktop app asks `bme tools paths` for the saved flashrom before each chip command and stops if that lookup fails, rather than falling back to `PATH`. Under `sudo`, pass `--flashrom <path>` or `BME_FLASHROM` to use a saved location; the desktop app does this for you. `bme tools status` shows where flashrom was found and how to install it.
+Root never reads your configuration, and it runs only an absolute path to a regular file that neither the group nor other users can write: a looser `--flashrom` or `BME_FLASHROM` is refused before anything starts. Without root, a configuration file that does not load stops a flash command that would read `tools.flashrom`, rather than falling back to `PATH`; `--flashrom` and `BME_FLASHROM` still work. The desktop app asks `bme tools paths` which flashrom is in use before each chip command and stops if that lookup fails. Under `sudo`, pass `--flashrom <path>` or `BME_FLASHROM` to use a saved location; the next-step hints repeat the path as an absolute one, and the desktop app passes a saved or `BME_FLASHROM` path for you. `bme tools status` shows where flashrom was found and how to install it.
 
 `FAIL` stops every chip operation until fixed. `WARN` names what to try if an operation is refused. The doctor never starts a programmer.
 
