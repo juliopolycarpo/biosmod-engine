@@ -19,6 +19,10 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// Limit for each `--version` probe in `tools status`. Five probes run one after another, and
+/// the GUI runs the whole report under its 120 s engine timeout after every tool change.
+const STATUS_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+
 /// How healthy one tool is for the work bme asks of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -334,7 +338,7 @@ fn java_rows(probe: &Probe) -> Vec<ToolRow> {
     ]
     .into_iter()
     .map(|(id, name, purpose, program)| {
-        let check = java_check(probe.env.runner, program, min);
+        let check = java_check(probe.env.runner, program, min, STATUS_PROBE_TIMEOUT);
         let version = (check.ok)
             .then(|| check.detail.rsplit(' ').next().map(str::to_string))
             .flatten();
@@ -368,7 +372,7 @@ fn git_row(probe: &Probe) -> ToolRow {
     let finished = probe.env.runner.run(
         &Invocation::new("git")
             .arg("--version")
-            .timeout(Duration::from_secs(60)),
+            .timeout(STATUS_PROBE_TIMEOUT),
     );
     let (health, version, detail) = match finished {
         Ok(f) if f.success() => {
@@ -414,7 +418,7 @@ fn flashrom_row(probe: &Probe) -> ToolRow {
     let finished = probe.env.runner.run(
         &Invocation::new(&path)
             .arg("--version")
-            .timeout(Duration::from_secs(60)),
+            .timeout(STATUS_PROBE_TIMEOUT),
     );
     let (health, version, detail) = match finished {
         Ok(f) => match parse_version(&f.output()) {
@@ -475,7 +479,7 @@ fn nasm_row(probe: &Probe) -> ToolRow {
     let finished = probe.env.runner.run(
         &Invocation::new("nasm")
             .arg("--version")
-            .timeout(Duration::from_secs(60)),
+            .timeout(STATUS_PROBE_TIMEOUT),
     );
     let (health, version, detail) = match finished {
         Ok(f) if f.success() => {

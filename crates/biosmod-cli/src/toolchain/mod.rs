@@ -212,13 +212,12 @@ fn check(name: &'static str, ok: bool, detail: impl Into<String>) -> Check {
     }
 }
 
-fn java_check(runner: &dyn Runner, program: &'static str, min: u32) -> Check {
+/// Run `program -version` within `timeout` and compare its major release with `min`.
+///
+/// Example: `java_check(runner, "javac", 21, Duration::from_secs(60))` is ok for `javac 21.0.5`.
+fn java_check(runner: &dyn Runner, program: &'static str, min: u32, timeout: Duration) -> Check {
     let name = if program == "javac" { "jdk" } else { "java" };
-    let finished = match runner.run(
-        &Invocation::new(program)
-            .arg("-version")
-            .timeout(Duration::from_secs(60)),
-    ) {
+    let finished = match runner.run(&Invocation::new(program).arg("-version").timeout(timeout)) {
         Ok(f) => f,
         Err(e) => {
             return check(
@@ -258,7 +257,12 @@ pub fn ghidra_version(home: &Path) -> Option<String> {
 
 /// Read-only installation checks.
 pub fn inspect(env: &Env, home: &GhidraHome) -> Vec<Check> {
-    let mut checks = vec![java_check(env.runner, "java", env.profile.java_min)];
+    let mut checks = vec![java_check(
+        env.runner,
+        "java",
+        env.profile.java_min,
+        Duration::from_secs(60),
+    )];
     checks.extend(ghidra_checks(env, home));
     checks
 }
@@ -464,7 +468,12 @@ pub fn install(env: &Env, args: &SetupArgs, note: &mut dyn FnMut(&str)) -> Resul
             "--offline setup needs --ghidra-zip, --gradle-home and --firmware-utils-src (Gradle also runs with --offline)",
         ));
     }
-    let java = java_check(env.runner, "javac", env.profile.java_min);
+    let java = java_check(
+        env.runner,
+        "javac",
+        env.profile.java_min,
+        Duration::from_secs(60),
+    );
     if !java.ok {
         return Err(Error::new(Code::ToolUnavailable, java.detail));
     }

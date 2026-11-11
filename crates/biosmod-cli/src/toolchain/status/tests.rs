@@ -15,10 +15,12 @@ const FEDORA: &str = "ID=fedora\n";
 const ARCH: &str = "ID=arch\n";
 const MINT: &str = "ID=linuxmint\nID_LIKE=\"ubuntu debian\"\n";
 
-/// Answers `--version` style calls by program file name and records the full command lines.
+/// Answers `--version` style calls by program file name and records the full command lines
+/// and their timeouts.
 struct FakeInstalledTools {
     answers: BTreeMap<&'static str, &'static str>,
     calls: RefCell<Vec<String>>,
+    timeouts: RefCell<Vec<Duration>>,
 }
 
 impl FakeInstalledTools {
@@ -32,6 +34,7 @@ impl FakeInstalledTools {
                 ("flashrom", "flashrom v1.6.0 on Linux 7.0 (x86_64)"),
             ]),
             calls: RefCell::new(Vec::new()),
+            timeouts: RefCell::new(Vec::new()),
         }
     }
 
@@ -59,6 +62,7 @@ impl Runner for FakeInstalledTools {
             invocation.program.display(),
             invocation.words().join(" ")
         ));
+        self.timeouts.borrow_mut().push(invocation.timeout);
         match self.answers.get(name.as_str()) {
             Some(text) => Ok(Finished {
                 status: Some(0),
@@ -583,6 +587,22 @@ fn outside_linux_the_ghidra_row_offers_no_setup_command_that_would_refuse() {
     assert!(
         !text.contains("bme tools setup ghidra") && text.contains("Linux only"),
         "(tools status text, not Linux): expected a by-hand hint | received {text}"
+    );
+}
+
+#[test]
+fn every_status_probe_together_fits_inside_the_gui_engine_timeout() {
+    // The GUI runs `tools status` after each tool change with its default 120 s engine timeout.
+    const GUI_ENGINE_TIMEOUT: Duration = Duration::from_secs(120);
+    let mut scene = Scene::new(FakeInstalledTools::complete());
+    scene.configured_flashrom = Some("/opt/fr/flashrom".into());
+    scene.rows(&pinned_ghidra(&scene));
+    let timeouts = scene.runner.timeouts.borrow();
+    let worst: Duration = timeouts.iter().sum();
+    assert!(
+        worst < GUI_ENGINE_TIMEOUT,
+        "(tools status, {} probes): expected a worst case under {GUI_ENGINE_TIMEOUT:?} | received {worst:?} from {timeouts:?}",
+        timeouts.len()
     );
 }
 
