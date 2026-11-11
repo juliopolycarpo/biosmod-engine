@@ -48,7 +48,7 @@ O código do projeto é MIT. A distribuição gráfica usa a Slint Royalty-free 
 
 **Abrir arquivo de seleção** carrega uma receita exata para reprodução após validação com a imagem, o catálogo e o mecanismo atuais. A interface mantém uma cópia privada e não permite que a receita conceda permissões não suportadas ou troque o catálogo selecionado. Uma receita exige o catálogo fixado e a compilação correspondente do mecanismo. Para reabrir uma saída, escolha a imagem original e a saída; o manifesto deve estar ao lado dela em `<output>.manifest.json`. Um arquivo de seleção opcional também pode ser usado para comparação.
 
-O estado de catálogos e ferramentas é somente leitura na interface. Use a CLI para registrar ou atualizar catálogos e gerenciar ferramentas externas de análise.
+**Fontes e ferramentas** lista as fontes de catálogo (somente leitura; use a CLI para registrá-las ou atualizá-las) e um cartão por ferramenta externa: Ghidra, ghidra-firmware-utils, Java, JDK, git e flashrom. O cartão mostra estado, versão e local. **Baixar e instalar** obtém o Ghidra fixado com as mesmas verificações de `bme tools setup ghidra`; leva minutos e pode ser cancelado. **Escolher local…** grava uma pasta do Ghidra ou um programa flashrom existente, e **Restaurar** o esquece. Para Java, git e flashrom o cartão mostra o comando do gerenciador de pacotes para você executar. A interface nunca executa `sudo`.
 
 ## Gravar chip
 

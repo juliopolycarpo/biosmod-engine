@@ -53,7 +53,7 @@ Flash commands return before per-user configuration loads, because under `sudo` 
 - Recipes are untrusted: `patch --from` recomputes everything and compares.
 - Remote catalogs are trusted only through a locally configured minisign key, and only as validated snapshots.
 - Downloaded tool archives are trusted only through pinned digests.
-- flashrom is taken from `PATH`, the sbin directories or `BME_FLASHROM`; its output is parsed only for chip names, and every result that matters is checked by reading the chip.
+- flashrom is taken from `--flashrom`, `BME_FLASHROM`, `tools.flashrom`, `PATH` or the sbin directories, in that order (root skips `tools.flashrom`); its output is parsed only for chip names, and every result that matters is checked by reading the chip.
 
 ## Deliberately absent
 

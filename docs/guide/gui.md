@@ -48,7 +48,7 @@ The project's code is MIT. The desktop distribution uses the Slint Royalty-free 
 
 **Open selection file** loads an exact recipe for replay after validation against the current image, catalog and engine. The GUI retains a private copy and does not let the recipe grant unsupported permissions or switch the selected catalog. A recipe requires its pinned catalog and matching engine build. To reopen an output, choose the original image and output; its manifest must be beside it at `<output>.manifest.json`. An optional selection file can also be used for matching.
 
-Catalog and tool status are read-only in the GUI. Use the CLI to register or update catalogs and manage external analysis tools.
+**Sources & tools** lists the catalog sources (read-only; use the CLI to register or update them) and one card per external tool: Ghidra, ghidra-firmware-utils, Java, the JDK, git and flashrom. A card shows the state, version and location. **Download and install** fetches the pinned Ghidra with the checks `bme tools setup ghidra` makes; it takes minutes and can be cancelled. **Choose location…** saves an existing Ghidra folder or flashrom program, and **Reset** forgets it. For Java, git and flashrom the card shows the package-manager command to run yourself. The GUI never runs `sudo`.
 
 ## Flash chip
 

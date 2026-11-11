@@ -3,11 +3,14 @@
 [English](../../guide/ghidra.md) | Português (Brasil)
 
 ```sh
+bme tools status              # every tool: version, location, install command (never fails)
 bme tools doctor              # read-only: JDK, Ghidra version, extension
 bme tools setup ghidra        # pinned install under the data directory (Linux)
 bme tools doctor --deep       # also starts Ghidra headless on a probe file
 bme tools analyze --project work/p --output work/x Module.pe [...]
 ```
+
+`status` lista o Ghidra, o ghidra-firmware-utils, o Java (runtime e JDK), o git e o flashrom. Cada linha tem um estado (`ready`, `attention` ou `missing`), a versão, o caminho com a origem (`managed`, `config`, uma variável de ambiente ou `PATH`) e o comando que instala a ferramenta. O bme instala apenas o Ghidra; para Java, git e flashrom ele imprime o comando do gerenciador de pacotes da sua distribuição e nunca executa `sudo`. `status` termina com código 0 mesmo quando falta uma ferramenta, então scripts podem ler `--json`; `doctor` mantém o código de saída diferente de zero.
 
 `setup` instala o Ghidra 12.2 e compila o ghidra-firmware-utils de um commit fixado, com um pequeno patch de compatibilidade com a versão 12.2. Os arquivos do Ghidra e do Gradle são conferidos contra hashes SHA-256 fixados antes da extração. A extração recusa caminhos inseguros e links simbólicos e tem limites de tamanho e quantidade; cada arquivo é preparado antes da instalação do diretório; a verificação de inicialização headless acontece depois. Uma instalação existente não feita pelo bme só é substituída com `--force`. O Gradle baixa as dependências de compilação da extensão de repositórios Maven; elas não são fixadas pelo bme.
 
@@ -23,6 +26,8 @@ Uma falha na verificação de inicialização pode deixar o Ghidra e a extensão
 
 Requisitos: JDK 21 ou posterior e git. Para uso offline, passe `--offline` com `--ghidra-zip`, `--gradle-home` e `--firmware-utils-src`.
 
-`bme tools paths` mostra os caminhos. Configure `GHIDRA_INSTALL_DIR` ou `tools.ghidra_home` no arquivo de configuração para usar outra instalação; `doctor` informa uma versão divergente porque os scripts foram testados apenas com a 12.2.
+`bme tools paths` mostra os caminhos. Para usar uma instalação existente, execute `bme tools set ghidra /caminho/para/ghidra_12.2_PUBLIC`; o comando confere `support/analyzeHeadless` e grava `tools.ghidra_home`. `GHIDRA_INSTALL_DIR` tem precedência sobre o valor gravado. `bme tools unset ghidra` volta à instalação gerenciada. `doctor` informa uma versão divergente porque os scripts foram testados apenas com a 12.2.
+
+O mesmo vale para o flashrom: `bme tools set flashrom /caminho/para/flashrom` executa `--version` para confirmar o programa e grava `tools.flashrom`.
 
 `analyze` grava, para cada módulo, `NAME.c` (descompilação aproximada), `NAME.asm` (instruções com bytes exatos) e `NAME.json` (funções, chamadas e intervalos), além de `ghidra.log`. Confira os bytes no `.asm` antes de escrever um hunk; a saída C serve como auxílio de leitura.

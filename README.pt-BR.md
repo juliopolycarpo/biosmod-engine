@@ -87,7 +87,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 | `extract`, `replace` | extrair um módulo e inserir o módulo editado |
 | `derive` | elaborar uma variante para outra versão por assinaturas únicas |
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | fontes e manutenção de catálogos |
-| `tools doctor/setup ghidra/analyze/paths` | Ghidra 12.2 com ghidra-firmware-utils |
+| `tools status/set/unset/doctor/setup ghidra/analyze/paths` | ver, localizar e instalar o Ghidra 12.2 com ghidra-firmware-utils |
 | `diag breadcrumbs decode/read` | diagnóstico de checkpoint MRC do MR9A (read usa somente portas 72h/73h) |
 | `flash doctor`, `flash probe`, `flash backup`, `flash write` | diagnosticar, localizar, fazer backup e gravar o chip pelo flashrom (Linux) |
 | `dev synthetic` | imagem e catálogo sintéticos para experimentar com segurança |
