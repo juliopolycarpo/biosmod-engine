@@ -657,6 +657,27 @@ impl Session {
         self.pending_tool_change = Some(change);
     }
 
+    /// Drop a completed write check when the queued change picks another flashrom.
+    ///
+    /// The write must run the flashrom its dry run checked, so a new location needs a new check.
+    /// Example: queue `ToolChange::Reset { tool: LocatableTool::Flashrom }`, then prepare it.
+    fn drop_check_for_flashrom_change(&mut self) {
+        let flashrom = matches!(
+            self.pending_tool_change,
+            Some(
+                ToolChange::Choose {
+                    tool: LocatableTool::Flashrom,
+                    ..
+                } | ToolChange::Reset {
+                    tool: LocatableTool::Flashrom
+                }
+            )
+        );
+        if flashrom && self.flash.checked.take().is_some() {
+            self.flash.acknowledged = false;
+        }
+    }
+
     /// Change one flash input; a completed check no longer covers the new inputs.
     /// Example: `session.edit_flash(|flash| flash.programmer = "ch341a_spi".into())`.
     pub fn edit_flash(&mut self, change: impl FnOnce(&mut FlashState)) {
@@ -978,18 +999,21 @@ impl Session {
                 return Err(PreparationError::ToolsUnsupported);
             }
             Action::Tools => Request::ToolsStatus,
-            Action::ToolChange | Action::ToolInstall => match self.pending_tool_change.take() {
-                Some(ToolChange::Choose { tool, path }) if action == Action::ToolChange => {
-                    Request::ToolsSet { tool, path }
+            Action::ToolChange | Action::ToolInstall => {
+                self.drop_check_for_flashrom_change();
+                match self.pending_tool_change.take() {
+                    Some(ToolChange::Choose { tool, path }) if action == Action::ToolChange => {
+                        Request::ToolsSet { tool, path }
+                    }
+                    Some(ToolChange::Reset { tool }) if action == Action::ToolChange => {
+                        Request::ToolsUnset { tool }
+                    }
+                    Some(ToolChange::InstallGhidra) if action == Action::ToolInstall => {
+                        Request::ToolsSetupGhidra
+                    }
+                    _ => return Err(PreparationError::Engine),
                 }
-                Some(ToolChange::Reset { tool }) if action == Action::ToolChange => {
-                    Request::ToolsUnset { tool }
-                }
-                Some(ToolChange::InstallGhidra) if action == Action::ToolInstall => {
-                    Request::ToolsSetupGhidra
-                }
-                _ => return Err(PreparationError::Engine),
-            },
+            }
             Action::FlashDoctor
             | Action::FlashProbe
             | Action::FlashBackup

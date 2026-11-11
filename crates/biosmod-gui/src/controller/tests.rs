@@ -1109,3 +1109,41 @@ fn a_failed_flashrom_lookup_before_a_write_does_not_claim_the_chip_changed() {
         fake.calls()
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn changing_the_flashrom_location_drops_a_completed_write_check() {
+    let fake = FakeToolsEngine::new();
+    let mut session = connected_session();
+    session.flash.supported = true;
+    let checked = || CheckedWrite {
+        programmer: "internal".into(),
+        image: "/tmp/image.bin".into(),
+        backup: "/tmp/backup.bin".into(),
+        whole_chip: false,
+        image_sha256: "0".repeat(64),
+    };
+    session.flash.checked = Some(checked());
+    session.flash.acknowledged = true;
+    session.queue_tool_change(ToolChange::Choose {
+        tool: LocatableTool::Ghidra,
+        path: "/opt/ghidra".into(),
+    });
+    let job = session.prepare(Action::ToolChange).unwrap();
+    assert!(session.finish(job.run(&fake.engine())));
+    assert!(
+        session.flash_checked(),
+        "(ghidra location change): expected the write check to survive"
+    );
+    session.queue_tool_change(ToolChange::Reset {
+        tool: LocatableTool::Flashrom,
+    });
+    let job = session.prepare(Action::ToolChange).unwrap();
+    assert!(session.finish(job.run(&fake.engine())));
+    assert!(
+        !session.flash_checked() && !session.flash.acknowledged,
+        "(flashrom location change after a dry run): expected checked: false, acknowledged: false | received checked: {}, acknowledged: {}",
+        session.flash_checked(),
+        session.flash.acknowledged
+    );
+}
