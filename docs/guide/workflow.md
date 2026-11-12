@@ -18,6 +18,20 @@ Choose application-unit IDs, such as `B01-B06` and `B02-B03`, rather than their 
 
 Some records require `--assert <fact>` for hardware confirmed on the physical board, `--allow-hold` for unknown hardware effects, or `--allow-diagnostic` for diagnostic patches. `bme catalog show` lists required facts.
 
+## List stored ACPI tables
+
+```sh
+bme inspect dump.bin --acpi
+bme inspect dump.bin --acpi --json
+bme extract dump.bin --leaf acpi-table --guid <owning-guid> --signature SSDT --oem-table-id PmMgt -o PmMgt.aml
+```
+
+`inspect --acpi` scans every decoded PE32, TE and raw section for ACPI headers whose signature is four printable characters, whose length fits the section, whose revision is 1 to 0x20, whose OEM ID, OEM table ID and creator ID are NUL-padded printable ASCII and whose bytes sum to zero modulo 256. The text rule keeps PE code and data from matching by chance; a real table with a binary ID would be missed. Each distinct table (by SHA-256) is listed once with its signature, revision, length, OEM ID, OEM table ID, OEM revision, creator, SHA-256 and every location: owning FFS file GUID and UI name, section path, section kind and offset inside the section. JSON puts the list in `data.acpi.tables` and repeats the scope statement in `data.acpi.notice`.
+
+The list is the stored set, not what the firmware publishes at runtime. FADT, MADT and similar tables are usually built during boot and have no valid stored checksum, so they are absent. A table with a stored checksum that the firmware patches before publishing is listed as stored.
+
+`extract --leaf acpi-table` without a selector keeps its original meaning: the DSDT at offset 0 of the file's raw section that starts with it. `--signature`, `--oem-table-id` and `--sha256` instead pick any listed table of the file named by `--guid`, including tables inside PE32 sections, and write its exact bytes. A selector matching several distinct tables fails with `TARGET_AMBIGUOUS` and names them; `--sha256` always picks one. `replace` still handles only the DSDT form.
+
 ## Build and preview
 
 ```sh

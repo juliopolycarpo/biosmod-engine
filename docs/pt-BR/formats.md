@@ -9,7 +9,7 @@
 | Arquivos FFS | checksums de cabeçalho e dados verificados na entrada e reconstruídos na saída; cabeçalhos de arquivos grandes |
 | Seções | decodificadas: imagem FV, LZMA definido por GUID, CRC32 definido por GUID (verificado); folhas: PE32, TE, raw, UI e demais. Seções de compressão (tipo 01) e outras codificações definidas por GUID permanecem opacas; módulos nelas são informados como `unsupported` |
 | LZMA | decodificação limitada a 64 MiB por seção e 512 MiB por imagem; a recodificação reproduz as propriedades originais e é conferida por decodificação |
-| ACPI | DSDT em uma seção raw (`leaf: acpi-table`), checksum da tabela mantido pelo próprio hunk |
+| ACPI | DSDT em uma seção raw (`leaf: acpi-table`), checksum da tabela mantido pelo próprio hunk; `inspect --acpi` lista toda tabela com checksum válido em seções PE32, TE e raw (somente o conjunto armazenado) |
 | PE32/PE32+ | tabelas de seções, base da imagem, relocações de base e campos de desvio direto (para mascaramento de assinaturas) |
 | HII / IFR | listas de pacotes em bytes PE, TE ou raw (`bme ifr`): pacotes de strings (SCSU, UCS-2) e de formulários; somente leitura |
 | Armazenamentos NVRAM | AMI NVAR (registros, cadeias `next`, tabela de GUIDs, armazenamentos aninhados `StdDefaults`/`MfgDefaults`) e EDK II VSS/VSS2 e `$VSS` (cabeçalhos simples e autenticados) via `bme nvram`; somente leitura |

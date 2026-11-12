@@ -81,12 +81,12 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 
 | Comando | Finalidade |
 |---|---|
-| `inspect` | regiões de descriptor, volumes e arquivos |
 | `ifr` | formulários do Setup: perguntas, offsets de varstore, opções, padrões e condições |
 | `nvram` | variáveis NVRAM (NVAR, VSS): estados dos registros, padrões, campo do Setup armazenado vs padrão |
+| `inspect` (`--files`, `--acpi`) | regiões de descriptor, volumes, arquivos e tabelas ACPI armazenadas |
 | `scan` | versão detectada e cada estado de patch |
 | `patch`, `export`, `verify` | geração, receitas opcionais e verificação |
-| `extract`, `replace` | extrair um módulo e inserir o módulo editado |
+| `extract`, `replace` | extrair um módulo ou tabela ACPI e inserir o módulo editado |
 | `derive` | elaborar uma variante para outra versão por assinaturas únicas |
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | fontes e manutenção de catálogos |
 | `tools status/set/unset/doctor/setup ghidra/analyze/paths` | ver, localizar e instalar o Ghidra 12.2 com ghidra-firmware-utils |
