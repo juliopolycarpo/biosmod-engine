@@ -20,6 +20,7 @@ A interface chama um `bme` compatível como subprocesso. Ela vincula a geração
 |---|---|
 | `firmware` | regiões de descriptor, análise FV/FFS/seções com limites de profundidade e decodificação; `pe` para PE32/TE; `rebuild` para checksums, recodificação LZMA e reorganização de volume |
 | `ifr` | decodificador somente leitura dos formulários do Setup (UEFI IFR): listas de pacotes HII, pacotes de strings e de formulários, perguntas com offsets de varstore, opções, padrões e condições |
+| `nvram` | leitor somente leitura dos armazenamentos de variáveis do firmware: AMI NVAR (cadeias, tabela de GUIDs, `StdDefaults`/`MfgDefaults`) e EDK II VSS/VSS2, com estados dos registros, verificação de tamanho contra o IFR e leitura de campos do Setup |
 | `codec` | wrapper liblzma: decodificação limitada e codificação que reproduz os parâmetros do fluxo original |
 | `catalog` | documentos tipados (`bme.catalog/1`, `bme.board/1`, `bme.patch/1`, `bme.evidence/1`) e carregamento por índice verificado |
 | `json` | análise estrita: chaves duplicadas e dados adicionais são erros |

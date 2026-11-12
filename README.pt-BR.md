@@ -83,6 +83,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 |---|---|
 | `inspect` | regiões de descriptor, volumes e arquivos |
 | `ifr` | formulários do Setup: perguntas, offsets de varstore, opções, padrões e condições |
+| `nvram` | variáveis NVRAM (NVAR, VSS): estados dos registros, padrões, campo do Setup armazenado vs padrão |
 | `scan` | versão detectada e cada estado de patch |
 | `patch`, `export`, `verify` | geração, receitas opcionais e verificação |
 | `extract`, `replace` | extrair um módulo e inserir o módulo editado |
@@ -100,6 +101,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 
 - [Arquitetura](docs/pt-BR/architecture.md): crates, fluxo de dados e verificações de segurança
 - [Formatos](docs/pt-BR/formats.md): estruturas de firmware suportadas e limites
+- [Variáveis NVRAM](docs/pt-BR/guide/nvram.md): estados dos registros, padrões salvos e valores armazenados do Setup
 - [Protocolo](docs/pt-BR/guide/agents.md), [confiança](docs/pt-BR/guide/trust.md), [catálogos](docs/pt-BR/guide/catalogs.md), [recuperação](docs/pt-BR/guide/recovery.md)
 - [Qualificação da interface no Linux](docs/pt-BR/linux-desktop-qualification.md): ambientes testados e limites
 - [Interface gráfica](docs/pt-BR/guide/gui.md): configuração Linux e fluxo de geração
