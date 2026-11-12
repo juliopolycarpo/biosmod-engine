@@ -59,6 +59,21 @@ Com `-o DIR`, o bme grava `result.jsonl` (os documentos, um por linha) e `eviden
 
 `tools/replay/examples/b11_context_overread.py` é um harness completo: reexecuta o registro original do `PchSmiDispatcher` com contextos no fim de uma página legível e mostra a leitura de 16 bytes falhando no RVA `3A02` quando restam menos de 16 bytes.
 
+## Executar um cenário
+
+Um cenário é um arquivo JSON `bme.scenario/1` que descreve uma chamada sem nenhum Python:
+
+```sh
+bme schema scenario
+bme replay run tools/replay/scenarios/smartfan-zero-policy/pwm0-seed0.json --module SioDxeInit.pe -o out/
+```
+
+Ele traz o SHA-256 e a largura em bits do módulo (nunca os bytes), o RVA de entrada e os argumentos, as tabelas de serviço (`dxe`, `smm` ou `pei`) com os campos da imagem que apontam para elas, modelos de hardware da biblioteca (`port-registers`, `indexed-registers`, `mmio-registers`), variáveis UEFI presentes antes da chamada, um orçamento de instruções e as expectativas. Os números são inteiros JSON ou strings `0x`. Um argumento ou vínculo pode nomear um endereço que o runtime fornece: `image-base`, `system-table`, `boot-services`, `runtime-services`, `smm-table` ou `pei-services`. Uma expectativa confere o valor de retorno, um registrador indexado (`bank`, `index` e `mask` opcional), uma porta, uma variável ou quantas vezes um serviço foi chamado. Campos desconhecidos e chaves duplicadas são rejeitados.
+
+O `bme replay run` recusa um módulo cujo SHA-256 difere do cenário (`PATCH_SOURCE_MISMATCH`, antes de executar qualquer coisa), reexecuta a chamada e imprime `ok` ou `FAIL` para cada expectativa, com os valores esperado e recebido. Uma expectativa que falha, uma falha de acesso, um acesso não modelado ou um orçamento esgotado encerra o comando com `TOOL_FAILED`; a mensagem nomeia as expectativas que falharam e `--json` traz todos os veredictos em `details`. Com `-o DIR` o registro é gravado nos dois casos, com o cenário e o módulo listados por SHA-256 e o id do cenário no bloco `replay`.
+
+`tools/replay/scenarios/smartfan-zero-policy` reúne doze cenários da rotina de Smart Fan do `SioDxeInit` da MR9A: o primeiro degrau de PWM da curva da CPU vale 0, 1, 64 ou 150, a partir de três estados pseudoaleatórios do monitor de hardware. Cada um espera que o PWM1 guarde o degrau sem limitação. Eles nomeiam o módulo só pelo digest; extraia-o da sua própria imagem com `bme extract <rom> --guid 4E82091E-32A1-4689-8A00-CDE41ED63CDD -o SioDxeInit.pe`. O GUID de fornecedor da variável nos cenários é o GUID do VarStore do setup, não o GUID do módulo.
+
 Uma execução emulada mostra o que as instruções fazem contra os modelos que o harness fornece. Não é uma observação em hardware, e o registro diz isso em `limits`.
 
 ## Limite de licença

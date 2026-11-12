@@ -59,6 +59,21 @@ With `-o DIR`, bme writes `result.jsonl` (the documents, one per line) and `evid
 
 `tools/replay/examples/b11_context_overread.py` is a complete harness: it replays the original `PchSmiDispatcher` registration with contexts placed at the end of a readable page and shows the 16-byte read faulting at RVA `3A02` when fewer than 16 bytes follow.
 
+## Running a scenario
+
+A scenario is a `bme.scenario/1` JSON file that describes one call without any Python:
+
+```sh
+bme schema scenario
+bme replay run tools/replay/scenarios/smartfan-zero-policy/pwm0-seed0.json --module SioDxeInit.pe -o out/
+```
+
+It holds the module's SHA-256 and bitness (never its bytes), the entry RVA and arguments, the service tables (`dxe`, `smm` or `pei`) with the image fields to point at them, hardware models from the library (`port-registers`, `indexed-registers`, `mmio-registers`), UEFI variables present before the call, an instruction budget and the expectations. Numbers are JSON integers or `0x` strings. An argument or binding can name an address the runtime provides: `image-base`, `system-table`, `boot-services`, `runtime-services`, `smm-table` or `pei-services`. An expectation checks the return value, an indexed register (`bank`, `index`, optional `mask`), a port, a variable or how often a service was called. Unknown fields and duplicate keys are rejected.
+
+`bme replay run` refuses a module whose SHA-256 differs from the scenario's (`PATCH_SOURCE_MISMATCH`, before anything runs), replays the call and prints `ok` or `FAIL` for each expectation with the expected and received values. A failed expectation, a fault, an unmodeled access or an exhausted budget ends the command with `TOOL_FAILED`; the message names the failed expectations and `--json` carries every verdict in `details`. With `-o DIR` the record is written either way, with the scenario and the module listed by SHA-256 and the scenario id in the `replay` block.
+
+`tools/replay/scenarios/smartfan-zero-policy` holds twelve scenarios for the MR9A `SioDxeInit` Smart Fan routine: the first PWM step of the CPU curve is 0, 1, 64 or 150, from three pseudo-random hardware-monitor states. Each expects PWM1 to hold the step unclamped. They name the module by digest only; extract it from your own image with `bme extract <rom> --guid 4E82091E-32A1-4689-8A00-CDE41ED63CDD -o SioDxeInit.pe`. The variable's vendor GUID in the scenarios is the setup VarStore GUID, not the module GUID.
+
 An emulated run shows what the instructions do against the models the harness supplies. It is not an observation on hardware, and the record says so in its `limits`.
 
 ## Licence boundary
