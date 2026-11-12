@@ -28,6 +28,25 @@ pub const DMI_IDENTITY_FIELDS: [&str; 14] = [
     "chassis_type",
 ];
 
+/// The readable DMI `fields` by name, from `/sys/class/dmi/id`. Fields that are missing,
+/// unreadable or empty are left out.
+///
+/// Intent: one reader for every command that identifies the board, so the flash
+/// diagnosis and the receipts cannot disagree about what DMI says.
+///
+/// Example: `read_dmi_fields(&files, &["board_name"])["board_name"]` is `"E5-MR9A PRO"` on the MR9A.
+pub fn read_dmi_fields(
+    files: &dyn HostFiles,
+    fields: &[&'static str],
+) -> BTreeMap<&'static str, String> {
+    fields
+        .iter()
+        .filter_map(|field| {
+            read_trimmed(files, &format!("{DMI_ROOT}/{field}")).map(|value| (*field, value))
+        })
+        .collect()
+}
+
 /// Boot, kernel and board identity as the running system reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostIdentity {
@@ -53,12 +72,7 @@ impl HostIdentity {
                 )
             })
         };
-        let dmi = DMI_IDENTITY_FIELDS
-            .iter()
-            .filter_map(|field| {
-                read_trimmed(files, &format!("{DMI_ROOT}/{field}")).map(|value| (*field, value))
-            })
-            .collect();
+        let dmi = read_dmi_fields(files, &DMI_IDENTITY_FIELDS);
         Ok(HostIdentity {
             boot_id: required(BOOT_ID_PATH)?,
             kernel_release: required(KERNEL_RELEASE_PATH)?,
@@ -82,6 +96,15 @@ mod tests {
         assert_eq!(identity.dmi["board_name"], "E5-MR9A PRO");
         assert!(!identity.dmi.contains_key("product_serial"));
         assert!(identity.kernel_version.is_some());
+    }
+
+    #[test]
+    fn read_dmi_fields_returns_only_the_requested_readable_fields() {
+        let sysfs = FakeSysfs::mr9a().file("sys/class/dmi/id/bios_date", "\n");
+        let files = sysfs.files();
+        let fields = read_dmi_fields(&files, &["board_name", "bios_date", "absent"]);
+        assert_eq!(fields.len(), 1, "{fields:?}");
+        assert_eq!(fields["board_name"], "E5-MR9A PRO");
     }
 
     #[test]
