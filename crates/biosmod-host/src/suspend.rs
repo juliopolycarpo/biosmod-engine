@@ -17,6 +17,9 @@
 //! - `mem` is written only after reading `pm_test` back as the armed stage.
 //! - `pm_test` is set back to `none` on every path after it was armed, and a failure
 //!   to do so is the loudest error the command has.
+//! - `SIGINT`, `SIGTERM` and `SIGHUP` are held from arming until that restore; they
+//!   are delivered afterwards. `SIGKILL` and a power cut cannot be held, which is why
+//!   a leftover armed test is recognised at the next start.
 
 use crate::acpi::{MEM_SLEEP_PATH, STATE_PATH};
 use crate::bundle::{Bundle, BundleBuilder};
@@ -269,10 +272,15 @@ pub fn pm_test(host: &HostSurfaces, power: &dyn HostWrite, stage: Stage) -> Resu
     // Whatever the machine buffered should not be lost if the test goes wrong.
     power.sync_filesystems();
 
+    // A Ctrl-C or SIGTERM between arming and the restore would leave the next suspend
+    // armed to stop at a checkpoint. Hold them until pm_test is back (SIGKILL and a
+    // power cut still cannot be held; startup detects the leftover).
+    let held = crate::signals::SignalBlock::new();
     let outcome = arm_and_trigger(host.files, power, stage);
     // Always, whatever happened above.
     let restore = power.write(PM_TEST_PATH, "none\n");
     let restored = read_trimmed(host.files, PM_TEST_PATH).unwrap_or_default();
+    drop(held);
     if restore.is_err() || selected(&restored) != Some("none") {
         return Err(Error::new(
             Code::Io,
@@ -675,6 +683,59 @@ mod tests {
             "{error}"
         );
         assert_eq!(fake.pm_test(), "freezer");
+    }
+
+    /// Forwards to the fake and notes whether the stop signals were held at each write.
+    #[cfg(unix)]
+    struct SignalSpyPower<'a> {
+        inner: &'a FakePowerSysfs,
+        held: std::cell::RefCell<Vec<(String, bool)>>,
+    }
+
+    #[cfg(unix)]
+    impl HostWrite for SignalSpyPower<'_> {
+        fn write(&self, path: &str, text: &str) -> std::io::Result<()> {
+            let blocked = crate::signals::is_blocked(libc::SIGINT)
+                && crate::signals::is_blocked(libc::SIGTERM)
+                && crate::signals::is_blocked(libc::SIGHUP);
+            self.held
+                .borrow_mut()
+                .push((format!("{path}={text}"), blocked));
+            self.inner.write(path, text)
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_signals_are_held_from_arming_to_the_restore_and_released_after() {
+        let fake = FakePowerSysfs::mr9a_s2idle();
+        let spy = SignalSpyPower {
+            inner: &fake,
+            held: Default::default(),
+        };
+        let host = HostSurfaces {
+            files: &fake,
+            kernel_log: &fake,
+            privilege: &FakePrivilege::root(),
+            clock: &FixedClock,
+        };
+        pm_test(&host, &spy, Stage::Freezer).unwrap();
+        let held = spy.held.borrow();
+        assert_eq!(
+            held.len(),
+            3,
+            "(writes): expected arm, mem, restore | received {held:?}"
+        );
+        for (write, blocked) in held.iter() {
+            assert!(
+                blocked,
+                "(signals at {write}): expected SIGINT, SIGTERM and SIGHUP blocked | received unblocked"
+            );
+        }
+        assert!(
+            !crate::signals::is_blocked(libc::SIGINT),
+            "(signals after the run): expected SIGINT unblocked | received blocked"
+        );
     }
 
     #[test]
