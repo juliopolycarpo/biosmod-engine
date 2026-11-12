@@ -80,8 +80,8 @@ A finding can carry `detectors` that find its code in builds the catalog has no 
 ```json
 {
   "id": "byte-counter-scan",
-  "title": "8-bit index over a native-width count",
-  "anchor": {"in": "pe32", "module_kind": "dxe"},
+  "title": "8-bit index over a native-width configuration-table count",
+  "anchor": {"in": "pe32"},
   "signatures": [
     {"label": "bl-rdx", "defect": {"bytes": "fec30fb6c3483bc272d9"}, "fixed": {"bytes": "48ffc39090483bda72d9"}}
   ],
@@ -89,10 +89,12 @@ A finding can carry `detectors` that find its code in builds the catalog has no 
 }
 ```
 
+This is the shape of the B09 record, shortened to one of its four signatures. B09 leaves `module_kind` out because its copies sit in both DXE drivers and SMM modules.
+
 - `anchor` selects the bytes searched: `{"in": "pe32"}` for the PE32 or TE image of each module, optionally limited by `module_kind` (`peim`, `dxe`, `smm`, by FFS file type) or `ffs_guid`, and `{"in": "dsdt"}` for the DSDT table.
-- A signature has a `defect` pattern and, when a catalog patch produces it, a `fixed` pattern. `wild` lists byte indices that match any value. Derive both from patch hunks rather than copying vendor bytes from elsewhere.
-- `expect` bounds the defect sites per module (default exactly one). A module outside that range is `unexpected-count`, which needs review instead of a claim.
-- Per-module states are `likely-present`, `unexpected-count` and `fixed-pattern` (only the corrected shape occurs, so the defect is absent from the shape the pattern covers). A detector as a whole is also `unsupported` when a module it could cover sits in an encapsulation this engine cannot read, and `absent` when nothing matches. `absent` does not prove a defect missing from code the pattern does not cover.
+- A signature has a `defect` pattern and, when a catalog patch produces it, a `fixed` pattern. `wild` lists byte indices that match any value. Derive both from patch hunks rather than copying vendor bytes from elsewhere. A pattern needs at least 4 non-wild bytes: fewer match too much code to name a defect.
+- `expect` bounds the defect sites per module (default exactly one). A module outside that range is `unexpected-count`, which needs review instead of a claim. Sites are listed up to one past the maximum; the module is then marked `truncated` and the real count is higher.
+- Per-module states are `likely-present`, `unexpected-count` and `fixed-pattern` (only the corrected shape occurs, so the defect is absent from the shape the pattern covers). A detector as a whole takes the most urgent module state (`unexpected-count`, then `likely-present`). It is `fixed-pattern` only when every candidate module was readable, `unsupported` when a module it could cover sits in an encapsulation this engine cannot read (the scan text adds an "N unreadable" note to any hit), and `absent` when nothing matches. `absent` does not prove a defect missing from code the pattern does not cover.
 
 ## Evidence
 

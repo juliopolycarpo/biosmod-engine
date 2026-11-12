@@ -80,8 +80,8 @@ Um achado pode carregar `detectors` que localizam seu código em versões sem va
 ```json
 {
   "id": "byte-counter-scan",
-  "title": "8-bit index over a native-width count",
-  "anchor": {"in": "pe32", "module_kind": "dxe"},
+  "title": "8-bit index over a native-width configuration-table count",
+  "anchor": {"in": "pe32"},
   "signatures": [
     {"label": "bl-rdx", "defect": {"bytes": "fec30fb6c3483bc272d9"}, "fixed": {"bytes": "48ffc39090483bda72d9"}}
   ],
@@ -89,10 +89,12 @@ Um achado pode carregar `detectors` que localizam seu código em versões sem va
 }
 ```
 
+Esta é a forma do registro B09, reduzido a uma de suas quatro assinaturas. B09 omite `module_kind` porque suas cópias estão em drivers DXE e em módulos SMM.
+
 - `anchor` escolhe os bytes pesquisados: `{"in": "pe32"}` para a imagem PE32 ou TE de cada módulo, com limite opcional por `module_kind` (`peim`, `dxe`, `smm`, pelo tipo de arquivo FFS) ou `ffs_guid`, e `{"in": "dsdt"}` para a tabela DSDT.
-- Uma assinatura tem um padrão `defect` e, quando um patch do catálogo o produz, um padrão `fixed`. `wild` lista os índices de bytes que casam com qualquer valor. Derive ambos dos hunks dos patches em vez de copiar bytes do fabricante de outro lugar.
-- `expect` limita os pontos de defeito por módulo (padrão: exatamente um). Um módulo fora dessa faixa fica `unexpected-count`, que pede revisão em vez de uma afirmação.
-- Os estados por módulo são `likely-present`, `unexpected-count` e `fixed-pattern` (só o formato corrigido ocorre, então o defeito não está no formato que o padrão cobre). O detector como um todo também pode ser `unsupported`, quando um módulo que ele poderia cobrir está numa encapsulação que este motor não lê, e `absent`, quando nada casa. `absent` não prova a ausência do defeito em código que o padrão não cobre.
+- Uma assinatura tem um padrão `defect` e, quando um patch do catálogo o produz, um padrão `fixed`. `wild` lista os índices de bytes que casam com qualquer valor. Derive ambos dos hunks dos patches em vez de copiar bytes do fabricante de outro lugar. Um padrão precisa de ao menos 4 bytes sem `wild`: menos que isso casa com código demais para indicar um defeito.
+- `expect` limita os pontos de defeito por módulo (padrão: exatamente um). Um módulo fora dessa faixa fica `unexpected-count`, que pede revisão em vez de uma afirmação. Os pontos são listados até um acima do máximo; o módulo fica então marcado como `truncated` e a contagem real é maior.
+- Os estados por módulo são `likely-present`, `unexpected-count` e `fixed-pattern` (só o formato corrigido ocorre, então o defeito não está no formato que o padrão cobre). O detector como um todo assume o estado mais urgente entre os módulos (`unexpected-count`, depois `likely-present`). Ele só é `fixed-pattern` quando todo módulo candidato foi lido, é `unsupported` quando um módulo que ele poderia cobrir está numa encapsulação que este motor não lê (o texto do scan acrescenta uma nota "N unreadable" a qualquer acerto) e `absent` quando nada casa. `absent` não prova a ausência do defeito em código que o padrão não cobre.
 
 ## Evidências
 
