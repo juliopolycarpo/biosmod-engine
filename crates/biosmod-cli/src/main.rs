@@ -446,6 +446,24 @@ pub enum DiagCommand {
     /// ACPI tables and sleep state of the running machine (Linux, root).
     #[command(subcommand)]
     Acpi(AcpiCommand),
+    /// Super I/O chip registers: fan controller and logical devices (Linux, root).
+    #[command(subcommand)]
+    Superio(SuperioCommand),
+}
+
+#[derive(Subcommand)]
+pub enum SuperioCommand {
+    /// Detect the chip by ID on ports 2Eh/4Eh, refuse unknown IDs, and read its logical
+    /// devices and hardware-monitor registers. Writes only access selectors and restores
+    /// the logical device and bank selection.
+    Read {
+        /// Port device (default /dev/port).
+        #[arg(long, default_value = "/dev/port")]
+        device: PathBuf,
+        /// Also save the reading, manifest and evidence record in this new directory.
+        #[arg(short, long, value_name = "DIR")]
+        output: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -598,6 +616,7 @@ fn command_name(command: &Command) -> &'static str {
         },
         Command::Diag(DiagCommand::Breadcrumbs(_)) => "diag breadcrumbs",
         Command::Diag(DiagCommand::Acpi(AcpiCommand::Capture { .. })) => "diag acpi capture",
+        Command::Diag(DiagCommand::Superio(SuperioCommand::Read { .. })) => "diag superio read",
         Command::Flash(f) => match f {
             FlashCommand::Doctor { .. } => "flash doctor",
             FlashCommand::Probe(_) => "flash probe",

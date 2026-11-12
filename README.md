@@ -93,6 +93,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 | `tools status/set/unset/doctor/setup ghidra/analyze/paths`         | see, locate and install Ghidra 12.2 with ghidra-firmware-utils |
 | `diag breadcrumbs decode/read`                                     | MR9A MRC checkpoint diagnostic (read uses ports 72h/73h only) |
 | `diag acpi capture`                                                | hashed bundle of ACPI tables, sleep state and kernel sleep messages with an evidence record (Linux, root) |
+| `diag superio read`                                                | identify the Super I/O chip by ID and read its hardware-monitor registers; only access selectors are written (Linux, root) |
 | `flash doctor`, `flash probe`, `flash backup`, `flash write`       | diagnose, find, back up and write the chip via flashrom (Linux) |
 | `dev synthetic`                                                    | a synthetic image and catalog to try everything safely        |
 | `version`, `capabilities`, `schema`, `guide`                       | contracts and built-in documentation                          |

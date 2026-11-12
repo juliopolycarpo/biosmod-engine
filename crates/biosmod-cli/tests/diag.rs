@@ -45,3 +45,45 @@ fn capabilities_list_the_host_diagnostics_as_read_only_captures() {
         });
     assert_eq!(entry["writes"], serde_json::json!(["capture directory"]));
 }
+
+#[test]
+fn superio_read_against_a_plain_file_never_reaches_a_chip() {
+    // `--device` points at a temporary file, so even a root run cannot touch a port:
+    // non-root is refused, root finds no chip answering in the file.
+    let sandbox = Sandbox::new();
+    let device = sandbox.path("fake-port");
+    std::fs::write(&device, vec![0u8; 0x1000]).unwrap();
+    let run = sandbox.run([
+        "diag",
+        "superio",
+        "read",
+        "--device",
+        device.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(run.code, 1, "{}", run.stdout);
+    let code = run.error_code();
+    assert!(
+        code == "HOST_REFUSED" || code == "TARGET_NOT_FOUND",
+        "(error code): expected HOST_REFUSED | TARGET_NOT_FOUND | received {code}"
+    );
+    assert_eq!(run.json()["command"], "diag superio read");
+}
+
+#[test]
+fn superio_read_refuses_an_existing_output_before_the_device_opens() {
+    let sandbox = Sandbox::new();
+    let existing = sandbox.path("fan");
+    std::fs::create_dir(&existing).unwrap();
+    let run = sandbox.run([
+        "diag",
+        "superio",
+        "read",
+        "--device",
+        sandbox.path("no-such-device").to_str().unwrap(),
+        "-o",
+        existing.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(run.error_code(), "OUTPUT_EXISTS", "{}", run.stdout);
+}
