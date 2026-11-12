@@ -646,3 +646,43 @@ fn file_lists_are_refused_on_other_kinds_and_for_unsafe_paths() {
     (twice.sha256, twice.length) = (blob.sha256, blob.length);
     assert!(case_with(vec![twice]).check().is_err());
 }
+
+#[test]
+fn input_names_must_be_single_path_components() {
+    for bad in [
+        "/etc/hostname",
+        "../x",
+        "a/b",
+        "a\\b",
+        "..",
+        ".",
+        "",
+        "C:\\dump.bin",
+    ] {
+        let mut case = case_with(vec![artifact("001-scan", 1)]);
+        case.inputs[0].name = bad.into();
+        let error = case.check().unwrap_err();
+        assert_eq!(error.code, Code::FormatInvalid, "{bad:?}: {error}");
+        assert!(
+            error.message.contains("input name") && error.message.contains(&format!("{bad:?}")),
+            "(input name {bad:?}): expected the invalid value named | received {error}"
+        );
+
+        let mut case = case_with(vec![artifact("001-scan", 1)]);
+        case.artifacts[0].inputs[0].name = bad.into();
+        let error = case.check().unwrap_err();
+        assert_eq!(error.code, Code::FormatInvalid, "{bad:?}: {error}");
+        assert!(
+            error.message.contains("001-scan") && error.message.contains(&format!("{bad:?}")),
+            "(artifact input name {bad:?}): expected the artifact and value named | received {error}"
+        );
+    }
+}
+
+#[test]
+fn input_names_with_spaces_and_inner_dots_are_plain_file_names() {
+    let mut case = case_with(vec![artifact("001-scan", 1)]);
+    case.inputs[0].name = "my dump v1.2.bin".into();
+    case.artifacts[0].inputs[0].name = "my dump v1.2.bin".into();
+    case.check().unwrap();
+}

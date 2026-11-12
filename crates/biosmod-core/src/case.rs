@@ -39,6 +39,16 @@ pub const CASE_SCHEMA: &str = "bme.case/1";
 /// Directory of a case that holds recorded artifacts.
 pub const ARTIFACT_DIRECTORY: &str = "artifacts";
 
+/// Whether `name` is one plain file name: not empty, not `.` or `..`, no separators,
+/// drive prefix or control characters, so it can never name a location.
+///
+/// Example: `dump.bin` and `my dump.bin` qualify; `../x` and `/etc/hostname` do not.
+fn is_file_name(name: &str) -> bool {
+    !matches!(name, "" | "." | "..")
+        && !name.contains(['/', '\\', ':'])
+        && !name.chars().any(char::is_control)
+}
+
 /// One identified input file: its name and content, never its location.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -229,10 +239,24 @@ impl Case {
             )));
         }
         identifier(&self.id, "case id").map_err(|e| invalid(e.message))?;
+        for input in &self.inputs {
+            if !is_file_name(&input.name) {
+                return Err(invalid(format!(
+                    "case.json: input name expected a file name without separators | received {:?}",
+                    input.name
+                )));
+            }
+        }
         let prefix = format!("{ARTIFACT_DIRECTORY}/");
         let mut seen = BTreeSet::new();
         for artifact in &self.artifacts {
             identifier(&artifact.id, "artifact id").map_err(|e| invalid(e.message))?;
+            if let Some(input) = artifact.inputs.iter().find(|i| !is_file_name(&i.name)) {
+                return Err(invalid(format!(
+                    "case.json artifact {}: input name expected a file name without separators | received {:?}",
+                    artifact.id, input.name
+                )));
+            }
             let name = artifact.path.strip_prefix(&prefix).unwrap_or("");
             if name.is_empty() || name.contains(['/', '\\']) || name.starts_with('.') {
                 return Err(invalid(format!(
