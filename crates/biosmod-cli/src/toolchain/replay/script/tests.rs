@@ -14,6 +14,8 @@ struct FakeReplayScript {
     emitted: &'static str,
     exit_status: i32,
     stderr: &'static str,
+    /// Grow the result file to this many bytes (sparse), as a runaway harness would.
+    result_len: Option<u64>,
     launches: RefCell<Vec<Invocation>>,
 }
 
@@ -25,6 +27,7 @@ impl FakeReplayScript {
             emitted,
             exit_status: 0,
             stderr: "",
+            result_len: None,
             launches: RefCell::new(Vec::new()),
         }
     }
@@ -56,6 +59,9 @@ impl Runner for FakeReplayScript {
             .expect("the launcher gets a result file");
         if !self.emitted.is_empty() {
             fs::write(result, self.emitted).unwrap();
+        }
+        if let Some(len) = self.result_len {
+            fs::File::create(result).unwrap().set_len(len).unwrap();
         }
         Ok(Finished {
             status: Some(self.exit_status),
@@ -302,4 +308,25 @@ fn a_harness_that_emits_nothing_has_no_documents() {
     )
     .unwrap();
     assert!(output.documents.is_empty() && output.raw.is_empty());
+}
+
+#[test]
+fn a_result_file_over_the_limit_is_refused_without_reading_it() {
+    let scene = Scene::new();
+    let mut fake = FakeReplayScript::new("{}\n");
+    fake.result_len = Some(MAX_RESULT_BYTES + 1);
+    let error = run_script(
+        &scene.env(&fake),
+        &scene.home(),
+        &run(Path::new("h.py"), &[], &[]),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, Code::ToolFailed);
+    assert!(
+        error.message.contains(&format!("{}", MAX_RESULT_BYTES + 1))
+            && error.message.contains(&format!("{MAX_RESULT_BYTES}")),
+        "(result file): expected the limit {MAX_RESULT_BYTES} and the size {} named | received {}",
+        MAX_RESULT_BYTES + 1,
+        error.message
+    );
 }

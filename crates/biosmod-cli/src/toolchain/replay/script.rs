@@ -16,6 +16,9 @@ use std::time::Duration;
 /// Environment variable naming the file `bme_replay.emit` appends to.
 pub const RESULT_ENV: &str = "BME_REPLAY_RESULT";
 
+/// Largest result file bme reads back; a harness that emits more is runaway, not useful.
+pub const MAX_RESULT_BYTES: u64 = 64 * 1024 * 1024;
+
 /// Runs `bme_replay.__main__.main` from the managed package directory. `-I` keeps the working
 /// directory, `PYTHONPATH` and the user site out of the interpreter, so the path argument is
 /// the only way `bme_replay` is found; `-B` (`-I` ignores `PYTHONDONTWRITEBYTECODE`) keeps
@@ -123,6 +126,16 @@ pub(super) fn run_main(
                 what.display(),
                 finished.describe(),
                 finished.tail(2000)
+            ),
+        ));
+    }
+    let size = fs::metadata(&result).map_or(0, |m| m.len());
+    if size > MAX_RESULT_BYTES {
+        return Err(Error::new(
+            Code::ToolFailed,
+            format!(
+                "replay {}: expected a result file of at most {MAX_RESULT_BYTES} bytes | received {size} bytes",
+                what.display()
             ),
         ));
     }
