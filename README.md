@@ -90,6 +90,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 | `compare`, `compare --functions`, `compare --acpi`                 | pair two images' modules by GUID, two `tools analyze` exports by function, or two ACPI namespaces by method |
 | `derive`                                                           | draft a variant for another build by unique signatures        |
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | catalog sources and maintenance                               |
+| `case init/record/status/export`                                   | record an investigation, draft an unknown board, export a submission |
 | `tools status/set/unset/doctor/setup ghidra/analyze/paths`         | see, locate and install Ghidra 12.2 with ghidra-firmware-utils |
 | `diag breadcrumbs decode/read`                                     | MR9A MRC checkpoint diagnostic (read uses ports 72h/73h only) |
 | `diag acpi capture`                                                | hashed bundle of ACPI tables, sleep state and kernel sleep messages with an evidence record (Linux, root) |
@@ -108,7 +109,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 - [Formats](docs/formats.md): supported firmware structures and limits
 - [Setup forms (IFR)](docs/guide/ifr.md): decode questions, offsets and defaults
 - [NVRAM variables](docs/guide/nvram.md): record states, saved defaults and stored Setup values
-- [Protocol](docs/guide/agents.md), [trust](docs/guide/trust.md), [catalogs](docs/guide/catalogs.md), [recovery](docs/guide/recovery.md), [host diagnostics](docs/guide/diagnostics.md)
+- [Protocol](docs/guide/agents.md), [trust](docs/guide/trust.md), [catalogs](docs/guide/catalogs.md), [recovery](docs/guide/recovery.md), [host diagnostics](docs/guide/diagnostics.md), [cases](docs/guide/cases.md)
 - [Linux desktop qualification](docs/linux-desktop-qualification.md): tested environments and limits
 - [Desktop guide](docs/guide/gui.md): Linux setup and build workflow
 - [Contributing](CONTRIBUTING.md), including board and patch submissions

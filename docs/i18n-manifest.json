@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "c6350aa4fc77e96a7a3b933c938c42c87dbd339a320b0d9cca652c461740a08a"
+      "sha256": "53844997e3372660de327078418493eaf78e7b1ec80a33f39021c71f9c15eb2c"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -95,6 +95,11 @@
       "source": "docs/guide/nvram.md",
       "translation": "docs/pt-BR/guide/nvram.md",
       "sha256": "e753007f2a8d5f7edc01bdc4ffdbb34cd60228b5a9247cc8c250e1089bc4b386"
+    },
+    {
+      "source": "docs/guide/cases.md",
+      "translation": "docs/pt-BR/guide/cases.md",
+      "sha256": "74b6ebd802134200a48a1f3149afecd99be79bab917c7c1ea2878cc241a1fc05"
     }
   ]
 }
