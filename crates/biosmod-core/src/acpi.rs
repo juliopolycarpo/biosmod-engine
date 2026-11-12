@@ -286,6 +286,18 @@ fn scan_image(image: &Image, only: Option<Guid>, found: &mut dyn FnMut(TableLoca
     );
 }
 
+/// True when some FFS file, nested ones included, has `guid`.
+fn has_file(image: &Image, guid: Guid) -> bool {
+    let mut present = false;
+    visit_files(
+        &image.volumes,
+        &image.bytes,
+        &mut Vec::new(),
+        &mut |file, _, _| present |= file.guid == guid,
+    );
+    present
+}
+
 /// Fields that narrow a table choice inside one FFS file; unset fields match anything.
 #[derive(Debug, Clone, Default)]
 pub struct TableSelector {
@@ -345,6 +357,12 @@ pub fn select_table(
     guid: Guid,
     selector: &TableSelector,
 ) -> Result<(StoredTable, Vec<u8>)> {
+    if !has_file(image, guid) {
+        return Err(Error::new(
+            Code::TargetNotFound,
+            format!("GUID {guid}: expected an FFS file in the image | received no FFS file"),
+        ));
+    }
     let all = distinct_tables(image, Some(guid));
     let total = all.len();
     let mut picked: Vec<_> = all
@@ -472,6 +490,20 @@ mod tests {
         assert_eq!(in_pe.oem_id, "SYNTH");
         assert_eq!(in_pe.creator_id, "BME");
         assert!(list.notice.contains("not the set the firmware publishes"));
+    }
+
+    #[test]
+    fn select_table_names_a_guid_that_is_not_in_the_image() {
+        let fixture = AcpiInventoryFixture::new();
+        let image = Image::parse(fixture.image.clone()).unwrap();
+        let absent: Guid = "DEADBEEF-0000-4000-8000-000000000001".parse().unwrap();
+        let error = select_table(&image, absent, &TableSelector::default()).unwrap_err();
+        assert_eq!(error.code, Code::TargetNotFound);
+        assert!(
+            error.message.contains(&absent.to_string()) && error.message.contains("no FFS file"),
+            "(absent GUID message): expected the GUID and `no FFS file` | received {}",
+            error.message
+        );
     }
 
     #[test]
