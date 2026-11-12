@@ -1375,3 +1375,509 @@ fn ifr_image_where_every_module_is_broken_fails_with_the_diagnostics() {
         run.stdout
     );
 }
+
+/// An image with the synthetic Setup module and the sample NVAR store; the NVAR store starts
+/// at 0x5060 (see `nvram::tests`).
+fn nvram_sandbox_image(sandbox: &Sandbox, stores: &[Vec<u8>]) -> std::path::PathBuf {
+    use biosmod_core::synthetic::nvram_image;
+    let rom = sandbox.path("nvram.bin");
+    fs::write(&rom, nvram_image(stores)).unwrap();
+    rom
+}
+
+fn variable_rows(doc: &serde_json::Value) -> Vec<(String, String, String)> {
+    doc["data"]["variables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| {
+            (
+                v["store"].as_str().unwrap().to_owned(),
+                v["state"].as_str().unwrap().to_owned(),
+                v["name"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn nvram_lists_active_records_and_history_on_request() {
+    use biosmod_core::synthetic::nvar_sample_store;
+    let sandbox = Sandbox::new();
+    let rom = nvram_sandbox_image(&sandbox, &[nvar_sample_store()]);
+
+    let doc = sandbox.run(["nvram", s(&rom), "--json"]).json();
+    assert_envelope(&doc);
+    assert_eq!(doc["command"], "nvram");
+    let rows = variable_rows(&doc);
+    assert!(
+        rows.iter().all(|(_, state, _)| state == "active"),
+        "(default listing): expected active records only | received {rows:?}"
+    );
+    let names: Vec<&str> = rows.iter().map(|(_, _, name)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["StdDefaults", "Setup", "Setup", "Setup"],
+        "(active names)"
+    );
+    assert_eq!(doc["data"]["records_by_state"]["superseded"], 2);
+    assert_eq!(doc["data"]["records_by_state"]["deleted"], 1);
+    assert_eq!(doc["data"]["records_by_state"]["orphan"], 1);
+    assert_eq!(doc["data"]["stores"][0]["label"], "nvar@0x5060");
+    assert_eq!(doc["data"]["stores"][1]["defaults"], "standard");
+
+    let all = sandbox
+        .run(["nvram", s(&rom), "--all-records", "--json"])
+        .json();
+    let states: Vec<String> = variable_rows(&all).into_iter().map(|(_, s, _)| s).collect();
+    for expected in ["active", "superseded", "deleted", "orphan"] {
+        assert!(
+            states.iter().any(|s| s == expected),
+            "(--all-records): expected a {expected} record in {states:?}"
+        );
+    }
+
+    let text = sandbox.run(["nvram", s(&rom)]);
+    assert_eq!(text.code, 0, "{}", text.stderr);
+    for expected in [
+        "store nvar@0x5060 at 0x5060, 0xfa0 bytes",
+        "store nvar@0x5060:StdDefaults",
+        "EC87D643-EBA4-4BB5-A1E5-3F3E36B20DA9",
+        "4 superseded, deleted, incomplete or orphan records hidden; pass --all-records",
+    ] {
+        assert!(
+            text.stdout.contains(expected),
+            "(nvram text): expected {expected:?} in\n{}",
+            text.stdout
+        );
+    }
+}
+
+#[test]
+fn nvram_filters_by_name_guid_and_store() {
+    use biosmod_core::synthetic::{SETUP_VARSTORE_GUID, nvar_sample_store};
+    let sandbox = Sandbox::new();
+    let rom = nvram_sandbox_image(&sandbox, &[nvar_sample_store()]);
+
+    let by_name = sandbox
+        .run([
+            "nvram",
+            s(&rom),
+            "--name",
+            "Setup",
+            "--all-records",
+            "--json",
+        ])
+        .json();
+    assert_eq!(
+        variable_rows(&by_name).len(),
+        5,
+        "(Setup records in every state and store)"
+    );
+
+    let defaults = sandbox
+        .run(["nvram", s(&rom), "--store", "stddefaults", "--json"])
+        .json();
+    assert!(
+        variable_rows(&defaults)
+            .iter()
+            .all(|(store, _, _)| store.ends_with(":StdDefaults"))
+    );
+    assert_eq!(defaults["data"]["stores"].as_array().unwrap().len(), 1);
+
+    let by_guid = sandbox
+        .run([
+            "nvram",
+            s(&rom),
+            "--store",
+            "StdDefaults",
+            "--guid",
+            &SETUP_VARSTORE_GUID.to_string(),
+            "--json",
+        ])
+        .json();
+    assert_eq!(
+        variable_rows(&by_guid).len(),
+        1,
+        "(one Setup of EC87D643 in the defaults)"
+    );
+
+    let missing = sandbox.run(["nvram", s(&rom), "--store", "vss", "--json"]);
+    assert_eq!(missing.error_code(), "TARGET_NOT_FOUND");
+}
+
+#[test]
+fn nvram_flags_a_size_that_differs_from_the_ifr_variable_store() {
+    use biosmod_core::synthetic::{NvarSpec, SETUP_VARSTORE_GUID, nvar_store};
+    let sandbox = Sandbox::new();
+    let short = nvar_store(
+        &[NvarSpec::Variable {
+            name: "Setup",
+            guid_index: 0,
+            runtime: false,
+            valid: true,
+            data: &[0; 0x30],
+            link: None,
+        }],
+        &[SETUP_VARSTORE_GUID],
+        0xFA0,
+    );
+    let rom = nvram_sandbox_image(&sandbox, &[short]);
+    let text = sandbox.run(["nvram", s(&rom)]);
+    assert!(
+        text.stdout.contains("0x30 (IFR 0x40: MISMATCH)"),
+        "(size check text): expected the stored and declared sizes in\n{}",
+        text.stdout
+    );
+    let doc = sandbox.run(["nvram", s(&rom), "--json"]).json();
+    let setup = &doc["data"]["variables"][0];
+    assert_eq!(
+        (
+            setup["size"].clone(),
+            setup["expected_size"].clone(),
+            setup["size_mismatch"].clone()
+        ),
+        (0x30.into(), 0x40.into(), true.into())
+    );
+}
+
+#[test]
+fn nvram_field_prints_stored_values_next_to_the_ifr_default() {
+    use biosmod_core::synthetic::nvar_sample_store;
+    let sandbox = Sandbox::new();
+    let rom = nvram_sandbox_image(&sandbox, &[nvar_sample_store()]);
+    let text = sandbox.run(["nvram", s(&rom), "--field", "acpi sleep state"]);
+    assert_eq!(text.code, 0, "{}", text.stderr);
+    for expected in [
+        "\"ACPI Sleep State\" (question 0x0019): Setup EC87D643-EBA4-4BB5-A1E5-3F3E36B20DA9 +0xa, 2 byte(s)",
+        "IFR default: standard 0x2, manufacturing 0x2",
+        "nvar@0x5060:StdDefaults  active  standard",
+    ] {
+        assert!(
+            text.stdout.contains(expected),
+            "(field text): expected {expected:?} in\n{}",
+            text.stdout
+        );
+    }
+
+    let history = sandbox
+        .run([
+            "nvram",
+            s(&rom),
+            "--field",
+            "ACPI Sleep State",
+            "--all-records",
+            "--json",
+        ])
+        .json();
+    assert_envelope(&history);
+    let values: Vec<(String, u64, bool)> = history["data"]["field"]["values"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| {
+            (
+                v["state"].as_str().unwrap().to_owned(),
+                v["value"].as_u64().unwrap(),
+                v["equals_default"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        values,
+        [
+            ("superseded".to_owned(), 0, false),
+            ("superseded".to_owned(), 1, false),
+            ("active".to_owned(), 2, true),
+            ("active".to_owned(), 2, true),
+        ],
+        "(sleep word history, then the active and default records)"
+    );
+}
+
+#[test]
+fn nvram_field_refuses_ambiguous_prompts_until_a_question_id_picks_one() {
+    use biosmod_core::synthetic::{ifr_twin_prompt_image, nvar_sample_store};
+    let sandbox = Sandbox::new();
+    let rom = sandbox.path("twin.bin");
+    fs::write(&rom, ifr_twin_prompt_image(&[nvar_sample_store()])).unwrap();
+
+    let ambiguous = sandbox.run(["nvram", s(&rom), "--field", "Twin", "--json"]);
+    assert_eq!(ambiguous.error_code(), "TARGET_AMBIGUOUS");
+    assert!(
+        ambiguous.stdout.contains("0x0030") && ambiguous.stdout.contains("0x0031"),
+        "(ambiguous prompt): expected both question ids in {}",
+        ambiguous.stdout
+    );
+    for id in ["0x31", "49"] {
+        let picked = sandbox
+            .run([
+                "nvram",
+                s(&rom),
+                "--field",
+                "Twin",
+                "--question-id",
+                id,
+                "--json",
+            ])
+            .json();
+        assert_eq!(
+            picked["data"]["field"]["offset"], 0x0C,
+            "(--question-id {id})"
+        );
+    }
+    let bad = sandbox.run([
+        "nvram",
+        s(&rom),
+        "--field",
+        "Twin",
+        "--question-id",
+        "zz",
+        "--json",
+    ]);
+    assert_eq!(bad.error_code(), "USAGE");
+    let unknown = sandbox.run(["nvram", s(&rom), "--field", "No Such Prompt", "--json"]);
+    assert_eq!(unknown.error_code(), "TARGET_NOT_FOUND");
+}
+
+#[test]
+fn nvram_dump_writes_exactly_one_record_and_never_overwrites() {
+    use biosmod_core::synthetic::{nvar_sample_store, setup_payload};
+    let sandbox = Sandbox::new();
+    let rom = nvram_sandbox_image(&sandbox, &[nvar_sample_store()]);
+    let out = sandbox.path("setup.bin");
+    let ambiguous = sandbox.run([
+        "nvram",
+        s(&rom),
+        "--name",
+        "Setup",
+        "--dump",
+        "-o",
+        s(&out),
+        "--json",
+    ]);
+    assert_eq!(ambiguous.error_code(), "TARGET_AMBIGUOUS");
+    assert!(!out.exists(), "(ambiguous dump): expected no output file");
+
+    let run = sandbox
+        .run([
+            "nvram",
+            s(&rom),
+            "--name",
+            "Setup",
+            "--store",
+            "stddefaults",
+            "--guid",
+            "EC87D643-EBA4-4BB5-A1E5-3F3E36B20DA9",
+            "--dump",
+            "-o",
+            s(&out),
+            "--json",
+        ])
+        .json();
+    assert_envelope(&run);
+    assert_eq!(fs::read(&out).unwrap(), setup_payload(2));
+    assert_eq!(run["data"]["length"], 0x40);
+    assert_eq!(
+        run["data"]["sha256"],
+        biosmod_core::util::sha256_hex(&setup_payload(2))
+    );
+    let again = sandbox.run([
+        "nvram",
+        s(&rom),
+        "--name",
+        "Setup",
+        "--store",
+        "stddefaults",
+        "--guid",
+        "EC87D643-EBA4-4BB5-A1E5-3F3E36B20DA9",
+        "--dump",
+        "-o",
+        s(&out),
+        "--json",
+    ]);
+    assert_eq!(
+        again.error_code(),
+        "IO",
+        "(existing output): {}",
+        again.stdout
+    );
+    let none = sandbox.run([
+        "nvram",
+        s(&rom),
+        "--name",
+        "Nope",
+        "--dump",
+        "-o",
+        s(&sandbox.path("x.bin")),
+        "--json",
+    ]);
+    assert_eq!(none.error_code(), "TARGET_NOT_FOUND");
+}
+
+#[test]
+fn nvram_reports_corrupt_records_with_their_offsets() {
+    use biosmod_core::synthetic::{NvarSpec, SETUP_VARSTORE_GUID, nvar_record, nvar_store};
+    let sandbox = Sandbox::new();
+    let mut oversized = nvar_record(0x82, &[0; 8]);
+    oversized[4..6].copy_from_slice(&0x7FFFu16.to_le_bytes());
+    let variable = |name| NvarSpec::Variable {
+        name,
+        guid_index: 0,
+        runtime: false,
+        valid: true,
+        data: &[1],
+        link: None,
+    };
+    let store = nvar_store(
+        &[
+            variable("Before"),
+            NvarSpec::Raw(oversized),
+            variable("After"),
+        ],
+        &[SETUP_VARSTORE_GUID],
+        0xFA0,
+    );
+    let rom = nvram_sandbox_image(&sandbox, &[store]);
+    let doc = sandbox.run(["nvram", s(&rom), "--json"]).json();
+    let names: Vec<String> = variable_rows(&doc).into_iter().map(|(_, _, n)| n).collect();
+    assert_eq!(names, ["Before", "After"], "(records around the damage)");
+    let issue = &doc["data"]["issues"][0];
+    // Store at 0x5060; "Before" is 19 bytes.
+    assert_eq!(issue["offset"], 0x5060 + 19, "(issue offset)");
+    assert!(
+        issue["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("record size: expected 10..="),
+        "(issue message): {issue}"
+    );
+    let text = sandbox.run(["nvram", s(&rom)]);
+    assert!(
+        text.stdout
+            .contains("issue nvar@0x5060 at 0x5073: record size: expected 10..="),
+        "(issue text): {}",
+        text.stdout
+    );
+}
+
+#[test]
+fn nvram_reads_a_bare_vss_store_and_rejects_files_without_one() {
+    use biosmod_core::synthetic::{VssFlavor, VssSpec, vss_store};
+    let sandbox = Sandbox::new();
+    let store = vss_store(
+        VssFlavor::Plain,
+        &[
+            VssSpec::Variable {
+                name: "Boot0000",
+                guid: biosmod_core::util::Guid::constant("8BE4DF61-93CA-11D2-AA0D-00E098032B8C"),
+                attributes: 7,
+                state: 0x3F,
+                data: &[1, 2, 3],
+            },
+            VssSpec::Variable {
+                name: "Boot0000",
+                guid: biosmod_core::util::Guid::constant("8BE4DF61-93CA-11D2-AA0D-00E098032B8C"),
+                attributes: 7,
+                state: 0x3D,
+                data: &[9],
+            },
+        ],
+        0x400,
+    );
+    let path = sandbox.path("vss.bin");
+    fs::write(&path, &store).unwrap();
+    let doc = sandbox
+        .run(["nvram", s(&path), "--all-records", "--json"])
+        .json();
+    assert_envelope(&doc);
+    let rows = variable_rows(&doc);
+    assert_eq!(
+        rows,
+        [
+            (
+                "vss@0x0".to_owned(),
+                "active".to_owned(),
+                "Boot0000".to_owned()
+            ),
+            (
+                "vss@0x0".to_owned(),
+                "deleted".to_owned(),
+                "Boot0000".to_owned()
+            ),
+        ]
+    );
+    assert_eq!(
+        doc["data"]["variables"][0]["flags"],
+        serde_json::json!(["non_volatile", "boot_service", "runtime"])
+    );
+
+    let field = sandbox.run(["nvram", s(&path), "--field", "Anything", "--json"]);
+    assert_eq!(field.error_code(), "USAGE");
+
+    let junk = sandbox.path("junk.bin");
+    fs::write(&junk, vec![0x5A; 512]).unwrap();
+    assert_eq!(
+        sandbox.run(["nvram", s(&junk), "--json"]).error_code(),
+        "TARGET_NOT_FOUND"
+    );
+    let (image, _) = sandbox.synthetic();
+    assert_eq!(
+        sandbox.run(["nvram", s(&image), "--json"]).error_code(),
+        "TARGET_NOT_FOUND"
+    );
+}
+
+#[test]
+fn capabilities_and_guides_list_the_nvram_command() {
+    let sandbox = Sandbox::new();
+    let doc = sandbox.run(["capabilities", "--json"]).json();
+    let names: Vec<&str> = doc["data"]["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"nvram"),
+        "(capabilities commands): expected nvram in {names:?}"
+    );
+    assert!(doc["data"]["formats"]["variable_stores"].is_array());
+    let guide = sandbox.run(["guide", "nvram"]);
+    assert_eq!(guide.code, 0, "{}", guide.stderr);
+    assert!(
+        guide.stdout.contains("bme nvram"),
+        "(guide nvram): {}",
+        guide.stdout
+    );
+}
+
+#[test]
+fn nvram_surfaces_the_ifr_diagnostics_of_a_module_that_failed_to_decode() {
+    use biosmod_core::synthetic::{nvar_sample_store, nvram_volume};
+    let sandbox = Sandbox::new();
+    let rom = sandbox.path("nvram-broken-ifr.bin");
+    let mut image = ifr_image_with_broken_module(true);
+    image.extend(nvram_volume(&nvar_sample_store()));
+    fs::write(&rom, image).unwrap();
+
+    let listing = sandbox.run(["nvram", s(&rom), "--json"]);
+    assert_eq!(listing.code, 0, "{}", listing.stdout);
+    let diagnostics = &listing.json()["data"]["ifr_diagnostics"];
+    assert!(
+        diagnostics[0]["guid"]
+            .as_str()
+            .is_some_and(|g| g.ends_with("0000000000B1")),
+        "(nvram ifr_diagnostics): expected the 0000B1 module | received {diagnostics}"
+    );
+
+    let field = sandbox.run(["nvram", s(&rom), "--field", "ACPI Sleep State"]);
+    assert_eq!(field.code, 0, "{}", field.stdout);
+    assert!(
+        field
+            .stdout
+            .contains("warning: file 00000000-0000-0000-0000-0000000000B1"),
+        "(nvram --field): expected the module warning | received {}",
+        field.stdout
+    );
+}

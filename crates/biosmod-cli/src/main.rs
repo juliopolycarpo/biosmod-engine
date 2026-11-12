@@ -51,6 +51,8 @@ pub enum Command {
     Inspect(InspectArgs),
     /// Decode Setup forms (UEFI IFR): questions, varstore offsets, options, defaults and conditions.
     Ifr(IfrArgs),
+    /// List NVRAM variables (AMI NVAR, EDK II VSS): state, GUID, size, hash; read a Setup field against its default.
+    Nvram(NvramArgs),
     /// Report known defects and patch states for an image.
     Scan(ScanArgs),
     /// Resolve a selection, dry-build it in memory and write a reviewable plan.
@@ -117,6 +119,37 @@ pub struct IfrArgs {
     /// String language to use (default: en-US, else the first present).
     #[arg(long, value_name = "TAG")]
     pub language: Option<String>,
+}
+
+#[derive(Args)]
+pub struct NvramArgs {
+    /// A firmware image (stores are found structurally) or one bare NVAR/VSS store.
+    #[arg(value_name = "ROM|STORE")]
+    pub input: PathBuf,
+    /// Only variables with this exact name.
+    #[arg(long, conflicts_with = "field")]
+    pub name: Option<String>,
+    /// Only variables with this vendor GUID.
+    #[arg(long, conflicts_with = "field")]
+    pub guid: Option<String>,
+    /// Only stores whose label contains this text (`nvar@0x840000`, `StdDefaults`, `vss`).
+    #[arg(long, value_name = "TEXT")]
+    pub store: Option<String>,
+    /// Include superseded (history), deleted and orphan records; default: active only.
+    #[arg(long)]
+    pub all_records: bool,
+    /// Write the data of the one selected record to `--output`.
+    #[arg(long, requires = "output", conflicts_with = "field")]
+    pub dump: bool,
+    /// New file for `--dump`.
+    #[arg(short, long, value_name = "FILE", requires = "dump")]
+    pub output: Option<PathBuf>,
+    /// Setup question prompt: print its stored value in every record next to the IFR default.
+    #[arg(long, value_name = "PROMPT")]
+    pub field: Option<String>,
+    /// Pick one question when a prompt names several (decimal or 0x-prefixed hex).
+    #[arg(long, value_name = "ID", requires = "field")]
+    pub question_id: Option<String>,
 }
 
 #[derive(Args)]
@@ -485,6 +518,7 @@ fn command_name(command: &Command) -> &'static str {
         Command::Guide { .. } => "guide",
         Command::Inspect(_) => "inspect",
         Command::Ifr(_) => "ifr",
+        Command::Nvram(_) => "nvram",
         Command::Scan(_) => "scan",
         Command::Plan(_) => "plan",
         Command::Export(_) => "export",

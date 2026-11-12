@@ -5,6 +5,7 @@ mod diag;
 mod firmware;
 mod ifr;
 mod meta;
+mod nvram;
 
 use crate::config::{Config, Paths, io_error};
 use crate::output::{Out, Reply};
@@ -68,6 +69,7 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Guide { topic } => meta::guide(topic.as_deref()),
         Command::Inspect(args) => firmware::inspect(&args),
         Command::Ifr(args) => ifr::run(&args),
+        Command::Nvram(args) => nvram::run(&args),
         Command::Scan(args) => firmware::scan(&ctx, &args),
         Command::Plan(args) => firmware::plan(&ctx, &args),
         Command::Export(args) => firmware::export(&ctx, &args),
