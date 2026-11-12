@@ -692,3 +692,201 @@ fn source_arguments_rebuild_the_scan_flags() {
         ]
     );
 }
+
+/// The directory `dev synthetic` writes: a real subcommand whose output is a tree.
+fn record_a_directory(workspace: &Workspace) -> (PathBuf, Result<Reply>) {
+    let capture = workspace.path("capture");
+    let reply = workspace.record(&["dev", "synthetic", "-o", capture.to_str().unwrap()], &[]);
+    (capture, reply)
+}
+
+#[test]
+fn record_stores_a_directory_output_tree_with_per_file_digests() {
+    let workspace = Workspace::new();
+    workspace.init();
+    let (capture, reply) = record_a_directory(&workspace);
+    reply.unwrap();
+    let case = workspace.case();
+    let directory = case
+        .artifacts
+        .iter()
+        .find(|a| a.kind == ArtifactKind::Directory)
+        .expect("(case): expected a directory artifact");
+    assert_eq!(directory.id, "003-capture");
+    assert_eq!(directory.path, "artifacts/003-capture");
+    assert!(directory.files.len() > 1, "{:?}", directory.files);
+    assert!(directory.files.iter().any(|f| f.path == "synthetic.bin"));
+    assert!(
+        directory
+            .files
+            .iter()
+            .any(|f| f.path.starts_with("catalog/"))
+    );
+    for file in &directory.files {
+        let stored = fs::read(
+            workspace
+                .path("case/artifacts/003-capture")
+                .join(&file.path),
+        )
+        .unwrap();
+        assert_eq!(file.sha256, Digest256::of(&stored), "{}", file.path);
+        assert_eq!(
+            stored,
+            fs::read(capture.join(&file.path)).unwrap(),
+            "{}",
+            file.path
+        );
+    }
+    let blob = tree_blob(&directory.files);
+    assert_eq!(
+        (directory.sha256, directory.length),
+        (blob.sha256, blob.length)
+    );
+    assert!(
+        workspace.status().is_ok(),
+        "(case): expected clean after record"
+    );
+}
+
+#[test]
+fn status_names_the_changed_missing_and_added_files_of_a_directory() {
+    let workspace = Workspace::new();
+    workspace.init();
+    record_a_directory(&workspace).1.unwrap();
+    let stored = workspace.path("case/artifacts/003-capture");
+    flip_first_byte(&stored.join("synthetic.bin"));
+    let victim = workspace.case().artifacts[2]
+        .files
+        .iter()
+        .find(|f| f.path.starts_with("catalog/"))
+        .unwrap()
+        .path
+        .clone();
+    fs::remove_file(stored.join(&victim)).unwrap();
+    fs::write(stored.join("extra.txt"), b"x").unwrap();
+    let error = workspace.status().unwrap_err();
+    assert_eq!(error.code, Code::CaseDrift, "{error}");
+    assert!(
+        error
+            .message
+            .contains("artifact artifacts/003-capture: changed"),
+        "{error}"
+    );
+    let details = error.details.unwrap();
+    let files = details["artifacts"][2]["files"].as_array().unwrap();
+    let find = |path: &str| {
+        files
+            .iter()
+            .find(|f| f["path"] == path)
+            .map(|f| f["state"].as_str().unwrap().to_string())
+    };
+    assert_eq!(
+        find("synthetic.bin").as_deref(),
+        Some("changed"),
+        "{files:?}"
+    );
+    assert_eq!(find(&victim).as_deref(), Some("missing"), "{files:?}");
+    assert_eq!(find("extra.txt").as_deref(), Some("changed"), "{files:?}");
+}
+
+#[test]
+fn status_reports_a_deleted_directory_artifact_with_every_file_missing() {
+    let workspace = Workspace::new();
+    workspace.init();
+    record_a_directory(&workspace).1.unwrap();
+    fs::remove_dir_all(workspace.path("case/artifacts/003-capture")).unwrap();
+    let error = workspace.status().unwrap_err();
+    assert_eq!(error.code, Code::CaseDrift, "{error}");
+    assert!(error.message.contains("003-capture: missing"), "{error}");
+    let details = error.details.unwrap();
+    let files = details["artifacts"][2]["files"].as_array().unwrap();
+    assert!(!files.is_empty());
+    assert!(files.iter().all(|f| f["state"] == "missing"), "{files:?}");
+}
+
+#[test]
+fn status_text_lists_the_drifted_files() {
+    let workspace = Workspace::new();
+    workspace.init();
+    record_a_directory(&workspace).1.unwrap();
+    assert!(
+        workspace.status().unwrap().text.contains("003-capture"),
+        "(status text): expected the directory artifact listed"
+    );
+    flip_first_byte(&workspace.path("case/artifacts/003-capture/synthetic.bin"));
+    let error = workspace.status().unwrap_err();
+    assert!(error.message.contains("003-capture"), "{error}");
+}
+
+#[test]
+fn export_accepts_a_case_holding_a_directory_artifact() {
+    let workspace = Workspace::new();
+    workspace.init();
+    record_a_directory(&workspace).1.unwrap();
+    workspace.export("submission").unwrap();
+}
+
+#[test]
+fn tree_files_lists_sorted_relative_paths_with_digests() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("tables")).unwrap();
+    fs::write(dir.path().join("b.bin"), b"bb").unwrap();
+    fs::write(dir.path().join("tables/DSDT.aml"), b"dsdt").unwrap();
+    let files = tree_files(dir.path(), true).unwrap();
+    let names: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(names, ["b.bin", "tables/DSDT.aml"]);
+    assert_eq!(files[1].sha256, Digest256::of(b"dsdt"));
+    assert_eq!(files[1].length, 4);
+}
+
+#[test]
+fn tree_files_refuses_unsafe_names_when_strict_and_flags_them_when_lenient() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("ok.bin"), b"1").unwrap();
+    fs::write(dir.path().join("has space.bin"), b"2").unwrap();
+    let error = tree_files(dir.path(), true).unwrap_err();
+    assert_eq!(error.code, Code::Usage, "{error}");
+    assert!(error.message.contains("has space.bin"), "{error}");
+    let lenient = tree_files(dir.path(), false).unwrap();
+    let odd = lenient.iter().find(|f| f.path == "has space.bin").unwrap();
+    assert_eq!(odd.sha256, Digest256([0; 32]), "{lenient:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn tree_files_refuses_symbolic_links_when_strict_and_flags_them_when_lenient() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("real.bin"), b"1").unwrap();
+    std::os::unix::fs::symlink("real.bin", dir.path().join("link.bin")).unwrap();
+    let error = tree_files(dir.path(), true).unwrap_err();
+    assert_eq!(error.code, Code::Usage, "{error}");
+    assert!(error.message.contains("link.bin"), "{error}");
+    let lenient = tree_files(dir.path(), false).unwrap();
+    let link = lenient.iter().find(|f| f.path == "link.bin").unwrap();
+    assert_eq!(link.sha256, Digest256([0; 32]), "{lenient:?}");
+}
+
+#[test]
+fn copy_tree_reproduces_nested_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    fs::create_dir_all(source.join("a/b")).unwrap();
+    fs::write(source.join("a/b/c.bin"), b"deep").unwrap();
+    fs::write(source.join("top.bin"), b"top").unwrap();
+    let target = dir.path().join("target");
+    copy_tree(&source, &target).unwrap();
+    assert_eq!(fs::read(target.join("a/b/c.bin")).unwrap(), b"deep");
+    assert_eq!(
+        tree_files(&source, true).unwrap(),
+        tree_files(&target, true).unwrap()
+    );
+}
+
+#[test]
+fn observe_tree_is_none_for_a_missing_path_or_a_plain_file() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("file.bin"), b"1").unwrap();
+    assert!(observe_tree(&dir.path().join("absent")).is_none());
+    assert!(observe_tree(&dir.path().join("file.bin")).is_none());
+    assert!(observe_tree(dir.path()).is_some());
+}

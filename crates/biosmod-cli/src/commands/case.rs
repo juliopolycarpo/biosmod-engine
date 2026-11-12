@@ -16,8 +16,9 @@ use crate::{
     ScanArgs, SourceArgs,
 };
 use biosmod_core::case::{
-    ARTIFACT_DIRECTORY, Artifact, ArtifactKind, CASE_SCHEMA, Case, CaseInput, CaseStatus,
-    CatalogSnapshot, Current, FindingRef, Verdict, status, submission_files, utc_timestamp,
+    ARTIFACT_DIRECTORY, Artifact, ArtifactFile, ArtifactKind, CASE_SCHEMA, Case, CaseInput,
+    CaseStatus, CatalogSnapshot, Current, FindingRef, Verdict, status, submission_files, tree_blob,
+    tree_changes, utc_timestamp,
 };
 use biosmod_core::catalog::{Board, Finding};
 use biosmod_core::draft::{DraftRequest, FirmwareDraft, draft, draft_finding};
@@ -533,27 +534,31 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
         catalogs: catalogs.clone(),
         inputs: inputs.clone(),
         recorded: recorded.clone(),
-        files: vec![],
+        files: Vec::new(),
     };
     let mut artifacts = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
     // Gather what to store before writing anything, so a bad output never leaves half a record.
-    let mut copies: Vec<(PathBuf, String)> = Vec::new();
+    let mut copies: Vec<(PathBuf, String, bool)> = Vec::new();
     for path in &outputs {
         match fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.is_file() => {
+            Ok(metadata) if metadata.is_file() || metadata.is_dir() => {
                 let id = format!(
                     "{:03}-{}",
                     first + 1 + copies.len() as u32,
                     artifact_file_name(&file_name(path)?)
                 );
-                copies.push((path.clone(), id));
+                if metadata.is_dir() {
+                    // Validate the whole tree now; nothing has been written to the case yet.
+                    tree_files(path, true)?;
+                }
+                copies.push((path.clone(), id, metadata.is_dir()));
             }
             Ok(_) => {
                 return Err(Error::new(
                     Code::Usage,
                     format!(
-                        "{}: expected a file | received a directory or special file; name its files with --artifact",
+                        "{}: expected a file or directory | received a symbolic link or special file",
                         path.display()
                     ),
                 ));
@@ -573,7 +578,7 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
         ArtifactKind::Output,
         Blob::of(&document),
     ));
-    for (source, id) in copies {
+    for (source, id, is_directory) in copies {
         let path = format!("{ARTIFACT_DIRECTORY}/{id}");
         let target = args.dir.join(&path);
         if target.exists() {
@@ -582,8 +587,17 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
                 format!("{}: already exists", target.display()),
             ));
         }
-        fs::copy(&source, &target).map_err(|e| io_error(&source, e))?;
-        artifacts.push(describe(id, path, ArtifactKind::File, hash_file(&target)?));
+        if is_directory {
+            copy_tree(&source, &target)?;
+            // Describe what was stored, not what the command left behind.
+            let files = tree_files(&target, true)?;
+            let mut artifact = describe(id, path, ArtifactKind::Directory, tree_blob(&files));
+            artifact.files = files;
+            artifacts.push(artifact);
+        } else {
+            fs::copy(&source, &target).map_err(|e| io_error(&source, e))?;
+            artifacts.push(describe(id, path, ArtifactKind::File, hash_file(&target)?));
+        }
     }
     for note in &skipped {
         ctx.out.note(format!(
@@ -685,17 +699,106 @@ fn locate_inputs(
         .collect())
 }
 
-/// Digests of the artifacts as stored, `None` for a missing or non-regular file.
+/// Digests of the artifacts as stored, `None` for a missing or wrong-typed path.
+///
+/// A directory artifact digests as `tree_blob` of the files found in it.
 fn observe_artifacts(case: &Case, directory: &Path) -> BTreeMap<String, Option<Blob>> {
     case.artifacts
         .iter()
         .map(|artifact| {
             let path = directory.join(&artifact.path);
-            let regular = fs::symlink_metadata(&path).is_ok_and(|m| m.is_file());
-            let blob = regular.then(|| hash_file(&path).ok()).flatten();
+            let blob = if artifact.kind == ArtifactKind::Directory {
+                observe_tree(&path).map(|files| tree_blob(&files))
+            } else {
+                let regular = fs::symlink_metadata(&path).is_ok_and(|m| m.is_file());
+                regular.then(|| hash_file(&path).ok()).flatten()
+            };
             (artifact.path.clone(), blob)
         })
         .collect()
+}
+
+/// The files found in a stored directory artifact, `None` when it is not a directory.
+fn observe_tree(path: &Path) -> Option<Vec<ArtifactFile>> {
+    let is_directory = fs::symlink_metadata(path).is_ok_and(|m| m.is_dir());
+    is_directory.then(|| tree_files(path, false).ok()).flatten()
+}
+
+/// Every file under `root`, sorted by `/`-separated relative path, with its digest.
+///
+/// A `strict` walk (recording) fails on symbolic links, special files and names outside
+/// `[A-Za-z0-9._-]`, so a case never holds something it cannot verify. A lenient walk
+/// (checking) lists such entries with an all-zero digest so they show up as drift.
+///
+/// Example: a directory holding `tables/DSDT.aml` yields one entry, `tables/DSDT.aml`.
+fn tree_files(root: &Path, strict: bool) -> Result<Vec<ArtifactFile>> {
+    let mut files = Vec::new();
+    let mut pending = vec![(root.to_path_buf(), String::new())];
+    while let Some((directory, prefix)) = pending.pop() {
+        let entries = fs::read_dir(&directory).map_err(|e| io_error(&directory, e))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| io_error(&directory, e))?;
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let relative = format!("{prefix}{name}");
+            let metadata = fs::symlink_metadata(&path).map_err(|e| io_error(&path, e))?;
+            let safe = !name.starts_with('.')
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+            if strict && !safe {
+                return Err(Error::new(
+                    Code::Usage,
+                    format!(
+                        "{}: expected file names of [A-Za-z0-9._-] not starting with a dot | received {name:?}",
+                        path.display()
+                    ),
+                ));
+            }
+            if metadata.is_dir() && safe {
+                pending.push((path, format!("{relative}/")));
+            } else if metadata.is_file() && safe {
+                let blob = hash_file(&path)?;
+                files.push(ArtifactFile {
+                    path: relative,
+                    sha256: blob.sha256,
+                    length: blob.length,
+                });
+            } else if strict {
+                return Err(Error::new(
+                    Code::Usage,
+                    format!(
+                        "{}: expected a regular file or directory | received a symbolic link or special file",
+                        path.display()
+                    ),
+                ));
+            } else {
+                files.push(ArtifactFile {
+                    path: relative,
+                    sha256: Digest256([0; 32]),
+                    length: 0,
+                });
+            }
+        }
+    }
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(files)
+}
+
+/// Copy a directory tree that `tree_files(source, true)` accepted.
+///
+/// Example: `copy_tree(Path::new("capture"), Path::new("case/artifacts/002-capture"))`.
+fn copy_tree(source: &Path, target: &Path) -> Result<()> {
+    fs::create_dir_all(target).map_err(|e| io_error(target, e))?;
+    for file in tree_files(source, true)? {
+        let from = source.join(&file.path);
+        let to = target.join(&file.path);
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
+        }
+        fs::copy(&from, &to).map_err(|e| io_error(&from, e))?;
+    }
+    Ok(())
 }
 
 fn status_text(case: &Case, report: &CaseStatus) -> String {
@@ -715,6 +818,14 @@ fn status_text(case: &Case, report: &CaseStatus) -> String {
             artifact.path,
             artifact.state.label()
         );
+        for file in &artifact.files {
+            let _ = writeln!(
+                text,
+                "            file {:<23} {}",
+                file.path,
+                file.state.label()
+            );
+        }
         for reason in &artifact.stale {
             let _ = writeln!(text, "            stale: {reason}");
         }
@@ -774,6 +885,12 @@ fn case_status(ctx: &Ctx, args: &CaseStatusArgs) -> Result<Reply> {
             catalogs: &current,
         },
     );
+    for (artifact, recorded) in report.artifacts.iter_mut().zip(&case.artifacts) {
+        if artifact.state != Verdict::Verified && recorded.kind == ArtifactKind::Directory {
+            let found = observe_tree(&args.dir.join(&recorded.path)).unwrap_or_default();
+            artifact.files = tree_changes(&recorded.files, &found);
+        }
+    }
     report.findings = case_findings(&args.dir)?
         .into_iter()
         .map(|f| FindingRef {
