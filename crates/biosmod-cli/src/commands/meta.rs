@@ -125,7 +125,7 @@ pub fn capabilities() -> Reply {
         "documents": schema::NAMES.iter().map(|(name, id)| json!({"name": name, "schema": id})).collect::<Vec<_>>(),
         "formats": {
             "containers": ["Intel flash descriptor images", "bare BIOS regions", "EFI firmware volumes (FFS2/FFS3)"],
-            "sections": ["FV image", "GUID-defined LZMA (EE4E5898)", "GUID-defined CRC32 (FC1BCDB2)", "compression section type 01 (EFI 1.1 and Tiano, decode only)", "GUID-defined Brotli (3D532050, decode only)", "GUID-defined LZMA F86 (D42AE6BD, decode only)", "PE32", "TE", "raw", "UI"],
+            "sections": ["FV image", "GUID-defined LZMA (EE4E5898)", "GUID-defined CRC32 (FC1BCDB0)", "compression section type 01 (EFI 1.1 and Tiano, decode only)", "GUID-defined Brotli (3D532050, decode only)", "GUID-defined LZMA F86 (D42AE6BD, decode only)", "PE32", "TE", "raw", "UI"],
             "leaves": ["pe32", "acpi-table"],
             "variable_stores": ["AMI NVAR (records, chains, GUID table, StdDefaults/MfgDefaults)", "EDK II VSS/VSS2 and $VSS (plain and authenticated headers); read-only"],
             "acpi_inventory": "checksum-valid ACPI tables in PE32, TE and raw sections (stored set, not the runtime-published set)",

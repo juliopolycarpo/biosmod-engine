@@ -627,6 +627,20 @@ fn capabilities_list_decode_only_encodings() {
 }
 
 #[test]
+fn capabilities_name_the_crc32_guid_the_parser_matches() {
+    let sandbox = Sandbox::new();
+    let formats = sandbox.run(["capabilities", "--json"]).json()["data"]["formats"].clone();
+    let sections = formats["sections"].to_string();
+    assert!(
+        sections.contains(&format!(
+            "CRC32 ({})",
+            &biosmod_core::firmware::CRC32_GUID.to_string()[..8]
+        )),
+        "(sections): expected the CRC32 GUID prefix of CRC32_GUID | received {sections}"
+    );
+}
+
+#[test]
 fn local_sources_and_breadcrumbs() {
     let sandbox = Sandbox::new();
     let (image, catalog) = sandbox.synthetic();
