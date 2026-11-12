@@ -2,8 +2,8 @@
 
 use biosmod_core::case::{
     ARTIFACT_DIRECTORY, Artifact, ArtifactFile, ArtifactKind, CASE_SCHEMA, Case, CaseInput,
-    CatalogSnapshot, Current, Verdict, bounded_id, evidence_id, status, submission_files,
-    tree_blob, tree_changes, utc_timestamp,
+    CatalogSnapshot, Current, Verdict, bounded_id, evidence_id, evidence_record, public_command,
+    public_text, public_value, status, submission_files, tree_blob, tree_changes, utc_timestamp,
 };
 use biosmod_core::catalog::{Catalog, FindingStatus, MemorySource, RevisionStatus, Scope};
 use biosmod_core::draft::{
@@ -677,6 +677,126 @@ fn input_names_must_be_single_path_components() {
             "(artifact input name {bad:?}): expected the artifact and value named | received {error}"
         );
     }
+}
+
+fn words(list: &[&str]) -> Vec<String> {
+    list.iter().map(|w| w.to_string()).collect()
+}
+
+#[test]
+fn public_command_keeps_only_base_names_of_path_tokens() {
+    let argv = words(&[
+        "extract",
+        "/home/someone/dumps/dump.bin",
+        "--guid",
+        "AAAA",
+        "-o",
+        "work/out/module.pe",
+        "--select",
+        "B01-B06",
+    ]);
+    assert_eq!(
+        public_command(&argv),
+        words(&[
+            "extract",
+            "dump.bin",
+            "--guid",
+            "AAAA",
+            "-o",
+            "module.pe",
+            "--select",
+            "B01-B06"
+        ])
+    );
+}
+
+#[test]
+fn public_command_splits_flag_equals_path_on_the_first_equals() {
+    let argv = words(&[
+        "scan",
+        "--output=/tmp/x/out.json",
+        "--catalog=/srv/cat=1/local",
+        "--note=a=b",
+        "C:\\Users\\me\\dump.bin",
+    ]);
+    assert_eq!(
+        public_command(&argv),
+        words(&[
+            "scan",
+            "--output=out.json",
+            "--catalog=local",
+            "--note=a=b",
+            "dump.bin"
+        ])
+    );
+}
+
+#[test]
+fn public_command_leaves_flags_and_plain_words_alone() {
+    let argv = words(&["scan", "--json", "-q", "dump.bin", "--allow-unsigned-local"]);
+    assert_eq!(public_command(&argv), argv);
+    assert_eq!(public_command(&words(&["/"])), words(&["/"]));
+}
+
+#[test]
+fn public_text_replaces_absolute_paths_inside_messages() {
+    assert_eq!(
+        public_text("/tmp/run1/out.bin: output exists"),
+        "out.bin: output exists"
+    );
+    assert_eq!(
+        public_text("read \"/home/me/dump.bin\", then C:\\x\\y.bin (/tmp/z)"),
+        "read \"dump.bin\", then y.bin (z)"
+    );
+    assert_eq!(
+        public_text("relative/path.bin and 12/02/2022"),
+        "relative/path.bin and 12/02/2022"
+    );
+    assert_eq!(public_text("no paths here"), "no paths here");
+}
+
+#[test]
+fn public_value_scrubs_every_string_but_not_keys_or_numbers() {
+    let value = serde_json::json!({
+        "input": {"path": "/home/me/dump.bin", "length": 4},
+        "/home/key": ["/tmp/a/b.bin", "plain", 7, null],
+        "message": "failed: /var/tmp/c.bin"
+    });
+    assert_eq!(
+        public_value(&value),
+        serde_json::json!({
+            "input": {"path": "dump.bin", "length": 4},
+            "/home/key": ["b.bin", "plain", 7, null],
+            "message": "failed: c.bin"
+        })
+    );
+}
+
+#[test]
+fn evidence_shows_flag_equals_paths_as_flag_and_base_name() {
+    let mut recorded = artifact("002-extract", 5);
+    recorded.command = words(&[
+        "extract",
+        "/home/me/dump.bin",
+        "--output=/tmp/x/module.pe",
+        "-o",
+        "C:\\out\\m.bin",
+    ]);
+    let case = case_with(vec![recorded.clone()]);
+    let evidence = evidence_record(&case, &recorded, "draft-board", "fw-1");
+    let expected = "command: bme extract dump.bin --output=module.pe -o m.bin";
+    assert!(
+        evidence.observations.iter().any(|o| o == expected),
+        "(evidence observations): expected {expected:?} | received {:?}",
+        evidence.observations
+    );
+    assert!(
+        evidence
+            .title
+            .ends_with("bme extract dump.bin --output=module.pe -o m.bin (unreviewed)"),
+        "{}",
+        evidence.title
+    );
 }
 
 #[test]

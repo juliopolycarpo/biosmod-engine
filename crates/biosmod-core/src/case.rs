@@ -506,6 +506,116 @@ pub fn status(
     }
 }
 
+/// The last component of a `/` or `\` separated path; the whole text when nothing is left.
+fn base_name(path: &str) -> &str {
+    let trimmed = path.trim_end_matches(['/', '\\']);
+    match trimmed.rsplit(['/', '\\']).next() {
+        Some(base) if !base.is_empty() => base,
+        _ => path,
+    }
+}
+
+/// A command line without the locations of the machine it ran on.
+///
+/// Every word that holds a path separator, and the value of every `--flag=value`
+/// word (split on the first `=`), is cut down to its base name. Flags and plain words
+/// stay as they are, so the line still says what ran.
+///
+/// Example: `scan /home/me/dump.bin --output=/tmp/o.json` becomes
+/// `scan dump.bin --output=o.json`.
+/// ```
+/// use biosmod_core::case::public_command;
+/// let argv: Vec<String> = ["scan", "/home/me/dump.bin", "--output=/tmp/o.json"]
+///     .iter().map(|w| w.to_string()).collect();
+/// assert_eq!(public_command(&argv), ["scan", "dump.bin", "--output=o.json"]);
+/// ```
+pub fn public_command(argv: &[String]) -> Vec<String> {
+    let separated = |text: &str| text.contains(['/', '\\']);
+    argv.iter()
+        .map(|word| match word.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => {
+                if separated(value) {
+                    format!("{flag}={}", base_name(value))
+                } else {
+                    word.clone()
+                }
+            }
+            _ if separated(word) => base_name(word).to_string(),
+            _ => word.clone(),
+        })
+        .collect()
+}
+
+/// Whether `text` is an absolute path: `/x`, `\\host\x` or `C:\x`.
+fn is_absolute_path(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    (bytes.len() > 1 && bytes[0] == b'/' && bytes[1] != b'/')
+        || text.starts_with("\\\\")
+        || (bytes.len() > 2
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'/' | b'\\'))
+}
+
+/// A message with each absolute path in it reduced to its base name.
+///
+/// Words are split on whitespace, quotes, brackets and trailing punctuation are left in
+/// place, and paths that contain spaces are only cut at the first space.
+///
+/// Example: `/tmp/run/out.bin: output exists` becomes `out.bin: output exists`.
+/// ```
+/// use biosmod_core::case::public_text;
+/// assert_eq!(public_text("/tmp/run/out.bin: output exists"), "out.bin: output exists");
+/// ```
+pub fn public_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let flush = |word: &str, out: &mut String| {
+        let start = word.len() - word.trim_start_matches(['"', '\'', '(', '[', '<']).len();
+        let end = word
+            .trim_end_matches(['"', '\'', ')', ']', '>', ',', ';', ':', '.'])
+            .len();
+        if start < end && is_absolute_path(&word[start..end]) {
+            out.push_str(&word[..start]);
+            out.push_str(base_name(&word[start..end]));
+            out.push_str(&word[end..]);
+        } else {
+            out.push_str(word);
+        }
+    };
+    let mut word_start = 0;
+    for (index, c) in text.char_indices() {
+        if c.is_whitespace() {
+            flush(&text[word_start..index], &mut out);
+            out.push(c);
+            word_start = index + c.len_utf8();
+        }
+    }
+    flush(&text[word_start..], &mut out);
+    out
+}
+
+/// A JSON document with `public_text` applied to every string value; keys stay as they are.
+///
+/// Example: `{"input": "/home/me/dump.bin"}` becomes `{"input": "dump.bin"}`.
+/// ```
+/// use biosmod_core::case::public_value;
+/// let value = serde_json::json!({"input": "/home/me/dump.bin", "length": 4});
+/// assert_eq!(public_value(&value), serde_json::json!({"input": "dump.bin", "length": 4}));
+/// ```
+pub fn public_value(value: &serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match value {
+        Value::String(text) => Value::String(public_text(text)),
+        Value::Array(items) => Value::Array(items.iter().map(public_value).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, item)| (key.clone(), public_value(item)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 /// Format Unix seconds as `YYYY-MM-DDTHH:MM:SSZ`.
 ///
 /// Example: `utc_timestamp(0)` is `"1970-01-01T00:00:00Z"`.
@@ -551,18 +661,6 @@ pub fn evidence_id(case_id: &str, artifact_id: &str) -> String {
     bounded_id(case_id, artifact_id)
 }
 
-/// A command shown without directories, so published evidence names no local paths.
-fn public_command(command: &[String]) -> String {
-    command
-        .iter()
-        .map(|token| match token.rsplit(['/', '\\']).next() {
-            Some(name) if token.contains(['/', '\\']) && !name.is_empty() => name.to_string(),
-            _ => token.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 /// Turn one artifact into an unreviewed evidence record for `board` and `firmware`.
 ///
 /// Example: `evidence_record(&case, &case.artifacts[0], "draft-x", "fw-1")`.
@@ -578,7 +676,7 @@ pub fn evidence_record(case: &Case, artifact: &Artifact, board: &str, firmware: 
         date: artifact.recorded.chars().take(10).collect(),
         title: format!(
             "DRAFT: bme {} (unreviewed)",
-            public_command(&artifact.command)
+            public_command(&artifact.command).join(" ")
         ),
         board: board.into(),
         firmware: firmware.into(),
@@ -587,7 +685,10 @@ pub fn evidence_record(case: &Case, artifact: &Artifact, board: &str, firmware: 
         image_sha256: image.map(|i| i.sha256),
         built_with: Some(format!("bme {}", artifact.bme_version)),
         observations: vec![
-            format!("command: bme {}", public_command(&artifact.command)),
+            format!(
+                "command: bme {}",
+                public_command(&artifact.command).join(" ")
+            ),
             format!(
                 "artifact {} sha256 {} ({} bytes), recorded {}",
                 artifact.path, artifact.sha256, artifact.length, artifact.recorded
