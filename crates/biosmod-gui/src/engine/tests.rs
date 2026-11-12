@@ -1237,3 +1237,46 @@ fn dismissed_authorization_is_a_definite_refusal() {
         "{missing}"
     );
 }
+
+#[test]
+fn tool_requests_name_the_tool_and_only_the_install_goes_online() {
+    let cwd = Path::new("/tmp");
+    let words = |request: &Request| -> Vec<String> {
+        request
+            .args(cwd)
+            .unwrap()
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    };
+    assert_eq!(
+        words(&Request::ToolsStatus),
+        ["tools", "status", "--json", "--offline"]
+    );
+    assert_eq!(
+        words(&Request::ToolsSet {
+            tool: LocatableTool::Flashrom,
+            path: "/opt/fr/flashrom".into()
+        }),
+        [
+            "tools",
+            "set",
+            "flashrom",
+            "/opt/fr/flashrom",
+            "--json",
+            "--offline"
+        ]
+    );
+    assert_eq!(
+        words(&Request::ToolsUnset {
+            tool: LocatableTool::Ghidra
+        }),
+        ["tools", "unset", "ghidra", "--json", "--offline"]
+    );
+    let install = Request::ToolsSetupGhidra;
+    assert_eq!(words(&install), ["tools", "setup", "ghidra", "--json"]);
+    assert!(!install.uninterruptible(), "a download must be cancellable");
+    let default = Duration::from_secs(120);
+    assert_eq!(install.timeout(default), Duration::from_secs(2 * 60 * 60));
+    assert_eq!(Request::ToolsStatus.timeout(default), default);
+}

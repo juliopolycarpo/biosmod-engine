@@ -928,3 +928,16 @@ fn active_target_and_retained_backup_are_both_preserved() {
     assert_eq!(fs::read(backup.join("old")).unwrap(), b"old");
     assert_eq!(fs::read(staged.join("next")).unwrap(), b"next");
 }
+
+#[test]
+fn tools_paths_reports_a_relative_flashrom_override_as_an_absolute_path() {
+    // The desktop app hands this path to pkexec, which starts root in another directory.
+    let get = |key: &str| (key == crate::flash::FLASHROM_OVERRIDE).then(|| "bin/flashrom".into());
+    let location = flashrom_location(&get, None).unwrap();
+    let path = location["path"].as_str().unwrap_or_default();
+    assert!(
+        Path::new(path).is_absolute() && path.ends_with("bin/flashrom"),
+        "(tools paths, BME_FLASHROM=bin/flashrom): expected an absolute path ending in bin/flashrom | received {location}"
+    );
+    assert_eq!(location["origin"], crate::flash::FLASHROM_OVERRIDE);
+}

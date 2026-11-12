@@ -2,7 +2,7 @@
 //! through `FakeFlashChip` and system facts come from a `FakeSysfs` directory tree.
 
 use super::flashrom::{
-    layout_text, parse_chips, parse_version, validate_chip, validate_programmer,
+    FlashromOrigin, layout_text, parse_chips, parse_version, validate_chip, validate_programmer,
 };
 use super::host::{board_matches, describe_chip};
 use super::*;
@@ -210,6 +210,7 @@ fn env<'a>(chip: &'a FakeFlashChip, host: Host) -> Env<'a> {
         runner: chip,
         host,
         flashrom: Some(PathBuf::from("/usr/sbin/flashrom")),
+        flashrom_flag: None,
         out: Out {
             json: true,
             quiet: true,
@@ -234,6 +235,7 @@ fn target_args(programmer: &str) -> FlashTargetArgs {
     FlashTargetArgs {
         programmer: programmer.into(),
         chip: None,
+        flashrom: None,
     }
 }
 
@@ -416,18 +418,32 @@ fn command_lines_name_programmer_chip_and_regions() {
 }
 
 #[test]
-fn flashrom_is_found_by_override_then_path() {
+fn flashrom_is_found_by_override_then_config_then_path() {
     let directory = tempfile::tempdir().unwrap();
     let name = format!("flashrom{}", std::env::consts::EXE_SUFFIX);
     fs::write(directory.path().join(&name), "").unwrap();
     let path = directory.path().as_os_str().to_os_string();
-    let from_path = locate_flashrom(&|key| (key == "PATH").then(|| path.clone()));
-    assert_eq!(from_path, Some(directory.path().join(&name)));
-    let overridden = locate_flashrom(&|key| match key {
+    let configured = Path::new("/opt/configured/flashrom");
+    let on_path = |key: &str| (key == "PATH").then(|| path.clone());
+    assert_eq!(
+        resolve_flashrom(&on_path, None),
+        Some((directory.path().join(&name), FlashromOrigin::Path)),
+        "PATH lookup"
+    );
+    assert_eq!(
+        resolve_flashrom(&on_path, Some(configured)),
+        Some((configured.to_path_buf(), FlashromOrigin::Config)),
+        "configuration beats PATH"
+    );
+    let overridden = |key: &str| match key {
         "BME_FLASHROM" => Some("/opt/flashrom".into()),
         _ => Some(path.clone()),
-    });
-    assert_eq!(overridden, Some(PathBuf::from("/opt/flashrom")));
+    };
+    assert_eq!(
+        resolve_flashrom(&overridden, Some(configured)),
+        Some((PathBuf::from("/opt/flashrom"), FlashromOrigin::Environment)),
+        "BME_FLASHROM beats configuration"
+    );
 }
 
 #[test]
@@ -630,6 +646,7 @@ fn chip_commands_are_refused_outside_linux() {
         &env,
         FlashCommand::Doctor {
             programmer: "internal".into(),
+            flashrom: None,
         },
     )
     .unwrap();
@@ -1021,5 +1038,239 @@ fn unprivileged_backups_keep_their_owner() {
         reply.data["owner_uid"],
         Value::Null,
         "(owner): expected no ownership change without root"
+    );
+}
+
+fn executable_file(directory: &Path, name: &str, mode: u32) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let path = directory.join(name);
+    std::fs::write(&path, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+    path
+}
+
+#[test]
+fn root_runs_only_an_absolute_regular_file_nobody_else_can_write() {
+    let directory = tempfile::tempdir().unwrap();
+    let good = executable_file(directory.path(), "flashrom", 0o755);
+    super::flashrom::validate_privileged_flashrom(&good).unwrap();
+
+    let writable = executable_file(directory.path(), "loose", 0o757);
+    let error = super::flashrom::validate_privileged_flashrom(&writable).unwrap_err();
+    assert!(
+        error.message.contains("mode 757") && error.message.contains("loose"),
+        "(root flashrom): expected the mode and path of a world-writable file | received {}",
+        error.message
+    );
+    let error =
+        super::flashrom::validate_privileged_flashrom(Path::new("relative/flashrom")).unwrap_err();
+    assert!(error.message.contains("not absolute"), "{}", error.message);
+    let error = super::flashrom::validate_privileged_flashrom(directory.path()).unwrap_err();
+    assert!(
+        error.message.contains("not a regular file"),
+        "{}",
+        error.message
+    );
+}
+
+#[test]
+fn shell_words_quote_only_what_the_shell_would_split() {
+    use super::flashrom::shell_word;
+    assert_eq!(
+        shell_word(Path::new("/opt/fr/flashrom")),
+        "/opt/fr/flashrom"
+    );
+    assert_eq!(
+        shell_word(Path::new("/opt/my tools/fr")),
+        "'/opt/my tools/fr'"
+    );
+    assert_eq!(shell_word(Path::new("/o'k/fr")), "'/o'\\''k/fr'");
+}
+
+#[test]
+fn a_relative_flashrom_is_repeated_as_an_absolute_path_for_root() {
+    let from_environment = |key: &str| (key == "BME_FLASHROM").then(|| "bin/flashrom".into());
+    let (path, flag) = choose_flashrom(false, None, &from_environment, None).unwrap();
+    assert_eq!(path, Some(PathBuf::from("bin/flashrom")));
+    let flag = flag.expect("(BME_FLASHROM): expected a repeated flag | received none");
+    assert!(
+        flag.is_absolute() && flag.ends_with("bin/flashrom"),
+        "(BME_FLASHROM bin/flashrom): expected an absolute flag that root accepts | received {}",
+        flag.display()
+    );
+    let typed = PathBuf::from("bin/flashrom");
+    let (_, flag) = choose_flashrom(false, Some(&typed), &no_variables, None).unwrap();
+    assert!(
+        flag.as_deref().is_some_and(Path::is_absolute),
+        "(--flashrom bin/flashrom): expected an absolute flag | received {flag:?}"
+    );
+}
+
+#[test]
+fn saved_and_typed_flashrom_paths_are_both_repeated_for_root() {
+    let directory = tempfile::tempdir().unwrap();
+    let saved = executable_file(directory.path(), "saved-flashrom", 0o755);
+    let typed = executable_file(directory.path(), "typed-flashrom", 0o755);
+
+    let (path, flag) = choose_flashrom(false, None, &no_variables, Some(&saved)).unwrap();
+    assert_eq!(
+        (path, flag),
+        (Some(saved.clone()), Some(saved.clone())),
+        "(saved flashrom): expected the saved path and a flag that repeats it"
+    );
+    let (path, flag) = choose_flashrom(false, Some(&typed), &no_variables, Some(&saved)).unwrap();
+    assert_eq!((path, flag), (Some(typed.clone()), Some(typed.clone())));
+    let (path, flag) = choose_flashrom(false, None, &no_variables, None).unwrap();
+    assert_eq!(
+        flag, None,
+        "(path lookup): expected no flag for a PATH result, path {path:?}"
+    );
+}
+
+#[test]
+fn root_refuses_a_loose_flashrom_before_running_anything() {
+    let directory = tempfile::tempdir().unwrap();
+    let loose = executable_file(directory.path(), "flashrom", 0o777);
+    let error = choose_flashrom(true, Some(&loose), &no_variables, None).unwrap_err();
+    assert!(error.message.contains("mode 777"), "{}", error.message);
+    let from_environment = {
+        let value = loose.clone().into_os_string();
+        move |key: &str| (key == "BME_FLASHROM").then(|| value.clone())
+    };
+    let error = choose_flashrom(true, None, &from_environment, None).unwrap_err();
+    assert!(error.message.contains("mode 777"), "{}", error.message);
+}
+
+#[test]
+fn the_probe_next_step_repeats_the_saved_flashrom() {
+    let chip = FakeFlashChip::holding(&[0; 2048]);
+    let mut env = root_env(&chip);
+    env.flashrom_flag = Some(PathBuf::from("/opt/my tools/flashrom"));
+    let reply = probe(&env, &target_args("ch341a_spi")).unwrap();
+    assert!(
+        reply.text.contains(
+            "Next: sudo bme flash backup --programmer ch341a_spi --flashrom '/opt/my tools/flashrom' -o dump.bin"
+        ),
+        "(flash probe): expected the next step to repeat the saved flashrom | received {}",
+        reply.text
+    );
+    env.flashrom_flag = None;
+    let reply = probe(&env, &target_args("ch341a_spi")).unwrap();
+    assert!(
+        reply
+            .text
+            .contains("backup --programmer ch341a_spi -o dump.bin"),
+        "(flash probe): expected no flag without a saved flashrom | received {}",
+        reply.text
+    );
+}
+
+#[test]
+fn the_doctor_next_step_repeats_the_flashrom_path_for_a_root_rerun() {
+    let sysfs = FakeSysfs::mr9a()
+        .file("sys/class/mtd/mtd0/name", "BIOS\n")
+        .file("sys/class/mtd/mtd0/size", "16777216\n")
+        .file("sys/class/mtd/mtd0/type", "nor\n")
+        .directory("sys/class/mtd/mtd0ro")
+        .file("sys/bus/usb/devices/1-4/idVendor", "1a86\n")
+        .file("sys/bus/usb/devices/1-4/idProduct", "5512\n");
+    let chip = FakeFlashChip::holding(&[0; 16]);
+    let mut env = env(&chip, sysfs.host(0));
+    env.flashrom_flag = Some(PathBuf::from("/opt/my tools/flashrom"));
+    let reply = doctor(&env, "ch341a_spi").unwrap();
+    assert!(
+        reply.text.contains(
+            "Next: sudo bme flash probe --flashrom '/opt/my tools/flashrom', then sudo bme flash backup --flashrom '/opt/my tools/flashrom' -o dump.bin"
+        ),
+        "(flash doctor): expected the next step to repeat the flashrom path | received {}",
+        reply.text
+    );
+}
+
+/// A configuration file that does not parse, as `Config::load` reports it.
+fn broken_configuration() -> Result<Config> {
+    Err(Error::new(
+        Code::Usage,
+        "config.toml: expected `=` at line 3",
+    ))
+}
+
+#[test]
+fn a_broken_configuration_stops_a_flash_command_that_would_read_tools_flashrom() {
+    let result = configured_flashrom(false, None, &no_variables, broken_configuration);
+    let error = result.expect_err(
+        "(flash, broken config.toml, no override): expected an error | received a PATH fallback",
+    );
+    assert!(
+        error
+            .message
+            .contains("config.toml: expected `=` at line 3")
+            && error.message.contains("--flashrom"),
+        "(flash, broken config.toml): expected the load error and the --flashrom way out | received {}",
+        error.message
+    );
+}
+
+#[test]
+fn a_broken_configuration_is_not_read_when_an_override_or_root_chooses_flashrom() {
+    let typed = PathBuf::from("/opt/fr/flashrom");
+    let from_environment = |key: &str| (key == "BME_FLASHROM").then(|| "/opt/env/flashrom".into());
+    let unread = || -> Result<Config> { panic!("(flash): expected config.toml left unread") };
+    for (case, root, flag, variable) in [
+        (
+            "--flashrom",
+            false,
+            Some(&typed),
+            &no_variables as &dyn Fn(&str) -> Option<OsString>,
+        ),
+        ("BME_FLASHROM", false, None, &from_environment),
+        ("root", true, None, &no_variables),
+    ] {
+        let configured = configured_flashrom(root, flag, variable, unread);
+        assert!(
+            matches!(configured, Ok(None)),
+            "(flash, {case}): expected no configured flashrom | received {configured:?}"
+        );
+    }
+}
+
+#[test]
+fn the_doctor_warns_when_root_would_refuse_the_saved_flashrom() {
+    let sysfs = FakeSysfs::mr9a();
+    let directory = tempfile::tempdir().unwrap();
+    let program = executable_file(directory.path(), "flashrom", 0o775);
+    let chip = FakeFlashChip::holding(&[0; 16]);
+    let mut env = env(&chip, sysfs.host(1000));
+    env.flashrom = Some(program.clone());
+    env.flashrom_flag = Some(program.clone());
+    let reply = doctor(&env, "internal").unwrap();
+    let warning = reply.data["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["check"] == "flashrom-root")
+        .cloned();
+    assert!(
+        warning
+            .as_ref()
+            .is_some_and(|check| check["state"] == "warn"
+                && check["detail"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("mode 775")),
+        "(flash doctor, saved flashrom mode 775): expected a flashrom-root warning naming the mode | received {}",
+        reply.data["checks"]
+    );
+}
+
+#[test]
+fn a_flash_command_without_a_home_directory_reads_no_configuration() {
+    let configuration = user_configuration(&|_| None);
+    assert!(
+        configuration
+            .as_ref()
+            .is_ok_and(|config| config.tools.flashrom.is_none()),
+        "(flash, no HOME or XDG variables): expected the default configuration | received {:?}",
+        configuration.err()
     );
 }

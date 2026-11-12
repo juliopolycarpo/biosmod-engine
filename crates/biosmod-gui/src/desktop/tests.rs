@@ -59,6 +59,31 @@ fn fake_scan() -> SourceReport {
     .unwrap()
 }
 
+/// A `tools status` report with one tool; `detail` and `health` are what tests vary.
+fn tool_report(detail: &str, health: &str) -> serde_json::Value {
+    json!({
+        "ready": health == "ready",
+        "platform": "linux",
+        "tools": [{
+            "id": "flashrom",
+            "name": "flashrom",
+            "purpose": "reads and writes the SPI flash chip",
+            "health": health,
+            "version": null,
+            "path": null,
+            "origin": "none",
+            "detail": detail,
+            "install": {"method": "package-manager", "command": "sudo apt install flashrom", "automatic": false},
+            "custom_location": true
+        }]
+    })
+}
+
+/// The first tool card the window shows.
+fn first_tool(window: &AppWindow) -> crate::ui::ToolRowData {
+    slint::Model::row_data(&window.get_tool_rows(), 0).expect("tools: expected one card")
+}
+
 fn bound_window(settings: Settings, settings_path: Option<PathBuf>) -> (AppWindow, Shared) {
     let preferences =
         settings_path.map_or(PreferencesStore::Unavailable, PreferencesStore::Writable);
@@ -109,10 +134,10 @@ fn rejected_language_restores_selector_and_preserves_review_and_preferences() {
     TOOL_RENDER_COUNT.with(|count| count.set(0));
     {
         let mut desktop = state.lock().unwrap();
-        desktop.session.tool_report = Some(Arc::new((json!({"check":"retained"}), None)));
+        desktop.session.tool_report = Some(Arc::new(tool_report("retained", "missing")));
         sync(&window, &desktop);
     }
-    let tool_details = window.get_tool_details();
+    let tool_card = first_tool(&window);
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
     // ComboBox updates its two-way index before calling the native callback.
     window.set_language_index(1);
@@ -132,7 +157,7 @@ fn rejected_language_restores_selector_and_preserves_review_and_preferences() {
             .get_plan_details()
             .starts_with("Preview of selected changes")
     );
-    assert_eq!(window.get_tool_details(), tool_details);
+    assert_eq!(first_tool(&window), tool_card);
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
     let state = state.lock().unwrap();
     assert_eq!(state.settings.language, Language::En);
@@ -1445,21 +1470,60 @@ fn timers_for_independent_windows_remain_independent() {
 }
 
 #[test]
-fn tools_view_shows_controlled_failure_and_paths() {
+fn tools_view_shows_a_missing_tool_with_its_install_command() {
     i_slint_backend_testing::init_no_event_loop();
     let (window, state) = bound_window(Settings::default(), None);
     {
         let mut state = state.lock().unwrap();
-        state.session.tool_report = Some(Arc::new((
-            json!({"checks": [{"check":"java", "ok":false, "detail":"not installed"}], "error":{"code":"TOOL_UNAVAILABLE", "message":"missing optional tools"}}),
-            Some(json!({"config":"fixture-config"})),
-        )));
+        state.session.tool_report = Some(Arc::new(tool_report("not found in PATH", "missing")));
         sync(&window, &state);
     }
-    let details = window.get_tool_details();
-    assert!(details.contains("TOOL_UNAVAILABLE"));
-    assert!(details.contains("not installed"));
-    assert!(details.contains("fixture-config"));
+    let card = first_tool(&window);
+    assert_eq!(card.state, "Missing");
+    assert_eq!(card.detail, "not found in PATH");
+    assert_eq!(card.install_command, "sudo apt install flashrom");
+    assert!(!card.ready && !card.can_install && !card.can_reset);
+    assert!(card.can_choose, "flashrom accepts a custom location");
+}
+
+#[test]
+fn tools_view_offers_install_for_ghidra_and_reset_for_a_saved_location() {
+    i_slint_backend_testing::init_no_event_loop();
+    let (window, state) = bound_window(Settings::default(), None);
+    let ghidra = json!({
+        "id": "ghidra", "name": "Ghidra", "purpose": "analyzes", "health": "missing",
+        "version": null, "path": "/data/ghidra", "origin": "managed",
+        "detail": "analyzeHeadless not found",
+        "install": {"method": "bme", "command": "bme tools setup ghidra", "automatic": true},
+        "custom_location": true
+    });
+    let flashrom = json!({
+        "id": "flashrom", "name": "flashrom", "purpose": "flashes", "health": "ready",
+        "version": "1.6.0", "path": "/opt/fr/flashrom", "origin": "config",
+        "detail": "flashrom answers --version",
+        "install": {"method": "package-manager", "command": "sudo apt install flashrom", "automatic": false},
+        "custom_location": true
+    });
+    {
+        let mut state = state.lock().unwrap();
+        state.session.tool_report = Some(Arc::new(
+            json!({"ready": false, "platform": "linux", "tools": [ghidra, flashrom]}),
+        ));
+        sync(&window, &state);
+    }
+    let rows = window.get_tool_rows();
+    let ghidra = slint::Model::row_data(&rows, 0).unwrap();
+    assert!(ghidra.can_install, "a missing Ghidra installs through bme");
+    assert_eq!(
+        ghidra.install_command, "",
+        "the Install button replaces the command it would run"
+    );
+    assert_eq!(ghidra.location, "/data/ghidra (managed)");
+    let flashrom = slint::Model::row_data(&rows, 1).unwrap();
+    assert_eq!(flashrom.state, "Ready");
+    assert_eq!(flashrom.version, "1.6.0");
+    assert!(flashrom.can_reset, "a saved location can be reset");
+    assert!(!flashrom.can_install);
 }
 
 #[test]
@@ -1471,10 +1535,7 @@ fn presentation_sections_refresh_only_changed_reports_and_language() {
         let mut desktop = state.lock().unwrap();
         desktop.session.source_details = "catalog A".into();
         desktop.session.diagnostics = "diagnostic A".into();
-        desktop.session.tool_report = Some(Arc::new((
-            json!({"checks":[{"detail":"tool A"}]}),
-            Some(json!({"config":"path A"})),
-        )));
+        desktop.session.tool_report = Some(Arc::new(tool_report("tool A", "missing")));
         sync(&window, &desktop);
     }
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
@@ -1498,13 +1559,13 @@ fn presentation_sections_refresh_only_changed_reports_and_language() {
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 1);
     {
         let mut desktop = state.lock().unwrap();
-        Arc::make_mut(desktop.session.tool_report.as_mut().unwrap()).0["checks"][0]["detail"] =
+        Arc::make_mut(desktop.session.tool_report.as_mut().unwrap())["tools"][0]["detail"] =
             json!("tool B");
         sync(&window, &desktop);
     }
-    assert!(window.get_tool_details().contains("tool B"));
+    assert_eq!(first_tool(&window).detail, "tool B");
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 2);
-    let english = window.get_tool_details();
+    let english = first_tool(&window).state;
     {
         let mut desktop = state.lock().unwrap();
         Language::PtBr.select().unwrap();
@@ -1512,9 +1573,9 @@ fn presentation_sections_refresh_only_changed_reports_and_language() {
         sync(&window, &desktop);
     }
     assert_ne!(
-        window.get_tool_details(),
+        first_tool(&window).state,
         english,
-        "tools heading must change language"
+        "tool status chip must change language"
     );
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 3);
     {
@@ -1522,13 +1583,13 @@ fn presentation_sections_refresh_only_changed_reports_and_language() {
         desktop.session.tool_report = None;
         sync(&window, &desktop);
     }
-    assert!(window.get_tool_details().is_empty());
+    assert_eq!(slint::Model::row_count(&window.get_tool_rows()), 0);
     {
         let mut desktop = state.lock().unwrap();
-        desktop.session.tool_report = Some(Arc::new((json!({"new":"report"}), None)));
+        desktop.session.tool_report = Some(Arc::new(tool_report("new report", "attention")));
         sync(&window, &desktop);
     }
-    assert!(window.get_tool_details().contains("report"));
+    assert_eq!(first_tool(&window).detail, "new report");
     assert_eq!(TOOL_RENDER_COUNT.with(|count| count.get()), 4);
     Language::En.select().unwrap();
 }
@@ -1707,5 +1768,88 @@ fn window_stays_open_while_the_chip_is_written() {
     assert!(
         !state.session.cancel.load(Ordering::Relaxed) && !state.closing,
         "(close request): expected the chip operation to continue untouched"
+    );
+}
+
+#[test]
+fn a_blocked_ghidra_install_shows_the_reason_and_no_install_button() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = AppWindow::new().unwrap();
+    let report = json!({"tools": [{
+        "id": "ghidra", "name": "Ghidra", "purpose": "", "health": "missing",
+        "version": null, "path": "/data/ghidra", "origin": "config",
+        "detail": "support/analyzeHeadless not found in this directory",
+        "install": {"method": "bme", "command": null, "automatic": false,
+            "blocked": "a saved location is in use: run `bme tools unset ghidra`, then install"},
+        "custom_location": true, "optional": false
+    }]});
+    let card = &tool_rows(&window, &report)[0];
+    assert_eq!(
+        (card.can_install, card.install_unavailable, card.can_reset),
+        (false, false, true),
+        "(ghidra card, saved location): expected no install button and a Reset button"
+    );
+    assert!(
+        card.blocked.contains("bme tools unset ghidra"),
+        "(ghidra card): expected the unblock command | received {:?}",
+        card.blocked
+    );
+    assert_eq!(
+        card.install_command.as_str(),
+        "",
+        "{:?}",
+        card.install_command
+    );
+}
+
+#[test]
+fn a_missing_optional_tool_is_quiet_not_an_error() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = AppWindow::new().unwrap();
+    let report = json!({"tools": [{
+        "id": "nasm", "name": "NASM", "purpose": "", "health": "missing",
+        "version": null, "path": null, "origin": "PATH", "detail": "not found in PATH",
+        "install": {"method": "package-manager", "command": "sudo apt install nasm", "automatic": false, "blocked": null},
+        "custom_location": false, "optional": true
+    }]});
+    let card = &tool_rows(&window, &report)[0];
+    assert_eq!(
+        card.state.as_str(),
+        window.global::<UiText>().get_tool_optional().as_str(),
+        "(nasm card): expected the optional state word"
+    );
+    assert!(
+        matches!(card.tone, crate::ui::Tone::Quiet) && !card.can_choose,
+        "(nasm card): expected a quiet tone and no Choose button"
+    );
+    assert_eq!(card.install_command.as_str(), "sudo apt install nasm");
+}
+
+#[test]
+fn a_missing_extension_beside_a_ready_ghidra_offers_the_install_button() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = AppWindow::new().unwrap();
+    let install = json!({"method": "bme", "command": "bme tools setup ghidra", "automatic": true, "blocked": null});
+    let report = json!({"tools": [
+        {"id": "ghidra", "name": "Ghidra", "purpose": "", "health": "ready", "version": "12.2",
+            "path": "/data/ghidra", "origin": "managed", "detail": "", "install": install,
+            "custom_location": true, "optional": false},
+        {"id": "firmware-utils", "name": "ghidra-firmware-utils", "purpose": "", "health": "missing",
+            "version": null, "path": "/data/ghidra/Ghidra/Extensions/ghidra-firmware-utils",
+            "origin": "managed", "detail": "not installed", "install": install,
+            "custom_location": false, "optional": false}
+    ]});
+    let cards = tool_rows(&window, &report);
+    let extension = &cards[1];
+    assert_eq!(
+        (extension.can_install, extension.install_command.as_str()),
+        (true, ""),
+        "(firmware-utils card, Ghidra ready): expected can_install: true and no command text | received can_install: {} and command {:?}",
+        extension.can_install,
+        extension.install_command
+    );
+    assert!(
+        !cards[0].can_install,
+        "(ghidra card, ready): expected no install button"
     );
 }

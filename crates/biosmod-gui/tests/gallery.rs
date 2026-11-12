@@ -123,6 +123,81 @@ fn populate_flash(window: &AppWindow) {
     window.set_flash_details(biosmod_gui::desktop::flash_summary(window, &check));
 }
 
+/// Fill the Tools page. `blocked` is the first-run state: Java missing, so the Ghidra install
+/// waits; otherwise Ghidra can be installed and a saved flashrom has a Reset button.
+fn populate_tools(window: &AppWindow, last_first: bool, blocked: bool) {
+    let tool = |id: &str,
+                name: &str,
+                health: &str,
+                version: Option<&str>,
+                path: Option<&str>,
+                origin: &str,
+                detail: &str,
+                method: &str,
+                command: Option<&str>,
+                automatic: bool,
+                custom: bool,
+                wait: Option<&str>,
+                optional: bool| {
+        serde_json::json!({
+            "id": id, "name": name, "purpose": "", "health": health, "version": version,
+            "path": path, "origin": origin, "detail": detail,
+            "install": {"method": method, "command": command, "automatic": automatic, "blocked": wait},
+            "custom_location": custom, "optional": optional
+        })
+    };
+    let wait = blocked
+        .then_some("Java JDK must be ready first: setup checks it before downloading anything");
+    let ghidra_command = (!blocked).then_some("bme tools setup ghidra");
+    let jdk = if blocked {
+        tool(
+            "jdk",
+            "Java JDK",
+            "missing",
+            None,
+            None,
+            "PATH",
+            "javac: not found",
+            "package-manager",
+            Some("sudo apt install openjdk-21-jdk"),
+            false,
+            false,
+            None,
+            false,
+        )
+    } else {
+        tool(
+            "jdk",
+            "Java JDK",
+            "ready",
+            Some("25"),
+            Some("/usr/bin/javac"),
+            "PATH",
+            "javac 25",
+            "package-manager",
+            Some("sudo apt install openjdk-21-jdk"),
+            false,
+            false,
+            None,
+            false,
+        )
+    };
+    let report = serde_json::json!({"ready": false, "platform": "linux", "tools": [
+        tool("ghidra", "Ghidra", "missing", None, Some("/home/user/.local/share/biosmod-engine/tools/ghidra_12.2_PUBLIC"), "managed", "support/analyzeHeadless not found in this directory", "bme", ghidra_command, !blocked, true, wait, false),
+        tool("firmware-utils", "ghidra-firmware-utils", "missing", None, None, "managed", "needs Ghidra first", "bme", ghidra_command, !blocked, false, wait, false),
+        tool("java", "Java runtime", "ready", Some("25"), Some("/usr/bin/java"), "PATH", "java 25", "package-manager", Some("sudo apt install openjdk-21-jdk"), false, false, None, false),
+        jdk,
+        tool("git", "Git", "ready", Some("2.53.0"), Some("/usr/bin/git"), "PATH", "git version 2.53.0", "package-manager", Some("sudo apt install git"), false, false, None, false),
+        tool("flashrom", "flashrom", "ready", Some("1.6.0"), Some("/opt/flashrom/bin/flashrom"), "config", "flashrom answers --version", "package-manager", Some("sudo apt install flashrom"), false, true, None, false),
+        tool("nasm", "NASM", "missing", None, None, "PATH", "not found in PATH", "package-manager", Some("sudo apt install nasm"), false, false, None, true),
+    ]});
+    let mut rows = biosmod_gui::desktop::tool_rows(window, &report);
+    if last_first {
+        rows.reverse();
+    }
+    window.set_tool_rows(ModelRc::new(VecModel::from(rows)));
+}
+
 fn capture(window: &AppWindow, dir: &Path, name: &str) {
     let pixels = window.window().take_snapshot().unwrap();
     let file = std::fs::File::create(dir.join(format!("{name}.png"))).unwrap();
@@ -227,6 +302,13 @@ fn gallery_states_build_and_capture() {
     populate_flash(&window);
     window.set_page(5);
     shot("11-flash-chip");
+    populate_tools(&window, false, false);
+    window.set_page(1);
+    shot("12-tools");
+    // Keep the blocked state at the requested gallery size too; CI covers both
+    // the minimum window and a larger window, including scaled captures.
+    populate_tools(&window, false, true);
+    shot("12-tools-blocked");
     window.set_page(0);
     let key = |text: slint::SharedString| {
         window
@@ -554,6 +636,75 @@ fn flash_page_fits_the_minimum_window() {
             (actual.width, actual.height),
             (760.0, 600.0),
             "(flash page, {language:?}): expected the minimum window to hold the page"
+        );
+        window.hide().unwrap();
+    }
+    biosmod_gui::i18n::Language::En.select().unwrap();
+}
+
+/// Every tool card control stays inside the minimum window in both languages.
+#[test]
+fn tools_page_fits_the_minimum_window() {
+    i_slint_backend_testing::init_no_event_loop();
+    for (language, labels) in [
+        (
+            biosmod_gui::i18n::Language::En,
+            ["Download and install", "Choose location…", "Reset"],
+        ),
+        (
+            biosmod_gui::i18n::Language::PtBr,
+            ["Baixar e instalar", "Escolher local…", "Restaurar"],
+        ),
+    ] {
+        let window = AppWindow::new().unwrap();
+        language.select().unwrap();
+        window
+            .window()
+            .set_size(slint::LogicalSize::new(760.0, 600.0));
+        window.show().unwrap();
+        slint::platform::update_timers_and_animations();
+        // The list only builds the cards that fit, so check the saved-location card
+        // (Reset) first and the missing-Ghidra card (Install) after it.
+        let mut seen = std::collections::BTreeSet::new();
+        for last_first in [true, false] {
+            populate_tools(&window, last_first, false);
+            window.set_page(1);
+            slint::platform::update_timers_and_animations();
+            for label in labels {
+                let visible =
+                    ElementHandle::find_by_element_type_name(&window, "Button").any(|button| {
+                        button
+                            .accessible_label()
+                            .is_some_and(|text| text.starts_with(label))
+                    });
+                if !visible {
+                    continue;
+                }
+                let elements: Vec<ElementHandle> =
+                    ElementHandle::find_by_element_type_name(&window, "Button")
+                        .filter(|button| {
+                            button
+                                .accessible_label()
+                                .is_some_and(|text| text.starts_with(label))
+                        })
+                        .collect();
+                seen.insert(label);
+                for element in elements {
+                    let position = element.absolute_position();
+                    let size = element.size();
+                    assert!(
+                        position.x >= 0.0 && position.x + size.width <= 760.5,
+                        "(tools page, {language:?}): expected {label:?} inside 0..760 | received: {}..{}",
+                        position.x,
+                        position.x + size.width
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            seen.len(),
+            labels.len(),
+            "(tools page, {language:?}): expected buttons {labels:?} | received {seen:?}"
         );
         window.hide().unwrap();
     }

@@ -7,12 +7,14 @@
 
 mod archive;
 mod runner;
+mod status;
 // Setup is Linux-only for now; the fakes model a Unix layout.
 #[cfg(all(test, unix))]
 mod tests;
 
 pub use archive::{Limits, extract_zip};
 pub use runner::{Finished, Invocation, Runner, System};
+pub use status::{Locatable, run_status, set, unset};
 
 use crate::commands::Ctx;
 use crate::config::{Config, io_error, write_atomic};
@@ -20,7 +22,7 @@ use crate::output::{Reply, display_path};
 use crate::transport::{Https, Offline, Transport};
 use biosmod_core::{Code, Error, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Read, Write};
@@ -93,6 +95,9 @@ const EXTENSION_PATCH: &[u8] =
     include_bytes!("../../../../tools/ghidra/ghidra-firmware-utils-12.2.patch");
 const EXTENSION: &str = "ghidra-firmware-utils";
 const MARKER: &str = "bme-install.json";
+
+/// Appended to a missing extension's detail; `tools status` drops it where setup cannot run.
+const SETUP_HINT: &str = " (run `bme tools setup ghidra`)";
 const DOWNLOAD_LIMIT: u64 = 2 << 30;
 
 #[derive(Debug, Clone, clap::Args)]
@@ -210,13 +215,12 @@ fn check(name: &'static str, ok: bool, detail: impl Into<String>) -> Check {
     }
 }
 
-fn java_check(runner: &dyn Runner, program: &'static str, min: u32) -> Check {
+/// Run `program -version` within `timeout` and compare its major release with `min`.
+///
+/// Example: `java_check(runner, "javac", 21, Duration::from_secs(60))` is ok for `javac 21.0.5`.
+fn java_check(runner: &dyn Runner, program: &'static str, min: u32, timeout: Duration) -> Check {
     let name = if program == "javac" { "jdk" } else { "java" };
-    let finished = match runner.run(
-        &Invocation::new(program)
-            .arg("-version")
-            .timeout(Duration::from_secs(60)),
-    ) {
+    let finished = match runner.run(&Invocation::new(program).arg("-version").timeout(timeout)) {
         Ok(f) => f,
         Err(e) => {
             return check(
@@ -244,19 +248,38 @@ fn java_check(runner: &dyn Runner, program: &'static str, min: u32) -> Check {
     }
 }
 
+/// The Ghidra release recorded in `home`, from `Ghidra/application.properties`.
+///
+/// Example: `ghidra_version(Path::new("/opt/ghidra_12.2_PUBLIC"))` is `Some("12.2")`.
+pub fn ghidra_version(home: &Path) -> Option<String> {
+    property(
+        &home.join("Ghidra/application.properties"),
+        "application.version",
+    )
+}
+
 /// Read-only installation checks.
 pub fn inspect(env: &Env, home: &GhidraHome) -> Vec<Check> {
-    let mut checks = vec![java_check(env.runner, "java", env.profile.java_min)];
+    let mut checks = vec![java_check(
+        env.runner,
+        "java",
+        env.profile.java_min,
+        Duration::from_secs(60),
+    )];
+    checks.extend(ghidra_checks(env, home));
+    checks
+}
+
+/// Checks of the Ghidra directory, its version and the firmware-utils extension.
+fn ghidra_checks(env: &Env, home: &GhidraHome) -> Vec<Check> {
+    let mut checks = Vec::new();
     let script = headless(&home.path);
     checks.push(check(
         "ghidra",
         script.is_file(),
         format!("{} ({})", home.path.display(), home.origin),
     ));
-    let version = property(
-        &home.path.join("Ghidra/application.properties"),
-        "application.version",
-    );
+    let version = ghidra_version(&home.path);
     let version_ok = version.as_deref() == Some(env.profile.ghidra_version.as_str());
     let detail = match &version {
         Some(v) if version_ok => v.clone(),
@@ -272,10 +295,7 @@ pub fn inspect(env: &Env, home: &GhidraHome) -> Vec<Check> {
     let ext_version = property(&extension.join("extension.properties"), "version");
     let compatible = data_ok && (ext_version.is_none() || ext_version == version);
     let detail = match (data_ok, &ext_version) {
-        (false, _) => format!(
-            "{}: not installed (run `bme tools setup ghidra`)",
-            extension.display()
-        ),
+        (false, _) => format!("{}: not installed{SETUP_HINT}", extension.display()),
         (true, Some(v)) if !compatible => format!(
             "built for Ghidra {v} | installed Ghidra {}",
             version.as_deref().unwrap_or("unknown")
@@ -378,10 +398,27 @@ pub fn doctor(ctx: &Ctx, deep: bool) -> Result<Reply> {
     checks_reply(checks, &home)
 }
 
+/// The flashrom a chip command would run, as `tools paths` reports it to the desktop app.
+///
+/// Example: `flashrom_location(&|_| None, Some(Path::new("/opt/fr/flashrom")))` is
+/// `{"path": "/opt/fr/flashrom", "origin": "config"}`. A relative path is made absolute.
+fn flashrom_location(
+    get: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    configured: Option<&Path>,
+) -> Option<Value> {
+    crate::flash::resolve_flashrom(get, configured).map(|(path, origin)| {
+        // pkexec starts root in another directory, so a relative override must not reach it.
+        let path = std::path::absolute(&path).unwrap_or(path);
+        json!({"path": display_path(&path), "origin": origin.label()})
+    })
+}
+
 pub fn paths(ctx: &Ctx) -> Result<Reply> {
     let profile = Profile::pinned();
     let home = ghidra_home(&ctx.config, &ctx.paths.data, &profile);
-    let data = json!({"config": display_path(&ctx.paths.config_file()), "cache": display_path(&ctx.paths.cache), "data": display_path(&ctx.paths.data), "ghidra_home": home, "profile": profile});
+    let get = |key: &str| std::env::var_os(key);
+    let flashrom = flashrom_location(&get, ctx.config.tools.flashrom.as_deref());
+    let data = json!({"config": display_path(&ctx.paths.config_file()), "cache": display_path(&ctx.paths.cache), "data": display_path(&ctx.paths.data), "ghidra_home": home, "flashrom": flashrom, "profile": profile});
     let text = format!(
         "config   {}\ncache    {}\ndata     {}\nghidra   {} ({})\n",
         ctx.paths.config_file().display(),
@@ -445,7 +482,12 @@ pub fn install(env: &Env, args: &SetupArgs, note: &mut dyn FnMut(&str)) -> Resul
             "--offline setup needs --ghidra-zip, --gradle-home and --firmware-utils-src (Gradle also runs with --offline)",
         ));
     }
-    let java = java_check(env.runner, "javac", env.profile.java_min);
+    let java = java_check(
+        env.runner,
+        "javac",
+        env.profile.java_min,
+        Duration::from_secs(60),
+    );
     if !java.ok {
         return Err(Error::new(Code::ToolUnavailable, java.detail));
     }

@@ -70,8 +70,22 @@ pub enum Request {
         manifest: PathBuf,
         recipe: Option<PathBuf>,
     },
-    ToolsDoctor,
+    /// Every tool the engine runs, with version, location and install command.
+    ToolsStatus,
+    /// Where the engine keeps its files and which flashrom a chip command would run.
+    /// Cheap: it runs no tool.
     ToolsPaths,
+    /// Save an existing Ghidra directory or flashrom executable in the configuration.
+    ToolsSet {
+        tool: LocatableTool,
+        path: PathBuf,
+    },
+    /// Forget a saved location and go back to the default lookup.
+    ToolsUnset {
+        tool: LocatableTool,
+    },
+    /// Download, verify and install the pinned Ghidra; takes minutes and may be cancelled.
+    ToolsSetupGhidra,
     /// Read-only system diagnosis for chip access; never starts a programmer.
     FlashDoctor {
         programmer: String,
@@ -96,6 +110,25 @@ pub enum Request {
     },
 }
 
+/// Tools whose location can be chosen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocatableTool {
+    Ghidra,
+    Flashrom,
+}
+
+impl LocatableTool {
+    /// The tool name `bme tools set` expects.
+    ///
+    /// Example: `LocatableTool::Flashrom.as_str()` is `"flashrom"`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ghidra => "ghidra",
+            Self::Flashrom => "flashrom",
+        }
+    }
+}
+
 impl Request {
     fn name(&self) -> &'static str {
         match self {
@@ -108,8 +141,11 @@ impl Request {
             Self::Build { .. } => "patch",
             Self::Export { .. } => "export",
             Self::VerifyResult { .. } => "verify",
-            Self::ToolsDoctor => "tools doctor",
+            Self::ToolsStatus => "tools status",
             Self::ToolsPaths => "tools paths",
+            Self::ToolsSet { .. } => "tools set",
+            Self::ToolsUnset { .. } => "tools unset",
+            Self::ToolsSetupGhidra => "tools setup ghidra",
             Self::FlashDoctor { .. } => "flash doctor",
             Self::FlashProbe { .. } => "flash probe",
             Self::FlashBackup { .. } => "flash backup",
@@ -142,6 +178,26 @@ impl Request {
                     // Even the dry run reads the chip, which outlasts the read-only timeout.
                     | Self::FlashWrite { .. }
             )
+    }
+
+    /// Whether this request drives flashrom.
+    pub(crate) fn is_flash(&self) -> bool {
+        matches!(
+            self,
+            Self::FlashDoctor { .. }
+                | Self::FlashProbe { .. }
+                | Self::FlashBackup { .. }
+                | Self::FlashWrite { .. }
+        )
+    }
+
+    /// How long the engine may run before the operation is abandoned.
+    fn timeout(&self, default: Duration) -> Duration {
+        match self {
+            // Two archives of a few hundred megabytes, a Gradle build and a startup check.
+            Self::ToolsSetupGhidra => Duration::from_secs(2 * 60 * 60),
+            _ => default,
+        }
     }
 
     fn args(&self, cwd: &Path) -> Result<Vec<OsString>, EngineError> {
@@ -204,6 +260,11 @@ impl Request {
                     args.push(option("--from=", &path(recipe)));
                 }
             }
+            Self::ToolsSet { tool, path } => {
+                args.push(tool.as_str().into());
+                args.push(path.as_os_str().to_owned());
+            }
+            Self::ToolsUnset { tool } => args.push(tool.as_str().into()),
             Self::FlashDoctor { programmer } | Self::FlashProbe { programmer, .. } => {
                 args.push(option("--programmer=", OsStr::new(programmer)));
             }
@@ -234,7 +295,12 @@ impl Request {
             }
             _ => {}
         }
-        args.extend([OsString::from("--json"), OsString::from("--offline")]);
+        args.push("--json".into());
+        // Installing Ghidra is the one request that needs the network; its downloads are
+        // checked against pinned SHA-256 digests.
+        if !matches!(self, Self::ToolsSetupGhidra) {
+            args.push("--offline".into());
+        }
         if let Some(selection) = selected_ids {
             if selection.ids.is_empty() || selection.ids.iter().any(String::is_empty) {
                 return Err(EngineError::new(
@@ -606,6 +672,8 @@ pub struct Engine {
     contract: Option<Arc<EngineContract>>,
     /// The program that runs the engine as root for chip access.
     elevation: OsString,
+    /// A saved flashrom executable handed to every flash command as `--flashrom`.
+    flashrom: Option<PathBuf>,
 }
 
 /// pkexec's exit statuses when no command ran: not authorized, or dismissed.
@@ -638,6 +706,7 @@ impl Engine {
             timeout: Duration::from_secs(120),
             contract: None,
             elevation: "pkexec".into(),
+            flashrom: None,
         })
     }
     /// Override one child environment variable, for example isolated `BME_CONFIG_HOME` in tests.
@@ -645,6 +714,14 @@ impl Engine {
     /// Example: `engine.with_env("BME_CONFIG_HOME", "/tmp/config")`.
     pub fn with_env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
         self.env.push((key.into(), value.into()));
+        self
+    }
+    /// Hand flash commands the flashrom executable the user chose.
+    ///
+    /// Root never reads the user's configuration, so an elevated run learns the choice here:
+    /// `engine.with_flashrom(Some("/opt/flashrom/flashrom".into()))`.
+    pub fn with_flashrom(mut self, flashrom: Option<PathBuf>) -> Self {
+        self.flashrom = flashrom;
         self
     }
     /// Replace polkit's `pkexec` as the program that runs the engine as root.
@@ -708,7 +785,14 @@ impl Engine {
                 ),
             ));
         }
-        let args = request.args(&self.cwd)?;
+        let mut args = request.args(&self.cwd)?;
+        if request.is_flash()
+            && let Some(flashrom) = &self.flashrom
+        {
+            let mut option = OsString::from("--flashrom=");
+            option.push(flashrom);
+            args.push(option);
+        }
         let mut command = if request.elevated() {
             // pkexec resets the environment and working directory; arguments are absolute.
             let mut command = Command::new(&self.elevation);
@@ -807,7 +891,8 @@ impl Engine {
                 break;
             }
             if !request.uninterruptible()
-                && (cancel.load(Ordering::Relaxed) || started.elapsed() >= self.timeout)
+                && (cancel.load(Ordering::Relaxed)
+                    || started.elapsed() >= request.timeout(self.timeout))
             {
                 stopped = Some(if cancel.load(Ordering::Relaxed) {
                     ErrorKind::Cancelled

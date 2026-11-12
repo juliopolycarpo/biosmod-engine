@@ -129,7 +129,27 @@ export global UiText {
     out property <string> precondition-manifest: @tr("Choose an output with its paired manifest first.");
     out property <string> precondition-recipe-mismatch: @tr("The selection file must match the scan and use only corrections supported by the desktop.");
     out property <string> precondition-wait-import: @tr("Wait for the active operation before opening a selection file.");
-    out property <string> tool-paths: @tr("Paths");
+    out property <string> tool-ready: @tr("Ready");
+    out property <string> tool-attention: @tr("Needs attention");
+    out property <string> tool-missing: @tr("Missing");
+    out property <string> tool-optional: @tr("Not installed (optional)");
+    out property <string> tool-install: @tr("Download and install");
+    out property <string> tool-choose: @tr("Choose location…");
+    out property <string> tool-reset: @tr("Reset");
+    out property <string> tool-install-unavailable: @tr("Automatic installation is available on Linux only.");
+    out property <string> tool-install-with: @tr("Install with");
+    out property <string> tool-install-note: @tr("Downloads the pinned release and checks its SHA-256 digest. This can take several minutes.");
+    out property <string> tool-purpose-ghidra: @tr("Analyzes extracted firmware modules.");
+    out property <string> tool-purpose-firmware-utils: @tr("Teaches Ghidra the UEFI firmware formats.");
+    out property <string> tool-purpose-java: @tr("Runs Ghidra.");
+    out property <string> tool-purpose-jdk: @tr("Builds the Ghidra extension during installation.");
+    out property <string> tool-purpose-git: @tr("Fetches the Ghidra extension source during installation.");
+    out property <string> tool-purpose-nasm: @tr("Assembles patch sources when you rebuild their hunks.");
+    out property <string> tool-purpose-flashrom: @tr("Reads and writes the SPI flash chip.");
+    out property <string> tool-choose-ghidra: @tr("Choose the Ghidra folder");
+    out property <string> tool-choose-flashrom: @tr("Choose the flashrom program");
+    out property <string> operation-tool-change: @tr("Updating tool location");
+    out property <string> operation-tool-install: @tr("Installing Ghidra");
 
     out property <string> operation-flash-doctor: @tr("Diagnosing the system");
     out property <string> operation-flash-probe: @tr("Looking for the flash chip");
@@ -145,6 +165,7 @@ export global UiText {
     public pure function status-flash-backed-up(path: string) -> string { return @tr("Chip backed up to {}", path); }
     public pure function status-flash-unknown(detail: string) -> string { return @tr("The chip may hold a partial image. Keep the board powered and restore the backup. {}", detail); }
     out property <string> precondition-flash-unsupported: @tr("The connected bme engine has no flash chip commands. Use the bundled engine.");
+    out property <string> precondition-tools-unsupported: @tr("The connected bme engine cannot list or change tools. Use the bundled engine.");
     out property <string> precondition-programmer: @tr("Enter a flashrom programmer such as internal or ch341a_spi.");
     out property <string> precondition-flash-backup: @tr("Choose a backup file first.");
     out property <string> precondition-flash-image: @tr("Choose the image to write first.");

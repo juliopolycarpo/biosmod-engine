@@ -53,7 +53,7 @@ Os comandos flash retornam antes de a configuração do usuário ser carregada, 
 - Receitas não são confiáveis: `patch --from` recalcula e compara tudo.
 - Catálogos remotos só são confiáveis por uma chave minisign configurada localmente e como cópias validadas.
 - Arquivos de ferramentas baixados só são confiáveis por hashes fixados.
-- O flashrom vem do `PATH`, dos diretórios sbin ou de `BME_FLASHROM`; sua saída só é interpretada para nomes de chip, e todo resultado relevante é conferido lendo o chip.
+- O flashrom vem de `--flashrom`, `BME_FLASHROM`, `tools.flashrom`, `PATH` ou dos diretórios sbin, nessa ordem (root ignora `tools.flashrom`); sua saída só é interpretada para nomes de chip, e todo resultado relevante é conferido lendo o chip.
 
 ## Ausências deliberadas
 

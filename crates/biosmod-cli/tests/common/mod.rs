@@ -64,6 +64,7 @@ impl Sandbox {
     ) -> Run {
         let output = Command::new(env!("CARGO_BIN_EXE_bme"))
             .args(args)
+            .env_remove("BME_FLASHROM")
             .envs(variables.iter().copied())
             .env("BME_CONFIG_HOME", self.path("config"))
             .env("BME_CACHE_HOME", self.path("cache"))

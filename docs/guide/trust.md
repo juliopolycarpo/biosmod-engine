@@ -21,7 +21,7 @@ The key is configured locally. Keys inside a catalog are never trusted.
 
 ## Updates
 
-`catalog update` is the only command that uses the network. It downloads `catalog.json` and `catalog.json.minisig`, verifies the signature over the exact bytes, then downloads every indexed file and checks its length and hash. The new snapshot is fully validated in a staging directory and then activated in one rename. On any failure the previous snapshot stays active.
+Only `catalog update` and `tools setup ghidra` use the network. `tools setup ghidra` checks every archive against a pinned SHA-256 digest (see [the analysis toolchain](ghidra.md)). `catalog update` downloads `catalog.json` and `catalog.json.minisig`, verifies the signature over the exact bytes, then downloads every indexed file and checks its length and hash. The new snapshot is fully validated in a staging directory and then activated in one rename. On any failure the previous snapshot stays active.
 
 Updates are refused when the catalog id changes, when the version is older than one already accepted (rollback), or when an accepted version reappears with different content. HTTPS only; redirects only within the same origin; bodies are size-limited.
 

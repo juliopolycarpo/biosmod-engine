@@ -11,184 +11,184 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: ui/app-window.slint:25
+#: ui/app-window.slint:26
 msgctxt "AppWindow"
 msgid "Checking engine…"
 msgstr ""
 
-#: ui/app-window.slint:26
+#: ui/app-window.slint:27
 msgctxt "AppWindow"
 msgid "Choose a firmware image to get started."
 msgstr ""
 
-#: ui/app-window.slint:35
+#: ui/app-window.slint:36
 msgctxt "AppWindow"
 msgid "Output & verification"
 msgstr ""
 
-#: ui/app-window.slint:163 ui/app-window.slint:627
+#: ui/app-window.slint:167 ui/app-window.slint:643
 msgctxt "AppWindow"
 msgid "BIOS Mod Engine"
 msgstr ""
 
-#: ui/app-window.slint:165
+#: ui/app-window.slint:169
 msgctxt "AppWindow"
 msgid "Workflow"
 msgstr ""
 
-#: ui/app-window.slint:166 ui/app-window.slint:481
+#: ui/app-window.slint:170 ui/app-window.slint:485
 msgctxt "AppWindow"
 msgid "Flash chip"
 msgstr ""
 
-#: ui/app-window.slint:167 ui/app-window.slint:490
+#: ui/app-window.slint:171 ui/app-window.slint:494
 msgctxt "AppWindow"
 msgid "Sources & tools"
 msgstr ""
 
-#: ui/app-window.slint:168 ui/app-window.slint:589
+#: ui/app-window.slint:172 ui/app-window.slint:605
 msgctxt "AppWindow"
 msgid "Diagnostics"
 msgstr ""
 
-#: ui/app-window.slint:174 ui/app-window.slint:186 ui/app-window.slint:522
+#: ui/app-window.slint:178 ui/app-window.slint:190 ui/app-window.slint:538
 msgctxt "AppWindow"
 msgid "Settings"
 msgstr ""
 
-#: ui/app-window.slint:175 ui/app-window.slint:187
+#: ui/app-window.slint:179 ui/app-window.slint:191
 msgctxt "AppWindow"
 msgid "About"
 msgstr ""
 
-#: ui/app-window.slint:206 ui/app-window.slint:215 ui/app-window.slint:231
+#: ui/app-window.slint:210 ui/app-window.slint:219 ui/app-window.slint:235
 msgctxt "AppWindow"
 msgid "Open selection file"
 msgstr ""
 
-#: ui/app-window.slint:207 ui/app-window.slint:216 ui/app-window.slint:236
+#: ui/app-window.slint:211 ui/app-window.slint:220 ui/app-window.slint:240
 msgctxt "AppWindow"
 msgid "Open output"
 msgstr ""
 
-#: ui/app-window.slint:208 ui/app-window.slint:217
+#: ui/app-window.slint:212 ui/app-window.slint:221
 msgctxt "AppWindow"
 msgid "Hide paths"
 msgstr ""
 
-#: ui/app-window.slint:208 ui/app-window.slint:217
+#: ui/app-window.slint:212 ui/app-window.slint:221
 msgctxt "AppWindow"
 msgid "Enter paths"
 msgstr ""
 
-#: ui/app-window.slint:229
+#: ui/app-window.slint:233
 msgctxt "AppWindow"
 msgid "Selection"
 msgstr ""
 
-#: ui/app-window.slint:230
+#: ui/app-window.slint:234
 msgctxt "AppWindow"
 msgid "Selection file path"
 msgstr ""
 
-#: ui/app-window.slint:234 ui/app-window.slint:355
+#: ui/app-window.slint:238 ui/app-window.slint:359
 msgctxt "AppWindow"
 msgid "Output"
 msgstr ""
 
-#: ui/app-window.slint:235
+#: ui/app-window.slint:239
 msgctxt "AppWindow"
 msgid "Existing output image path"
 msgstr ""
 
-#: ui/app-window.slint:239
+#: ui/app-window.slint:243
 msgctxt "AppWindow"
 msgid "Save as"
 msgstr ""
 
-#: ui/app-window.slint:240
+#: ui/app-window.slint:244
 msgctxt "AppWindow"
 msgid "New selection file path"
 msgstr ""
 
-#: ui/app-window.slint:241
+#: ui/app-window.slint:245
 msgctxt "AppWindow"
 msgid "Save selection"
 msgstr ""
 
-#: ui/app-window.slint:255 ui/app-window.slint:452
+#: ui/app-window.slint:259 ui/app-window.slint:456
 msgctxt "AppWindow"
 msgid "Image"
 msgstr ""
 
-#: ui/app-window.slint:257 ui/app-window.slint:258
+#: ui/app-window.slint:261 ui/app-window.slint:262
 msgctxt "AppWindow"
 msgid "Original firmware image path"
 msgstr ""
 
-#: ui/app-window.slint:263 ui/app-window.slint:460 ui/app-window.slint:552
+#: ui/app-window.slint:267 ui/app-window.slint:464 ui/app-window.slint:568
 msgctxt "AppWindow"
 msgid "Browse…"
 msgstr ""
 
-#: ui/app-window.slint:264
+#: ui/app-window.slint:268
 msgctxt "AppWindow"
 msgid "Inspect"
 msgstr ""
 
-#: ui/app-window.slint:267
+#: ui/app-window.slint:271
 msgctxt "AppWindow"
 msgid "Source: {}"
 msgstr ""
 
-#: ui/app-window.slint:271
+#: ui/app-window.slint:275
 msgctxt "AppWindow"
 msgid "Source"
 msgstr ""
 
-#: ui/app-window.slint:273 ui/app-window.slint:274
+#: ui/app-window.slint:277 ui/app-window.slint:278
 msgctxt "AppWindow"
 msgid "Catalog source alias"
 msgstr ""
 
-#: ui/app-window.slint:279
+#: ui/app-window.slint:283
 msgctxt "AppWindow"
 msgid "Scan image"
 msgstr ""
 
-#: ui/app-window.slint:287
+#: ui/app-window.slint:291
 msgctxt "AppWindow"
 msgid "Findings"
 msgstr ""
 
-#: ui/app-window.slint:290
+#: ui/app-window.slint:294
 msgctxt "AppWindow"
 msgid "{n} finding"
 msgid_plural "{n} findings"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app-window.slint:294
+#: ui/app-window.slint:298
 msgctxt "AppWindow"
 msgid "{} selected"
 msgstr ""
 
-#: ui/app-window.slint:316
+#: ui/app-window.slint:320
 msgctxt "AppWindow"
 msgid "No findings to show"
 msgstr ""
 
-#: ui/app-window.slint:317
+#: ui/app-window.slint:321
 msgctxt "AppWindow"
 msgid "Press Scan image to look for corrections in the catalog."
 msgstr ""
 
-#: ui/app-window.slint:317
+#: ui/app-window.slint:321
 msgctxt "AppWindow"
 msgid "Choose an image and enter a catalog source alias to enable scanning."
 msgstr ""
 
-#: ui/app-window.slint:325
+#: ui/app-window.slint:329
 msgctxt "AppWindow"
 msgid ""
 "Board profiles are catalog information, not physical board identification. "
@@ -196,114 +196,114 @@ msgid ""
 "cannot be applied here yet."
 msgstr ""
 
-#: ui/app-window.slint:325
+#: ui/app-window.slint:329
 msgctxt "AppWindow"
 msgid ""
 "Hardware-dependent findings and corrections that require joint selection "
 "cannot be applied here yet."
 msgstr ""
 
-#: ui/app-window.slint:330 ui/app-window.slint:333 ui/app-window.slint:383
+#: ui/app-window.slint:334 ui/app-window.slint:337 ui/app-window.slint:387
 msgctxt "AppWindow"
 msgid "Selection details"
 msgstr ""
 
-#: ui/app-window.slint:335 ui/app-window.slint:373 ui/app-window.slint:385
+#: ui/app-window.slint:339 ui/app-window.slint:377 ui/app-window.slint:389
 msgctxt "AppWindow"
 msgid "Export selection…"
 msgstr ""
 
-#: ui/app-window.slint:336
+#: ui/app-window.slint:340
 msgctxt "AppWindow"
 msgid "Show output"
 msgstr ""
 
-#: ui/app-window.slint:337 ui/app-window.slint:384
+#: ui/app-window.slint:341 ui/app-window.slint:388
 msgctxt "AppWindow"
 msgid "Back to findings"
 msgstr ""
 
-#: ui/app-window.slint:338 ui/app-window.slint:374
+#: ui/app-window.slint:342 ui/app-window.slint:378
 msgctxt "AppWindow"
 msgid "Build patched copy"
 msgstr ""
 
-#: ui/app-window.slint:341
+#: ui/app-window.slint:345
 msgctxt "AppWindow"
 msgid "Plan details"
 msgstr ""
 
-#: ui/app-window.slint:342
+#: ui/app-window.slint:346
 msgctxt "AppWindow"
 msgid "Complete plan and source snapshot"
 msgstr ""
 
-#: ui/app-window.slint:357 ui/app-window.slint:358
+#: ui/app-window.slint:361 ui/app-window.slint:362
 msgctxt "AppWindow"
 msgid "New output image path"
 msgstr ""
 
-#: ui/app-window.slint:363
+#: ui/app-window.slint:367
 msgctxt "AppWindow"
 msgid "Choose…"
 msgstr ""
 
-#: ui/app-window.slint:365 ui/app-window.slint:388
+#: ui/app-window.slint:369 ui/app-window.slint:392
 msgctxt "AppWindow"
 msgid "Manifest: {}"
 msgstr ""
 
-#: ui/app-window.slint:370
+#: ui/app-window.slint:374
 msgctxt "AppWindow"
 msgid "Recommended"
 msgstr ""
 
-#: ui/app-window.slint:372
+#: ui/app-window.slint:376
 msgctxt "AppWindow"
 msgid "Preview changes"
 msgstr ""
 
-#: ui/app-window.slint:387
+#: ui/app-window.slint:391
 msgctxt "AppWindow"
 msgid "Output: {}"
 msgstr ""
 
-#: ui/app-window.slint:389
+#: ui/app-window.slint:393
 msgctxt "AppWindow"
 msgid "Verification results"
 msgstr ""
 
-#: ui/app-window.slint:392
+#: ui/app-window.slint:396
 msgctxt "AppWindow"
 msgid "Offline verification does not establish hardware boot behavior."
 msgstr ""
 
-#: ui/app-window.slint:394
+#: ui/app-window.slint:398
 msgctxt "AppWindow"
 msgid "Flash this output…"
 msgstr ""
 
-#: ui/app-window.slint:395
+#: ui/app-window.slint:399
 msgctxt "AppWindow"
 msgid "Verify output"
 msgstr ""
 
-#: ui/app-window.slint:407
+#: ui/app-window.slint:411
 msgctxt "AppWindow"
 msgid "System flash chip"
 msgstr ""
 
-#: ui/app-window.slint:409
+#: ui/app-window.slint:413
 msgctxt "AppWindow"
 msgid "Diagnose"
 msgstr ""
 
-#: ui/app-window.slint:410
+#: ui/app-window.slint:414
 msgctxt "AppWindow"
 msgid "Find chip"
 msgstr ""
 
-#: ui/app-window.slint:412
+#: ui/app-window.slint:416
 msgctxt "AppWindow"
 msgid ""
 "Reads and writes the firmware chip through flashrom on Linux. A bad or "
@@ -311,251 +311,245 @@ msgid ""
 "recover with an external programmer and the backup."
 msgstr ""
 
-#: ui/app-window.slint:412
+#: ui/app-window.slint:416
 msgctxt "AppWindow"
 msgid ""
 "The connected bme engine has no flash chip commands. Use the bundled engine."
 msgstr ""
 
-#: ui/app-window.slint:423
+#: ui/app-window.slint:427
 msgctxt "AppWindow"
 msgid "Programmer"
 msgstr ""
 
-#: ui/app-window.slint:425
+#: ui/app-window.slint:429
 msgctxt "AppWindow"
 msgid "internal, ch341a_spi, linux_mtd:dev=0…"
 msgstr ""
 
-#: ui/app-window.slint:426
+#: ui/app-window.slint:430
 msgctxt "AppWindow"
 msgid "flashrom programmer"
 msgstr ""
 
-#: ui/app-window.slint:432
+#: ui/app-window.slint:436
 msgctxt "AppWindow"
 msgid "Ask for administrator rights"
 msgstr ""
 
-#: ui/app-window.slint:439
+#: ui/app-window.slint:443
 msgctxt "AppWindow"
 msgid "Backup"
 msgstr ""
 
-#: ui/app-window.slint:441 ui/app-window.slint:442
+#: ui/app-window.slint:445 ui/app-window.slint:446
 msgctxt "AppWindow"
 msgid "Chip backup file path"
 msgstr ""
 
-#: ui/app-window.slint:447
+#: ui/app-window.slint:451
 msgctxt "AppWindow"
 msgid "New…"
 msgstr ""
 
-#: ui/app-window.slint:447
+#: ui/app-window.slint:451
 msgctxt "AppWindow"
 msgid "Choose a new backup file"
 msgstr ""
 
-#: ui/app-window.slint:448
+#: ui/app-window.slint:452
 msgctxt "AppWindow"
 msgid "Open…"
 msgstr ""
 
-#: ui/app-window.slint:448
+#: ui/app-window.slint:452
 msgctxt "AppWindow"
 msgid "Open an existing backup"
 msgstr ""
 
-#: ui/app-window.slint:449
+#: ui/app-window.slint:453
 msgctxt "AppWindow"
 msgid "Back up chip"
 msgstr ""
 
-#: ui/app-window.slint:454
+#: ui/app-window.slint:458
 msgctxt "AppWindow"
 msgid "Image to write, built from the backup"
 msgstr ""
 
-#: ui/app-window.slint:455
+#: ui/app-window.slint:459
 msgctxt "AppWindow"
 msgid "Image to write"
 msgstr ""
 
-#: ui/app-window.slint:460
+#: ui/app-window.slint:464
 msgctxt "AppWindow"
 msgid "Choose the image to write"
 msgstr ""
 
-#: ui/app-window.slint:462
+#: ui/app-window.slint:466
 msgctxt "AppWindow"
 msgid "Whole chip"
 msgstr ""
 
-#: ui/app-window.slint:467
+#: ui/app-window.slint:471
 msgctxt "AppWindow"
 msgid "Check"
 msgstr ""
 
-#: ui/app-window.slint:467
+#: ui/app-window.slint:471
 msgctxt "AppWindow"
 msgid "Check the image against the chip"
 msgstr ""
 
-#: ui/app-window.slint:471
+#: ui/app-window.slint:475
 msgctxt "AppWindow"
 msgid ""
 "Diagnose the system, find the chip, back it up, then check an image built "
 "from that backup."
 msgstr ""
 
-#: ui/app-window.slint:471
+#: ui/app-window.slint:475
 msgctxt "AppWindow"
 msgid "Flash chip results"
 msgstr ""
 
-#: ui/app-window.slint:475
+#: ui/app-window.slint:479
 msgctxt "AppWindow"
 msgid "I can recover this board if it does not start"
 msgstr ""
 
-#: ui/app-window.slint:491
+#: ui/app-window.slint:495
 msgctxt "AppWindow"
 msgid ""
-"Read-only status of the configured catalog sources and engine tools. Use the "
-"CLI to change them."
-msgstr ""
-
-#: ui/app-window.slint:498 ui/app-window.slint:502
-msgctxt "AppWindow"
-msgid "Catalog sources"
+"Install a tool or choose where it lives. Catalog sources change in the CLI."
 msgstr ""
 
 #: ui/app-window.slint:500
 msgctxt "AppWindow"
-msgid "Refresh sources"
+msgid "Tools"
 msgstr ""
 
 #: ui/app-window.slint:502
 msgctxt "AppWindow"
-msgid "Refresh to view configured sources."
-msgstr ""
-
-#: ui/app-window.slint:508
-msgctxt "AppWindow"
-msgid "Tools"
-msgstr ""
-
-#: ui/app-window.slint:510
-msgctxt "AppWindow"
 msgid "Check tools"
 msgstr ""
 
-#: ui/app-window.slint:512
+#: ui/app-window.slint:504
 msgctxt "AppWindow"
 msgid "Check tools to view their status."
 msgstr ""
 
-#: ui/app-window.slint:512
+#: ui/app-window.slint:525 ui/app-window.slint:529
 msgctxt "AppWindow"
-msgid "Tool diagnostics"
+msgid "Catalog sources"
 msgstr ""
 
-#: ui/app-window.slint:523
+#: ui/app-window.slint:527
+msgctxt "AppWindow"
+msgid "Refresh sources"
+msgstr ""
+
+#: ui/app-window.slint:529
+msgctxt "AppWindow"
+msgid "Refresh to view configured sources."
+msgstr ""
+
+#: ui/app-window.slint:539
 msgctxt "AppWindow"
 msgid "Changes are saved as you make them."
 msgstr ""
 
-#: ui/app-window.slint:534
+#: ui/app-window.slint:550
 msgctxt "AppWindow"
 msgid "Engine"
 msgstr ""
 
-#: ui/app-window.slint:536
+#: ui/app-window.slint:552
 msgctxt "AppWindow"
 msgid "Path to bme executable"
 msgstr ""
 
-#: ui/app-window.slint:537
+#: ui/app-window.slint:553
 msgctxt "AppWindow"
 msgid "Engine executable path"
 msgstr ""
 
-#: ui/app-window.slint:553
+#: ui/app-window.slint:569
 msgctxt "AppWindow"
 msgid "Check engine"
 msgstr ""
 
-#: ui/app-window.slint:556 ui/app-window.slint:558
+#: ui/app-window.slint:572 ui/app-window.slint:574
 msgctxt "AppWindow"
 msgid "Language"
 msgstr ""
 
-#: ui/app-window.slint:568
+#: ui/app-window.slint:584
 msgctxt "AppWindow"
 msgid "Theme"
 msgstr ""
 
-#: ui/app-window.slint:570
+#: ui/app-window.slint:586
 msgctxt "AppWindow"
 msgid "Appearance"
 msgstr ""
 
-#: ui/app-window.slint:571
+#: ui/app-window.slint:587
 msgctxt "AppWindow"
 msgid "Follow system"
 msgstr ""
 
-#: ui/app-window.slint:571
+#: ui/app-window.slint:587
 msgctxt "AppWindow"
 msgid "Light"
 msgstr ""
 
-#: ui/app-window.slint:571
+#: ui/app-window.slint:587
 msgctxt "AppWindow"
 msgid "Dark"
 msgstr ""
 
-#: ui/app-window.slint:590
+#: ui/app-window.slint:606
 msgctxt "AppWindow"
 msgid "Recent operation details. Select text to copy it."
 msgstr ""
 
-#: ui/app-window.slint:591
+#: ui/app-window.slint:607
 msgctxt "AppWindow"
 msgid "Recent diagnostics"
 msgstr ""
 
-#: ui/app-window.slint:594
+#: ui/app-window.slint:610
 msgctxt "AppWindow"
 msgid "Copy all"
 msgstr ""
 
-#: ui/app-window.slint:595
+#: ui/app-window.slint:611
 msgctxt "AppWindow"
 msgid "Export…"
 msgstr ""
 
-#: ui/app-window.slint:628
+#: ui/app-window.slint:644
 msgctxt "AppWindow"
 msgid "Version {}"
 msgstr ""
 
-#: ui/app-window.slint:631
+#: ui/app-window.slint:647
 msgctxt "AppWindow"
 msgid ""
 "Inspect firmware and build a reviewed copy using the BIOS Mod Engine command-"
 "line tool."
 msgstr ""
 
-#: ui/app-window.slint:632
+#: ui/app-window.slint:648
 msgctxt "AppWindow"
 msgid ""
 "Firmware matches and offline verification do not establish physical hardware "
 "compatibility or boot behavior."
 msgstr ""
 
-#: ui/app-window.slint:674
+#: ui/app-window.slint:690
 msgctxt "AppWindow"
 msgid "Cancel"
 msgstr ""
@@ -1223,250 +1217,358 @@ msgstr ""
 
 #: ui/translations.slint:132
 msgctxt "UiText"
-msgid "Paths"
+msgid "Ready"
+msgstr ""
+
+#: ui/translations.slint:133
+msgctxt "UiText"
+msgid "Needs attention"
 msgstr ""
 
 #: ui/translations.slint:134
 msgctxt "UiText"
-msgid "Diagnosing the system"
+msgid "Missing"
 msgstr ""
 
 #: ui/translations.slint:135
 msgctxt "UiText"
-msgid "Looking for the flash chip"
+msgid "Not installed (optional)"
 msgstr ""
 
 #: ui/translations.slint:136
 msgctxt "UiText"
-msgid "Backing up the flash chip"
+msgid "Download and install"
 msgstr ""
 
 #: ui/translations.slint:137
 msgctxt "UiText"
-msgid "Checking the image against the chip"
+msgid "Choose location…"
 msgstr ""
 
 #: ui/translations.slint:138
 msgctxt "UiText"
-msgid "Writing the flash chip. Do not power off"
+msgid "Reset"
 msgstr ""
 
 #: ui/translations.slint:139
 msgctxt "UiText"
-msgid "System diagnosis complete."
+msgid "Automatic installation is available on Linux only."
 msgstr ""
 
 #: ui/translations.slint:140
 msgctxt "UiText"
-msgid "Flash chip found."
+msgid "Install with"
 msgstr ""
 
 #: ui/translations.slint:141
 msgctxt "UiText"
 msgid ""
-"The backup matches the chip. Review what will be written before flashing."
+"Downloads the pinned release and checks its SHA-256 digest. This can take "
+"several minutes."
 msgstr ""
 
 #: ui/translations.slint:142
+msgctxt "UiText"
+msgid "Analyzes extracted firmware modules."
+msgstr ""
+
+#: ui/translations.slint:143
+msgctxt "UiText"
+msgid "Teaches Ghidra the UEFI firmware formats."
+msgstr ""
+
+#: ui/translations.slint:144
+msgctxt "UiText"
+msgid "Runs Ghidra."
+msgstr ""
+
+#: ui/translations.slint:145
+msgctxt "UiText"
+msgid "Builds the Ghidra extension during installation."
+msgstr ""
+
+#: ui/translations.slint:146
+msgctxt "UiText"
+msgid "Fetches the Ghidra extension source during installation."
+msgstr ""
+
+#: ui/translations.slint:147
+msgctxt "UiText"
+msgid "Assembles patch sources when you rebuild their hunks."
+msgstr ""
+
+#: ui/translations.slint:148
+msgctxt "UiText"
+msgid "Reads and writes the SPI flash chip."
+msgstr ""
+
+#: ui/translations.slint:149
+msgctxt "UiText"
+msgid "Choose the Ghidra folder"
+msgstr ""
+
+#: ui/translations.slint:150
+msgctxt "UiText"
+msgid "Choose the flashrom program"
+msgstr ""
+
+#: ui/translations.slint:151
+msgctxt "UiText"
+msgid "Updating tool location"
+msgstr ""
+
+#: ui/translations.slint:152
+msgctxt "UiText"
+msgid "Installing Ghidra"
+msgstr ""
+
+#: ui/translations.slint:154
+msgctxt "UiText"
+msgid "Diagnosing the system"
+msgstr ""
+
+#: ui/translations.slint:155
+msgctxt "UiText"
+msgid "Looking for the flash chip"
+msgstr ""
+
+#: ui/translations.slint:156
+msgctxt "UiText"
+msgid "Backing up the flash chip"
+msgstr ""
+
+#: ui/translations.slint:157
+msgctxt "UiText"
+msgid "Checking the image against the chip"
+msgstr ""
+
+#: ui/translations.slint:158
+msgctxt "UiText"
+msgid "Writing the flash chip. Do not power off"
+msgstr ""
+
+#: ui/translations.slint:159
+msgctxt "UiText"
+msgid "System diagnosis complete."
+msgstr ""
+
+#: ui/translations.slint:160
+msgctxt "UiText"
+msgid "Flash chip found."
+msgstr ""
+
+#: ui/translations.slint:161
+msgctxt "UiText"
+msgid ""
+"The backup matches the chip. Review what will be written before flashing."
+msgstr ""
+
+#: ui/translations.slint:162
 msgctxt "UiText"
 msgid ""
 "Chip written and read back. Power-cycle the board to start the new firmware."
 msgstr ""
 
-#: ui/translations.slint:143
+#: ui/translations.slint:163
 msgctxt "UiText"
 msgid ""
 "Working on the flash chip. Close the window after the operation finishes."
 msgstr ""
 
-#: ui/translations.slint:144
+#: ui/translations.slint:164
 msgctxt "UiText"
 msgid "Flash inputs changed. Check the image against the chip again."
 msgstr ""
 
-#: ui/translations.slint:145
+#: ui/translations.slint:165
 msgctxt "UiText"
 msgid "Chip backed up to {}"
 msgstr ""
 
-#: ui/translations.slint:146
+#: ui/translations.slint:166
 msgctxt "UiText"
 msgid ""
 "The chip may hold a partial image. Keep the board powered and restore the "
 "backup. {}"
 msgstr ""
 
-#: ui/translations.slint:147
+#: ui/translations.slint:167
 msgctxt "UiText"
 msgid ""
 "The connected bme engine has no flash chip commands. Use the bundled engine."
 msgstr ""
 
-#: ui/translations.slint:148
+#: ui/translations.slint:168
+msgctxt "UiText"
+msgid ""
+"The connected bme engine cannot list or change tools. Use the bundled engine."
+msgstr ""
+
+#: ui/translations.slint:169
 msgctxt "UiText"
 msgid "Enter a flashrom programmer such as internal or ch341a_spi."
 msgstr ""
 
-#: ui/translations.slint:149
+#: ui/translations.slint:170
 msgctxt "UiText"
 msgid "Choose a backup file first."
 msgstr ""
 
-#: ui/translations.slint:150
+#: ui/translations.slint:171
 msgctxt "UiText"
 msgid "Choose the image to write first."
 msgstr ""
 
-#: ui/translations.slint:151
+#: ui/translations.slint:172
 msgctxt "UiText"
 msgid "Check the image against the chip first."
 msgstr ""
 
-#: ui/translations.slint:152
+#: ui/translations.slint:173
 msgctxt "UiText"
 msgid "Confirm that you can recover the board first."
 msgstr ""
 
-#: ui/translations.slint:153
+#: ui/translations.slint:174
 msgctxt "UiText"
 msgid "Save the chip backup as a new file"
 msgstr ""
 
-#: ui/translations.slint:154
+#: ui/translations.slint:175
 msgctxt "UiText"
 msgid "Open a backup of this chip"
 msgstr ""
 
-#: ui/translations.slint:155
+#: ui/translations.slint:176
 msgctxt "UiText"
 msgid "Open the image to write"
 msgstr ""
 
-#: ui/translations.slint:156
+#: ui/translations.slint:177
 msgctxt "UiText"
 msgid "PASS"
 msgstr ""
 
-#: ui/translations.slint:157
+#: ui/translations.slint:178
 msgctxt "UiText"
 msgid "WARN"
 msgstr ""
 
-#: ui/translations.slint:158
+#: ui/translations.slint:179
 msgctxt "UiText"
 msgid "FAIL"
 msgstr ""
 
-#: ui/translations.slint:159
+#: ui/translations.slint:180
 msgctxt "UiText"
 msgid "INFO"
 msgstr ""
 
-#: ui/translations.slint:160
+#: ui/translations.slint:181
 msgctxt "UiText"
 msgid "Board: {}"
 msgstr ""
 
-#: ui/translations.slint:161
+#: ui/translations.slint:182
 msgctxt "UiText"
 msgid "Firmware: {}"
 msgstr ""
 
-#: ui/translations.slint:162
+#: ui/translations.slint:183
 msgctxt "UiText"
 msgid "Catalog board profile: {}"
 msgstr ""
 
-#: ui/translations.slint:163
+#: ui/translations.slint:184
 msgctxt "UiText"
 msgid "No catalog board profile names this board."
 msgstr ""
 
-#: ui/translations.slint:164
+#: ui/translations.slint:185
 msgctxt "UiText"
 msgid "Checks for programmer {}"
 msgstr ""
 
-#: ui/translations.slint:165
+#: ui/translations.slint:186
 msgctxt "UiText"
 msgid "Nothing blocks chip access. Next: find the chip, then back it up."
 msgstr ""
 
-#: ui/translations.slint:166
+#: ui/translations.slint:187
 msgctxt "UiText"
 msgid "Fix the FAIL lines before reading or writing the chip."
 msgstr ""
 
-#: ui/translations.slint:167
+#: ui/translations.slint:188
 msgctxt "UiText"
 msgid "Chip: {}"
 msgstr ""
 
-#: ui/translations.slint:168
+#: ui/translations.slint:189
 msgctxt "UiText"
 msgid ""
 "Several chip definitions match. Read the marking on the chip and use the bme "
 "CLI with --chip."
 msgstr ""
 
-#: ui/translations.slint:169
+#: ui/translations.slint:190
 msgctxt "UiText"
 msgid "Next: choose a new backup file and back up the chip."
 msgstr ""
 
-#: ui/translations.slint:170
+#: ui/translations.slint:191
 msgctxt "UiText"
 msgid ""
 "Backup: {}\n{} bytes · SHA-256 {}\nTwo reads matched. Keep this file: it is "
 "the only way back."
 msgstr ""
 
-#: ui/translations.slint:171
+#: ui/translations.slint:192
 msgctxt "UiText"
 msgid "Only these regions were read: {}"
 msgstr ""
 
-#: ui/translations.slint:172
+#: ui/translations.slint:193
 msgctxt "UiText"
 msgid "Firmware volumes found: {}"
 msgstr ""
 
-#: ui/translations.slint:173
+#: ui/translations.slint:194
 msgctxt "UiText"
 msgid "Not recognized as UEFI firmware: {}"
 msgstr ""
 
-#: ui/translations.slint:174
+#: ui/translations.slint:195
 msgctxt "UiText"
 msgid ""
 "Next: build a patched copy from this backup in Workflow, then check it here."
 msgstr ""
 
-#: ui/translations.slint:175
+#: ui/translations.slint:196
 msgctxt "UiText"
 msgid "The backup matches the chip.\nImage SHA-256: {}\n\nWill write:"
 msgstr ""
 
-#: ui/translations.slint:176
+#: ui/translations.slint:197
 msgctxt "UiText"
 msgid "{}  {}–{}  {} bytes change"
 msgstr ""
 
-#: ui/translations.slint:177
+#: ui/translations.slint:198
 msgctxt "UiText"
 msgid ""
 "Nothing was written yet. Confirm that you can recover the board, then choose "
 "Flash chip."
 msgstr ""
 
-#: ui/translations.slint:178
+#: ui/translations.slint:199
 msgctxt "UiText"
 msgid ""
 "Written and read back. The chip holds image {}.\nPower-cycle the board to "
 "start the new firmware. Keep the backup."
 msgstr ""
 
-#: ui/translations.slint:179
+#: ui/translations.slint:200
 msgctxt "UiText"
 msgid "Failed: {}"
 msgstr ""

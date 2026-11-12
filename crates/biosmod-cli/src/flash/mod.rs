@@ -10,11 +10,14 @@ mod host;
 #[cfg(all(test, unix))]
 mod tests;
 
-pub use flashrom::{Chip, Operation, Selection, Target, locate_flashrom};
+pub use flashrom::{
+    Chip, FLASHROM_OVERRIDE, FlashromOrigin, Operation, SBIN_DIRECTORIES, Selection, Target,
+    parse_version, resolve_flashrom, resolve_flashrom_in, shell_word, validate_privileged_flashrom,
+};
 pub use host::{Flashrom, Host, State};
 
 use crate::commands::{MAX_IMAGE_BYTES, read_bounded};
-use crate::config::io_error;
+use crate::config::{Config, io_error};
 use crate::output::{Out, Reply, display_path, table};
 use crate::publish::{check_outputs, publish_file};
 use crate::toolchain::{Finished, Runner};
@@ -40,6 +43,9 @@ pub struct Env<'a> {
     pub runner: &'a dyn Runner,
     pub host: Host,
     pub flashrom: Option<PathBuf>,
+    /// The flashrom path a root re-run needs on its command line: set when the path came
+    /// from the configuration or the environment, which `sudo` and `pkexec` do not carry over.
+    pub flashrom_flag: Option<PathBuf>,
     pub out: Out,
     /// Process environment lookup (who invoked sudo or pkexec).
     pub variable: &'a dyn Fn(&str) -> Option<OsString>,
@@ -48,12 +54,30 @@ pub struct Env<'a> {
 }
 
 /// Run one `flash` subcommand against the real system.
+///
+/// flashrom is chosen by `--flashrom`, then `BME_FLASHROM`, then `tools.flashrom` from the
+/// configuration, then `PATH`. Root (sudo, pkexec) never reads configuration, because the home
+/// directory is root's: pass `--flashrom` or `BME_FLASHROM` there.
 pub fn run(out: Out, command: FlashCommand) -> Result<Reply> {
     let variable = |key: &str| std::env::var_os(key);
+    let host = Host::current();
+    let configured = configured_flashrom(
+        host.euid == Some(0),
+        command.flashrom_override(),
+        &variable,
+        || user_configuration(&|key| std::env::var_os(key).filter(|v| !v.is_empty())),
+    )?;
+    let (flashrom, flashrom_flag) = choose_flashrom(
+        host.euid == Some(0),
+        command.flashrom_override(),
+        &variable,
+        configured.as_deref(),
+    )?;
     let env = Env {
         runner: &crate::toolchain::System,
-        host: Host::current(),
-        flashrom: locate_flashrom(&variable),
+        host,
+        flashrom,
+        flashrom_flag,
         out,
         variable: &variable,
         boards: bundled_boards(),
@@ -61,10 +85,104 @@ pub fn run(out: Out, command: FlashCommand) -> Result<Reply> {
     dispatch(&env, command)
 }
 
+/// The per-user configuration a non-root flash command reads `tools.flashrom` from.
+///
+/// Without a configuration directory (no `HOME`, `XDG_CONFIG_HOME` or `BME_CONFIG_HOME`) no
+/// file can hold a saved flashrom, so the defaults apply. Flash commands never use the cache
+/// or data directories, so a missing one does not stop them.
+///
+/// Example: `user_configuration(&|key| std::env::var_os(key))` loads `~/.config/biosmod-engine/config.toml`.
+fn user_configuration(get: &dyn Fn(&str) -> Option<OsString>) -> Result<Config> {
+    let unused = |key: &str| {
+        get(key).or_else(|| {
+            matches!(key, "BME_CACHE_HOME" | "BME_DATA_HOME").then(|| "/nonexistent".into())
+        })
+    };
+    match crate::config::Paths::resolve(&unused, std::env::consts::OS) {
+        Ok(paths) => Config::load(&paths),
+        Err(_) => Ok(Config::default()),
+    }
+}
+
+/// Pick the flashrom executable and the flag a root re-run would need to repeat the choice.
+///
+/// A path chosen explicitly, by environment or by configuration is checked first when the
+/// process is root, because root would execute it.
+///
+/// Example: with a saved `/opt/fr/flashrom` and no override, a user run gets that path and the
+/// flag `/opt/fr/flashrom`; a typed `--flashrom` is repeated too, so the next step is complete.
+fn choose_flashrom(
+    root: bool,
+    flag: Option<&PathBuf>,
+    variable: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    configured: Option<&Path>,
+) -> Result<(Option<PathBuf>, Option<PathBuf>)> {
+    if let Some(path) = flag {
+        if root {
+            flashrom::validate_privileged_flashrom(path)?;
+        }
+        return Ok((Some(path.clone()), Some(repeatable(path))));
+    }
+    let Some((path, origin)) = resolve_flashrom(variable, configured) else {
+        return Ok((None, None));
+    };
+    if root && origin != flashrom::FlashromOrigin::Path {
+        flashrom::validate_privileged_flashrom(&path)?;
+    }
+    let repeat = (origin != flashrom::FlashromOrigin::Path).then(|| repeatable(&path));
+    Ok((Some(path), repeat))
+}
+
+/// `path` made absolute for the `sudo` next step, which root refuses in relative form.
+///
+/// Example: `repeatable(Path::new("bin/flashrom"))` is `<current directory>/bin/flashrom`.
+fn repeatable(path: &Path) -> PathBuf {
+    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// ` --flashrom <path>` for a command the user runs next as root, or nothing.
+///
+/// Example: with a saved `/opt/fr/flashrom` it is ` --flashrom /opt/fr/flashrom`.
+fn flashrom_flag(env: &Env) -> String {
+    env.flashrom_flag
+        .as_deref()
+        .map(|path| format!(" --flashrom {}", flashrom::shell_word(path)))
+        .unwrap_or_default()
+}
+
+/// `tools.flashrom` from the per-user configuration, read only when nothing else chose flashrom.
+///
+/// A typed `--flashrom`, a non-empty `BME_FLASHROM` or a root process never reads the file, so a
+/// broken one cannot block them. Otherwise a file that does not load is an error: falling back
+/// to `PATH` would run a different flashrom than the one the user saved.
+///
+/// Example: with a saved `/opt/fr/flashrom` and no override it is `Ok(Some("/opt/fr/flashrom"))`.
+fn configured_flashrom(
+    root: bool,
+    flag: Option<&PathBuf>,
+    variable: &dyn Fn(&str) -> Option<OsString>,
+    load: impl FnOnce() -> Result<Config>,
+) -> Result<Option<PathBuf>> {
+    let overridden = variable(FLASHROM_OVERRIDE).is_some_and(|value| !value.is_empty());
+    if root || flag.is_some() || overridden {
+        return Ok(None);
+    }
+    let config = load().map_err(|error| {
+        Error::new(
+            error.code,
+            format!(
+                "tools.flashrom: {}; fix the file or pass --flashrom <path>",
+                error.message
+            ),
+        )
+    })?;
+    Ok(config.tools.flashrom)
+}
+
 /// Route a parsed subcommand; chip access is refused outside Linux.
 pub fn dispatch(env: &Env, command: FlashCommand) -> Result<Reply> {
     match command {
-        FlashCommand::Doctor { programmer } => doctor(env, &programmer),
+        FlashCommand::Doctor { programmer, .. } => doctor(env, &programmer),
         FlashCommand::Probe(target) => {
             require_linux(env, "flash probe")?;
             probe(env, &target)
@@ -114,7 +232,7 @@ fn target(env: &Env, args: &FlashTargetArgs) -> Result<Target> {
         Error::new(
             Code::ToolUnavailable,
             format!(
-                "flashrom: expected an executable in PATH or the sbin directories | received none; install flashrom or set {}",
+                "flashrom: expected an executable in PATH or the sbin directories | received none; install flashrom (`bme tools status`), set {}, or run `bme tools set flashrom <path>`",
                 flashrom::FLASHROM_OVERRIDE
             ),
         )
@@ -141,13 +259,35 @@ fn installed_flashrom(env: &Env) -> Option<Flashrom> {
     Some(Flashrom { path, version })
 }
 
+/// A warning when the `--flashrom` path the next `sudo` step repeats would be refused by root.
+///
+/// A non-root run does not check the file, so without this a group-writable saved flashrom
+/// reads as ready and the suggested `sudo bme flash probe --flashrom <path>` then fails.
+///
+/// Example: a saved 0775 `/home/me/flashrom` yields a `flashrom-root` warning naming mode 775.
+fn root_refusal_check(env: &Env) -> Option<host::Check> {
+    if env.host.euid == Some(0) {
+        return None;
+    }
+    let path = env.flashrom_flag.as_deref()?;
+    let error = flashrom::validate_privileged_flashrom(path).err()?;
+    Some(host::Check {
+        check: "flashrom-root",
+        state: State::Warn,
+        detail: error.message,
+    })
+}
+
 /// `flash doctor`: read-only diagnosis; never starts a programmer.
 ///
 /// Example: `bme flash doctor --programmer ch341a_spi` lists what blocks a CH341A read.
 pub fn doctor(env: &Env, programmer: &str) -> Result<Reply> {
     flashrom::validate_programmer(programmer)?;
     let installed = installed_flashrom(env);
-    let checks = env.host.checks(programmer, installed.as_ref());
+    let mut checks = env.host.checks(programmer, installed.as_ref());
+    if let Some(warning) = root_refusal_check(env) {
+        checks.push(warning);
+    }
     let dmi = env.host.dmi();
     let boards: Vec<Value> = env
         .boards
@@ -200,10 +340,13 @@ pub fn doctor(env: &Env, programmer: &str) -> Result<Reply> {
         })
         .collect();
     text += &table(&rows);
-    text += if ready {
-        "\nNext: sudo bme flash probe, then sudo bme flash backup -o dump.bin\n"
+    text += &if ready {
+        format!(
+            "\nNext: sudo bme flash probe{flag}, then sudo bme flash backup{flag} -o dump.bin\n",
+            flag = flashrom_flag(env)
+        )
     } else {
-        "\nFix the FAIL lines before reading or writing the chip.\n"
+        "\nFix the FAIL lines before reading or writing the chip.\n".to_string()
     };
     Ok(Reply::new(
         json!({
@@ -291,8 +434,9 @@ pub fn probe(env: &Env, args: &FlashTargetArgs) -> Result<Reply> {
         )
     } else {
         format!(
-            "Next: sudo bme flash backup --programmer {} -o dump.bin\n",
-            target.programmer
+            "Next: sudo bme flash backup --programmer {}{} -o dump.bin\n",
+            target.programmer,
+            flashrom_flag(env)
         )
     };
     Ok(Reply::new(

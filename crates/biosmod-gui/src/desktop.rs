@@ -1,8 +1,10 @@
 //! Slint event-loop wiring. Workers never hold a strong window reference.
 
 mod flash;
+mod tools;
 
 pub use flash::flash_summary;
+pub use tools::tool_rows;
 
 use crate::controller::{
     Action, Outcome, PreparationError, Review, Session, Status, manifest_path, write_new_file,
@@ -33,10 +35,7 @@ pub struct Desktop {
     presented_flash: RefCell<Option<flash::FlashPresentation>>,
     export_writer: Arc<dyn ExportWriter>,
 }
-type ToolPresentation = (
-    Arc<(serde_json::Value, Option<serde_json::Value>)>,
-    Language,
-);
+type ToolPresentation = (Arc<serde_json::Value>, Language);
 type Shared = Arc<Mutex<Desktop>>;
 
 trait ExportWriter: Send + Sync {
@@ -132,6 +131,7 @@ fn bind_with_language_selector(
     action!(on_flash_check, Action::FlashCheck);
     action!(on_flash_write, Action::FlashWrite);
     flash::bind(ui, &state);
+    tools::bind(ui, &state);
     macro_rules! edit {
         ($callback:ident, $kind:expr) => {{
             let state = state.clone();
@@ -663,6 +663,7 @@ fn preview_engine(state: &mut Desktop, path: Option<PathBuf>) {
     state.session.engine_contract = None;
     state.session.engine_attempted = false;
     state.session.flash.supported = false;
+    state.session.tools_supported = false;
     state.engine_path = engine;
 }
 
@@ -1033,7 +1034,7 @@ fn sync(ui: &AppWindow, state: &Desktop) {
     if ui.get_source_details().as_str() != session.source_details {
         ui.set_source_details(session.source_details.as_str().into());
     }
-    sync_tool_details(ui, state);
+    tools::sync_tools(ui, state);
     flash::sync_flash(ui, state);
     if ui.get_diagnostics().as_str() != session.diagnostics {
         ui.set_diagnostics(session.diagnostics.as_str().into());
@@ -1062,42 +1063,6 @@ fn sync(ui: &AppWindow, state: &Desktop) {
 #[cfg(test)]
 thread_local! { static TOOL_RENDER_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 
-fn sync_tool_details(ui: &AppWindow, state: &Desktop) {
-    let mut presented = state.presented_tools.borrow_mut();
-    match (&state.session.tool_report, presented.as_ref()) {
-        (Some(current), Some((previous, language)))
-            if Arc::ptr_eq(current, previous) && *language == state.settings.language =>
-        {
-            return;
-        }
-        (None, None) if ui.get_tool_details().is_empty() => return,
-        _ => {}
-    }
-    if let Some(report) = &state.session.tool_report {
-        ui.set_tool_details(render_tool_details(ui, &report.0, report.1.as_ref()));
-        *presented = Some((report.clone(), state.settings.language));
-    } else {
-        ui.set_tool_details(SharedString::default());
-        *presented = None;
-    }
-}
-
-fn render_tool_details(
-    ui: &AppWindow,
-    data: &serde_json::Value,
-    paths: Option<&serde_json::Value>,
-) -> SharedString {
-    #[cfg(test)]
-    TOOL_RENDER_COUNT.with(|count| count.set(count.get() + 1));
-    format!(
-        "{}\n\n{}\n{}",
-        crate::model::pretty(data),
-        ui.global::<UiText>().get_tool_paths(),
-        paths.map(crate::model::pretty).unwrap_or_default()
-    )
-    .into()
-}
-
 /// Render an operation label from its semantic action on the UI thread.
 /// Example: `localized_activity(&window, Action::Scan)` names an active scan.
 pub fn localized_activity(ui: &AppWindow, action: Action) -> SharedString {
@@ -1112,6 +1077,8 @@ pub fn localized_activity(ui: &AppWindow, action: Action) -> SharedString {
         Action::Verify => t.get_operation_verify(),
         Action::Sources => t.get_operation_sources(),
         Action::Tools => t.get_operation_tools(),
+        Action::ToolChange => t.get_operation_tool_change(),
+        Action::ToolInstall => t.get_operation_tool_install(),
         Action::Import => t.get_operation_import(),
         Action::ValidateRecipe => t.get_operation_validate_recipe(),
         Action::FlashDoctor => t.get_operation_flash_doctor(),
@@ -1182,6 +1149,7 @@ fn localized_status_with_extra(
             PreparationError::WaitImport => t.get_precondition_wait_import(),
             PreparationError::RecipeMismatch => t.get_precondition_recipe_mismatch(),
             PreparationError::FlashUnsupported => t.get_precondition_flash_unsupported(),
+            PreparationError::ToolsUnsupported => t.get_precondition_tools_unsupported(),
             PreparationError::Programmer => t.get_precondition_programmer(),
             PreparationError::FlashBackup => t.get_precondition_flash_backup(),
             PreparationError::FlashImage => t.get_precondition_flash_image(),

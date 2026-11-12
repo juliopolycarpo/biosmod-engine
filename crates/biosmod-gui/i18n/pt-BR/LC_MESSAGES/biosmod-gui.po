@@ -412,27 +412,13 @@ msgctxt "AppWindow"
 msgid "I can recover this board if it does not start"
 msgstr "Consigo recuperar esta placa se ela não iniciar"
 
-#: ui/app-window.slint:338
+#: ui/app-window.slint:495
 msgctxt "AppWindow"
 msgid ""
-"Read-only status of the configured catalog sources and engine tools. Use the "
-"CLI to change them."
-msgstr "Estado somente para leitura das fontes de catálogo e ferramentas configuradas. Use a CLI para alterá-las."
-
-#: ui/app-window.slint:345 ui/app-window.slint:349
-msgctxt "AppWindow"
-msgid "Catalog sources"
-msgstr "Fontes de catálogo"
-
-#: ui/app-window.slint:347
-msgctxt "AppWindow"
-msgid "Refresh sources"
-msgstr "Atualizar fontes"
-
-#: ui/app-window.slint:349
-msgctxt "AppWindow"
-msgid "Refresh to view configured sources."
-msgstr "Atualize para ver as fontes configuradas."
+"Install a tool or choose where it lives. Catalog sources change in the CLI."
+msgstr ""
+"Instale uma ferramenta ou escolha onde ela está. As fontes de catálogo mudam "
+"na CLI."
 
 #: ui/app-window.slint:355
 msgctxt "AppWindow"
@@ -449,10 +435,20 @@ msgctxt "AppWindow"
 msgid "Check tools to view their status."
 msgstr "Verifique as ferramentas para ver seu estado."
 
-#: ui/app-window.slint:359
+#: ui/app-window.slint:345 ui/app-window.slint:349
 msgctxt "AppWindow"
-msgid "Tool diagnostics"
-msgstr "Diagnósticos das ferramentas"
+msgid "Catalog sources"
+msgstr "Fontes de catálogo"
+
+#: ui/app-window.slint:347
+msgctxt "AppWindow"
+msgid "Refresh sources"
+msgstr "Atualizar fontes"
+
+#: ui/app-window.slint:349
+msgctxt "AppWindow"
+msgid "Refresh to view configured sources."
+msgstr "Atualize para ver as fontes configuradas."
 
 #: ui/app-window.slint:370
 msgctxt "AppWindow"
@@ -1216,10 +1212,112 @@ msgctxt "UiText"
 msgid "Wait for the active operation before opening a selection file."
 msgstr "Aguarde a operação atual antes de abrir um arquivo de seleção."
 
-#: ui/translations.slint:124
+#: ui/translations.slint:132
 msgctxt "UiText"
-msgid "Paths"
-msgstr "Caminhos"
+msgid "Ready"
+msgstr "Pronta"
+
+#: ui/translations.slint:133
+msgctxt "UiText"
+msgid "Needs attention"
+msgstr "Requer atenção"
+
+#: ui/translations.slint:134
+msgctxt "UiText"
+msgid "Missing"
+msgstr "Ausente"
+
+#: ui/translations.slint:135
+msgctxt "UiText"
+msgid "Not installed (optional)"
+msgstr "Não instalado (opcional)"
+
+#: ui/translations.slint:135
+msgctxt "UiText"
+msgid "Download and install"
+msgstr "Baixar e instalar"
+
+#: ui/translations.slint:136
+msgctxt "UiText"
+msgid "Choose location…"
+msgstr "Escolher local…"
+
+#: ui/translations.slint:137
+msgctxt "UiText"
+msgid "Reset"
+msgstr "Restaurar"
+
+#: ui/translations.slint:138
+msgctxt "UiText"
+msgid "Automatic installation is available on Linux only."
+msgstr "A instalação automática só está disponível no Linux."
+
+#: ui/translations.slint:139
+msgctxt "UiText"
+msgid "Install with"
+msgstr "Instalar com"
+
+#: ui/translations.slint:140
+msgctxt "UiText"
+msgid ""
+"Downloads the pinned release and checks its SHA-256 digest. This can take "
+"several minutes."
+msgstr "Baixa a versão fixada e confere o resumo SHA-256. Isso pode levar vários minutos."
+
+#: ui/translations.slint:141
+msgctxt "UiText"
+msgid "Analyzes extracted firmware modules."
+msgstr "Analisa os módulos de firmware extraídos."
+
+#: ui/translations.slint:142
+msgctxt "UiText"
+msgid "Teaches Ghidra the UEFI firmware formats."
+msgstr "Ensina ao Ghidra os formatos de firmware UEFI."
+
+#: ui/translations.slint:143
+msgctxt "UiText"
+msgid "Runs Ghidra."
+msgstr "Executa o Ghidra."
+
+#: ui/translations.slint:144
+msgctxt "UiText"
+msgid "Builds the Ghidra extension during installation."
+msgstr "Compila a extensão do Ghidra durante a instalação."
+
+#: ui/translations.slint:145
+msgctxt "UiText"
+msgid "Fetches the Ghidra extension source during installation."
+msgstr "Baixa o código da extensão do Ghidra durante a instalação."
+
+#: ui/translations.slint:147
+msgctxt "UiText"
+msgid "Assembles patch sources when you rebuild their hunks."
+msgstr "Monta o código-fonte dos patches quando você reconstrói seus trechos."
+
+#: ui/translations.slint:146
+msgctxt "UiText"
+msgid "Reads and writes the SPI flash chip."
+msgstr "Lê e grava o chip de flash SPI."
+
+#: ui/translations.slint:147
+msgctxt "UiText"
+msgid "Choose the Ghidra folder"
+msgstr "Escolher a pasta do Ghidra"
+
+#: ui/translations.slint:148
+msgctxt "UiText"
+msgid "Choose the flashrom program"
+msgstr "Escolher o programa flashrom"
+
+#: ui/translations.slint:149
+msgctxt "UiText"
+msgid "Updating tool location"
+msgstr "Atualizando o local da ferramenta"
+
+#: ui/translations.slint:150
+msgctxt "UiText"
+msgid "Installing Ghidra"
+msgstr "Instalando o Ghidra"
 
 #: ui/translations.slint:134
 msgctxt "UiText"
@@ -1296,6 +1394,12 @@ msgctxt "UiText"
 msgid ""
 "The connected bme engine has no flash chip commands. Use the bundled engine."
 msgstr "O mecanismo bme conectado não tem os comandos de gravação do chip. Use o mecanismo incluído."
+
+#: ui/translations.slint:166
+msgctxt "UiText"
+msgid ""
+"The connected bme engine cannot list or change tools. Use the bundled engine."
+msgstr "O mecanismo bme conectado não consegue listar nem alterar ferramentas. Use o mecanismo incluído."
 
 #: ui/translations.slint:148
 msgctxt "UiText"
@@ -1600,3 +1704,27 @@ msgstr "Selecionar tudo"
 #~ msgctxt "UiText"
 #~ msgid "Generating plan"
 #~ msgstr "Gerando plano"
+
+#~ #: ui/app-window.slint:338
+#~ msgctxt "AppWindow"
+#~ msgid ""
+#~ "Read-only status of the configured catalog sources and engine tools. Use the "
+#~ "CLI to change them."
+#~ msgstr "Estado somente para leitura das fontes de catálogo e ferramentas configuradas. Use a CLI para alterá-las."
+
+#~ #: ui/app-window.slint:359
+#~ msgctxt "AppWindow"
+#~ msgid "Tool diagnostics"
+#~ msgstr "Diagnósticos das ferramentas"
+
+#~ #: ui/translations.slint:124
+#~ msgctxt "UiText"
+#~ msgid "Paths"
+#~ msgstr "Caminhos"
+
+#~ #: ui/app-window.slint:495
+#~ msgctxt "AppWindow"
+#~ msgid ""
+#~ "Status of the catalog sources and the external tools bme runs. Catalog "
+#~ "sources change in the CLI; install a tool or choose where it lives here."
+#~ msgstr "Estado das fontes de catálogo e das ferramentas externas que o bme executa. As fontes de catálogo mudam na CLI; aqui você instala uma ferramenta ou escolhe onde ela está."

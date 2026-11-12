@@ -184,3 +184,129 @@ fn flash_arguments_are_validated_before_flashrom_runs() {
         "{codes}"
     );
 }
+
+/// A flashrom stand-in whose version no real installation reports.
+const SAVED_FLASHROM_PROGRAM: &str = "#!/bin/sh\necho 'flashrom v9.9.9 on Linux 7.0.0 (x86_64)'\n";
+
+/// Write an executable `SAVED_FLASHROM_PROGRAM` named `name` in the sandbox.
+fn saved_flashrom(sandbox: &Sandbox, name: &str) -> PathBuf {
+    let program = sandbox.path(name);
+    fs::write(&program, SAVED_FLASHROM_PROGRAM).unwrap();
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    program
+}
+
+/// Root never reads the per-user configuration, so these checks only apply to other users.
+fn running_as_root() -> bool {
+    use std::os::unix::fs::MetadataExt;
+    fs::metadata("/proc/self").is_ok_and(|meta| meta.uid() == 0)
+}
+
+#[test]
+fn flash_doctor_uses_the_flashrom_saved_by_tools_set() {
+    if running_as_root() {
+        eprintln!("skipped: root does not read per-user configuration");
+        return;
+    }
+    let sandbox = Sandbox::new();
+    let program = saved_flashrom(&sandbox, "saved-flashrom");
+    let saved = sandbox
+        .run(["tools", "set", "flashrom", s(&program), "--json"])
+        .json();
+    assert_eq!(saved["data"]["version"], "9.9.9", "{saved}");
+
+    let doctor = sandbox.run(["flash", "doctor", "--json"]).json();
+    assert_eq!(
+        doctor["data"]["flashrom"]["path"],
+        s(&program),
+        "(flash doctor flashrom path): expected the saved executable | received {doctor}"
+    );
+    assert_eq!(doctor["data"]["flashrom"]["version"], "9.9.9", "{doctor}");
+
+    let status = sandbox.run(["tools", "status", "--json"]).json();
+    let tools = status["data"]["tools"].as_array().unwrap();
+    let flashrom = tools.iter().find(|tool| tool["id"] == "flashrom").unwrap();
+    assert_eq!(flashrom["origin"], "config", "{status}");
+    assert_eq!(flashrom["path"], s(&program), "{status}");
+
+    // `tools paths` names the saved flashrom without running anything, for callers that only
+    // need to learn which one a flash command would use.
+    let paths = sandbox.run(["tools", "paths", "--json"]).json();
+    assert_eq!(
+        (
+            paths["data"]["flashrom"]["origin"].as_str(),
+            paths["data"]["flashrom"]["path"].as_str()
+        ),
+        (Some("config"), Some(s(&program))),
+        "(tools paths flashrom): expected the saved flashrom | received {paths}"
+    );
+}
+
+#[test]
+fn flash_flag_and_environment_beat_the_saved_flashrom() {
+    if running_as_root() {
+        eprintln!("skipped: root does not read per-user configuration");
+        return;
+    }
+    let sandbox = Sandbox::new();
+    let saved = saved_flashrom(&sandbox, "saved-flashrom");
+    let flagged = saved_flashrom(&sandbox, "flagged-flashrom");
+    let named = saved_flashrom(&sandbox, "named-flashrom");
+    let set = sandbox.run(["tools", "set", "flashrom", s(&saved)]);
+    assert_eq!(set.code, 0, "{}", set.stderr);
+
+    let flag = format!("--flashrom={}", s(&flagged));
+    let doctor = sandbox
+        .run(["flash", "doctor", flag.as_str(), "--json"])
+        .json();
+    assert_eq!(doctor["data"]["flashrom"]["path"], s(&flagged), "{doctor}");
+
+    let doctor = sandbox
+        .run_with_env(["flash", "doctor", "--json"], &[("BME_FLASHROM", &named)])
+        .json();
+    assert_eq!(doctor["data"]["flashrom"]["path"], s(&named), "{doctor}");
+}
+
+#[test]
+fn tools_status_exits_zero_and_set_rejects_a_directory() {
+    let sandbox = Sandbox::new();
+    let status = sandbox.run(["tools", "status", "--json"]);
+    assert_eq!(
+        status.code, 0,
+        "(tools status exit): expected 0 | {}",
+        status.stderr
+    );
+    let document = status.json();
+    let ids: Vec<&str> = document["data"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "ghidra",
+            "firmware-utils",
+            "java",
+            "jdk",
+            "git",
+            "flashrom",
+            "nasm"
+        ],
+        "{document}"
+    );
+
+    let directory = sandbox.path("not-a-program");
+    fs::create_dir(&directory).unwrap();
+    let rejected = sandbox.run(["tools", "set", "flashrom", s(&directory), "--json"]);
+    assert_eq!(rejected.code, 2, "{}", rejected.stdout);
+    assert_eq!(rejected.error_code(), "USAGE");
+    assert!(
+        rejected.json()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("expected an executable file | received none")
+    );
+    assert!(!sandbox.path("config/config.toml").exists());
+}

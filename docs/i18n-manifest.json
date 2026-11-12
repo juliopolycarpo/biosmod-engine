@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "f67d485fbed9089a4bea119c4ab5f27841f6c307cbd5d50043e5b7b68e005fa3"
+      "sha256": "276fe0711166dfab762fac03e28e3456826f50c51445d46326545dd7c726ba28"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -14,7 +14,7 @@
     {
       "source": "docs/architecture.md",
       "translation": "docs/pt-BR/architecture.md",
-      "sha256": "80a6162f7fd532a8849a08ac7f8db0df2e5d15128eeabf1c9cbae6551592a601"
+      "sha256": "be38734564248fff7f1a5b4124fd18797d2824bf477bb60ebe48a2fea0c1cafb"
     },
     {
       "source": "docs/baseline.md",
@@ -44,17 +44,17 @@
     {
       "source": "docs/guide/flashing.md",
       "translation": "docs/pt-BR/guide/flashing.md",
-      "sha256": "ffa4bf56c916a327753d03697045f58e3a4a0a18c4e10ec9323f9df10f0e44d6"
+      "sha256": "04c8c4fb0ae041a1ca0c99812e1992d6ae0e2f857e1df8b59eaa91711303a9ac"
     },
     {
       "source": "docs/guide/ghidra.md",
       "translation": "docs/pt-BR/guide/ghidra.md",
-      "sha256": "5ed098a835936e5613e3647092598de81f5f7d737addc8bfaaa4dd9092d1bac9"
+      "sha256": "9cce4e6fb99dca8435363d22e2cc5ef57c188ef83291de2eddbf37402120bbe5"
     },
     {
       "source": "docs/guide/gui.md",
       "translation": "docs/pt-BR/guide/gui.md",
-      "sha256": "908862f7d38534c2b1b04bed0e5906c410a1229ed518663b2d79ce5e81c510e9"
+      "sha256": "50ae632e5531c6f2d9c7bcd0b459f32d982d99c82128f86549b98e0985016f3f"
     },
     {
       "source": "docs/guide/porting.md",
@@ -69,7 +69,7 @@
     {
       "source": "docs/guide/trust.md",
       "translation": "docs/pt-BR/guide/trust.md",
-      "sha256": "6097662047d5bf6b2ce161c4a74337cd0cde0a2e1aed95d5be29c4fc29e8e01c"
+      "sha256": "9ac412e8257f1686f064f8d0dd1472aae6d2fe9084601237723c134a126de2a2"
     },
     {
       "source": "docs/guide/workflow.md",
