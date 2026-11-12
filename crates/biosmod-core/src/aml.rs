@@ -316,11 +316,17 @@ impl<'a> Walker<'a> {
         end: usize,
         args: Option<u8>,
         hash_from: Option<usize>,
-    ) {
+    ) -> std::result::Result<(), Stop> {
+        let from = hash_from.unwrap_or(offset);
         let sha256 = if kind.is_container() {
             None
         } else {
-            Some(sha256_hex(&self.table[hash_from.unwrap_or(offset)..end]))
+            let body = self.table.get(from..end).ok_or_else(|| {
+                Stop(format!(
+                    "offset {offset:#x}: {kind:?} body expected to start before its end {end:#x} | received start {from:#x}"
+                ))
+            })?;
+            Some(sha256_hex(body))
         };
         self.objects.push(AmlObject {
             path,
@@ -330,6 +336,7 @@ impl<'a> Walker<'a> {
             args,
             sha256,
         });
+        Ok(())
     }
 
     /// Walk terms in `[at, end)` under `scope`.
@@ -374,8 +381,14 @@ impl<'a> Walker<'a> {
             let (length, used) = walker.pkg_length(body)?;
             let term_end = (body + length).min(end);
             let (name, after) = walker.name_string(body + used)?;
+            let needed = after + fixed - body;
+            if length < needed {
+                return Err(Stop(format!(
+                    "offset {at:#x}: {kind:?} PkgLength expected >= {needed} | received {length}"
+                )));
+            }
             let path = walker.resolve(scope, &name);
-            walker.record(render(&path), kind, at, term_end, None, None);
+            walker.record(render(&path), kind, at, term_end, None, None)?;
             walker.term_list((after + fixed).min(term_end), term_end, &path, depth + 1);
             Ok(term_end)
         };
@@ -390,6 +403,12 @@ impl<'a> Walker<'a> {
                 let term_end = (body + length).min(end);
                 let (name, after) = self.name_string(body + used)?;
                 let flags = self.byte(after)?;
+                let needed = after + 1 - body;
+                if length < needed {
+                    return Err(Stop(format!(
+                        "offset {at:#x}: Method PkgLength expected >= {needed} | received {length}"
+                    )));
+                }
                 let path = render(&self.resolve(scope, &name));
                 self.record(
                     path,
@@ -398,14 +417,14 @@ impl<'a> Walker<'a> {
                     term_end,
                     Some(flags & 7),
                     Some(after + 1),
-                );
+                )?;
                 Ok(term_end)
             }
             (0x08, None) => {
                 let (name, after) = self.name_string(body)?;
                 let term_end = self.skip_data(after)?;
                 let path = render(&self.resolve(scope, &name));
-                self.record(path, ObjectKind::Name, at, term_end, None, None);
+                self.record(path, ObjectKind::Name, at, term_end, None, None)?;
                 Ok(term_end)
             }
             (0x5B, Some(0x80)) => {
@@ -414,7 +433,7 @@ impl<'a> Walker<'a> {
                 let offset_end = self.skip_data(after + 1)?;
                 let term_end = self.skip_data(offset_end)?;
                 let path = render(&self.resolve(scope, &name));
-                self.record(path, ObjectKind::OperationRegion, at, term_end, None, None);
+                self.record(path, ObjectKind::OperationRegion, at, term_end, None, None)?;
                 Ok(term_end)
             }
             (0x5B, Some(0x81 | 0x86 | 0x87)) => {
@@ -430,20 +449,20 @@ impl<'a> Walker<'a> {
                 let count = self.field_counts.entry(region.clone()).or_default();
                 *count += 1;
                 let path = format!("{region}#{count}");
-                self.record(path, kind, at, term_end, None, None);
+                self.record(path, kind, at, term_end, None, None)?;
                 Ok(term_end)
             }
             (0x5B, Some(0x01)) => {
                 let (name, after) = self.name_string(body)?;
                 self.byte(after)?;
                 let path = render(&self.resolve(scope, &name));
-                self.record(path, ObjectKind::Mutex, at, after + 1, None, None);
+                self.record(path, ObjectKind::Mutex, at, after + 1, None, None)?;
                 Ok(after + 1)
             }
             (0x5B, Some(0x02)) => {
                 let (name, after) = self.name_string(body)?;
                 let path = render(&self.resolve(scope, &name));
-                self.record(path, ObjectKind::Event, at, after, None, None);
+                self.record(path, ObjectKind::Event, at, after, None, None)?;
                 Ok(after)
             }
             (0x5B, Some(0x88)) => {
@@ -453,7 +472,7 @@ impl<'a> Walker<'a> {
                     term_end = self.skip_data(term_end)?;
                 }
                 let path = render(&self.resolve(scope, &name));
-                self.record(path, ObjectKind::DataRegion, at, term_end, None, None);
+                self.record(path, ObjectKind::DataRegion, at, term_end, None, None)?;
                 Ok(term_end)
             }
             (0x8A..=0x8D | 0x8F, None) | (0x5B, Some(0x13)) => {
@@ -465,14 +484,14 @@ impl<'a> Walker<'a> {
                 }
                 let (name, term_end) = self.name_string(next)?;
                 let path = render(&self.resolve(scope, &name));
-                self.record(path, ObjectKind::BufferField, at, term_end, None, None);
+                self.record(path, ObjectKind::BufferField, at, term_end, None, None)?;
                 Ok(term_end)
             }
             (0x06, None) => {
                 let (_source, after) = self.name_string(body)?;
                 let (alias, term_end) = self.name_string(after)?;
                 let path = render(&self.resolve(scope, &alias));
-                self.record(path, ObjectKind::Alias, at, term_end, None, None);
+                self.record(path, ObjectKind::Alias, at, term_end, None, None)?;
                 Ok(term_end)
             }
             (0x15, None) => {
@@ -480,7 +499,7 @@ impl<'a> Walker<'a> {
                 let term_end = after + 2;
                 self.byte(term_end - 1)?;
                 let path = render(&self.resolve(scope, &name));
-                self.record(path, ObjectKind::External, at, term_end, None, None);
+                self.record(path, ObjectKind::External, at, term_end, None, None)?;
                 Ok(term_end)
             }
             (0xA0..=0xA2, None) => {
@@ -690,6 +709,37 @@ mod tests {
             .iter()
             .map(|o| (o.path.as_str(), o.kind))
             .collect()
+    }
+
+    #[test]
+    fn method_pkglength_shorter_than_its_name_and_flags_is_a_warning() {
+        // `Method` PkgLength 1 cannot hold the 4-byte name and the flags byte.
+        let aml = [0x14, 0x01, 0x41, 0x41, 0x41, 0x41, 0x00];
+        let space = walk_table(&table("DSDT", "SHORT", &aml)).unwrap();
+        assert!(space.objects.is_empty(), "{:?}", space.objects);
+        assert!(
+            space
+                .warnings
+                .iter()
+                .any(|w| w.contains("Method PkgLength expected >= 6 | received 1")),
+            "(walk_table): expected a Method PkgLength warning | received {:?}",
+            space.warnings
+        );
+    }
+
+    #[test]
+    fn container_pkglength_shorter_than_its_name_is_a_warning() {
+        let aml = [0x10, 0x01, 0x41, 0x41, 0x41, 0x41];
+        let space = walk_table(&table("DSDT", "SHORT", &aml)).unwrap();
+        assert!(space.objects.is_empty(), "{:?}", space.objects);
+        assert!(
+            space
+                .warnings
+                .iter()
+                .any(|w| w.contains("Scope PkgLength expected >= 5 | received 1")),
+            "{:?}",
+            space.warnings
+        );
     }
 
     #[test]

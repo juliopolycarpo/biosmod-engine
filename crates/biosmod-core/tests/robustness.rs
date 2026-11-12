@@ -1,5 +1,6 @@
 //! Malformed input: bounded failures, never panics, and strict catalog parsing.
 
+use biosmod_core::aml::{fixture as aml_fixture, walk_table};
 use biosmod_core::catalog::{Catalog, MemorySource, Scope};
 use biosmod_core::firmware::Image;
 use biosmod_core::synthetic::{self, Fixture, ffs, section, volume};
@@ -31,6 +32,41 @@ proptest! {
         if let Err(error) = Image::parse(bytes) {
             prop_assert!(matches!(error.code, Code::FormatInvalid | Code::FormatUnsupported), "unexpected code {:?}: {}", error.code, error);
         }
+    }
+
+    /// Random AML after a valid header: the walker may warn, never panic.
+    #[test]
+    fn arbitrary_aml_never_panics(aml in proptest::collection::vec(any::<u8>(), 0..512)) {
+        let _ = walk_table(&aml_fixture::table("DSDT", "FUZZ", &aml));
+    }
+
+    /// Random bytes biased toward real opcodes, so deeper arms are reached.
+    #[test]
+    fn opcode_heavy_aml_never_panics(
+        aml in proptest::collection::vec(
+            prop_oneof![
+                proptest::sample::select(vec![0x10u8, 0x14, 0x08, 0x5B, 0x82, 0x83, 0x84, 0x85, 0x80, 0x81, 0x86, 0x87, 0x01, 0x02, 0x88, 0x13, 0x8A, 0x8B, 0x06, 0x15, 0xA0, 0x0A, 0x0B, 0x0C, 0x0D, 0x11, 0x12, 0x2E, 0x2F, 0x5C, 0x5E, 0x00, 0x01, 0x41]),
+                any::<u8>(),
+            ],
+            0..256,
+        )
+    ) {
+        let _ = walk_table(&aml_fixture::table("DSDT", "FUZZ", &aml));
+    }
+
+    /// A valid namespace with bytes flipped and the table cut anywhere.
+    #[test]
+    fn mutated_aml_never_panics(flips in proptest::collection::vec((any::<usize>(), any::<u8>()), 1..6)) {
+        let mut aml = [
+            aml_fixture::scope("\\_SB_", &[aml_fixture::device("PCI0", &[aml_fixture::method("SIOS", 1, &[0xA4, 0x00]), aml_fixture::name_byte("_ADR", 0)])]),
+            aml_fixture::name_package("\\_S3_", &[5, 0]),
+            aml_fixture::operation_region("OPR0", 0x100, 8),
+        ].concat();
+        for (at, value) in flips {
+            let index = at % aml.len();
+            aml[index] ^= value | 1;
+        }
+        let _ = walk_table(&aml_fixture::table("DSDT", "FUZZ", &aml));
     }
 
     #[test]
