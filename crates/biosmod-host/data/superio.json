@@ -3,7 +3,8 @@
   "chips": [
     {
       "vendor": "Nuvoton",
-      "name": "NCT5532D",
+      "name": "NCT5532D/NCT6779D",
+      "note": "ID 0xC56x is a family: the Linux nct6775 driver documents NCT5532D and NCT6779D together, and the register map is shared. The MR9A reports 0xC562; the board marking, not this ID, says which of the two it carries.",
       "config_ports": ["0x2E", "0x4E"],
       "unlock": ["0x87", "0x87"],
       "lock": "0xAA",

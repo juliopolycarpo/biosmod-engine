@@ -175,6 +175,9 @@ pub struct ChipMap {
     pub base_registers: Vec<u8>,
     pub logical_devices: Vec<LogicalDeviceMap>,
     pub hardware_monitor: Option<HardwareMonitorMap>,
+    /// What the entry covers beyond its name, e.g. that an ID is shared by a family.
+    #[serde(default)]
+    pub note: Option<String>,
     /// The document the map was written from.
     pub source: String,
 }
@@ -225,7 +228,7 @@ impl ChipMap {
 
 /// Parse and check a chip table.
 ///
-/// Example: `parse_table(include_str!("../data/superio.json"))?[0].name == "NCT5532D"`.
+/// Example: `parse_table(include_str!("../data/superio.json"))?[0].name == "NCT5532D/NCT6779D"`.
 pub fn parse_table(text: &str) -> Result<Vec<ChipMap>> {
     let file: TableFile = serde_json::from_str(text)
         .map_err(|e| Error::new(Code::Internal, format!("super I/O table: {e}")))?;
@@ -247,7 +250,7 @@ pub fn parse_table(text: &str) -> Result<Vec<ChipMap>> {
 
 /// The chips this build knows.
 ///
-/// Example: `builtin().iter().any(|chip| chip.name == "NCT5532D")`.
+/// Example: `builtin().iter().any(|chip| chip.name == "NCT5532D/NCT6779D")`.
 pub fn builtin() -> &'static [ChipMap] {
     static CHIPS: OnceLock<Vec<ChipMap>> = OnceLock::new();
     CHIPS.get_or_init(|| parse_table(TABLE).expect("the bundled super I/O table is valid"))
@@ -271,6 +274,9 @@ pub struct SuperIoReading {
     pub vendor: String,
     pub chip: String,
     pub chip_id: String,
+    /// The table entry's note, when it has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_note: Option<String>,
     pub config_port: String,
     pub logical_devices: Vec<LogicalDeviceReading>,
     pub hwm_active: Option<u8>,
@@ -557,6 +563,7 @@ fn finish_reading(
         vendor: chip.vendor.clone(),
         chip: chip.name.clone(),
         chip_id: format!("{id:#06x}"),
+        family_note: chip.note.clone(),
         config_port: format!("{port:#x}"),
         logical_devices,
         hwm_active: None,
@@ -703,8 +710,8 @@ mod tests {
         let chips = builtin();
         let chip = chips
             .iter()
-            .find(|chip| chip.name == "NCT5532D")
-            .expect("NCT5532D entry");
+            .find(|chip| chip.name == "NCT5532D/NCT6779D")
+            .expect("NCT5532D/NCT6779D entry");
         assert_eq!(
             (chip.vendor.as_str(), chip.id.value, chip.id.mask),
             ("Nuvoton", 0xC560, 0xFFF0)
@@ -827,7 +834,7 @@ mod tests {
         assert_eq!(error.code, Code::HostRefused, "{error}");
         assert!(
             error.message.contains("received 0x8728")
-                && error.message.contains("NCT5532D (0xc560/0xfff0)"),
+                && error.message.contains("NCT5532D/NCT6779D (0xc560/0xfff0)"),
             "{error}"
         );
         assert_restored(&ports);
@@ -1069,7 +1076,11 @@ mod tests {
             .bundle;
         let reading: serde_json::Value =
             serde_json::from_slice(bundle.get("superio.json").unwrap()).unwrap();
-        assert_eq!(reading["chip"], "NCT5532D");
+        assert_eq!(reading["chip"], "NCT5532D/NCT6779D");
+        assert!(
+            reading["family_note"].as_str().unwrap().contains("nct6775"),
+            "(family_note): expected a note naming the Linux driver | received {reading}"
+        );
         assert_eq!(reading["registers"]["2"]["02"], 69);
         let evidence: serde_json::Value =
             serde_json::from_slice(bundle.get(EVIDENCE_FILE).unwrap()).unwrap();

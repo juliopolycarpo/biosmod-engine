@@ -49,7 +49,7 @@ sudo bme diag superio read --json -o fan-controller-2026-11-12
 Reads the fan controller the way the one-off scripts did, with the safety rules built in:
 
 1. It probes the configuration ports 2Eh and 4Eh: the entry key, then the chip ID. An address where nothing answers is left alone.
-2. It looks the ID up in the chip table. An ID no entry claims is refused with `HOST_REFUSED` and the ID in the message; the chip is left in the state it was found in. The low nibble of the ID is the silicon revision and is ignored (the MR9A's NCT5532D answers `0xC562`; the datasheet lists `0xC561`).
+2. It looks the ID up in the chip table. An ID no entry claims is refused with `HOST_REFUSED` and the ID in the message; the chip is left in the state it was found in. The low nibble of the ID is the silicon revision and is ignored (the MR9A's chip answers `0xC562`; the datasheet lists `0xC561`). The table entry is named for the family, `NCT5532D/NCT6779D`: the Linux `nct6775` driver documents the two together under ID `0xC56x`, so the ID alone does not say which one the board carries; the chip marking does.
 3. It reads the logical devices the map lists (activation and, where the device has one, the I/O base), then the hardware-monitor registers the map lists, bank by bank, through the monitor's index and data ports.
 4. It leaves configuration mode and puts the monitor bank register back.
 
@@ -57,7 +57,7 @@ The only writes are **access selectors**: the entry and exit keys, register inde
 
 `--json` returns `reading` (`chip_id`, `hwm_active`, `hwm_base`, `registers` by bank and register, `logical_devices`) and the `evidence` record; the field names follow the hand-made `live-controller.json` of the MR9A fan-stop analysis, and on that board the values match it. With `-o DIR` the reading is also saved as `superio.json` with `manifest.json` and `evidence.json`, like a capture.
 
-The chips are data in `crates/biosmod-host/data/superio.json`: configuration ports, entry and exit keys, ID registers, value and mask, logical devices, the hardware-monitor access protocol and the registers to read, plus a `source` naming the document the map came from. Adding an NCT67xx, ITE IT87xx or Fintek F718xx is a new entry with its own source; the loader rejects an entry without one. Only the NCT5532D is listed today.
+The chips are data in `crates/biosmod-host/data/superio.json`: configuration ports, entry and exit keys, ID registers, value and mask, logical devices, the hardware-monitor access protocol and the registers to read, plus a `source` naming the document the map came from. Adding an NCT67xx, ITE IT87xx or Fintek F718xx is a new entry with its own source; the loader rejects an entry without one. Only the NCT5532D/NCT6779D family is listed today.
 
 It needs root and `/dev/port` (Linux); `--device` names another file for testing.
 

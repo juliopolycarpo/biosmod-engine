@@ -266,7 +266,7 @@ mod tests {
         );
         assert_eq!(reply.data["directory"], serde_json::Value::Null);
         assert!(
-            reply.text.contains("NCT5532D (ID 0xc562)"),
+            reply.text.contains("NCT5532D/NCT6779D (ID 0xc562)"),
             "{}",
             reply.text
         );

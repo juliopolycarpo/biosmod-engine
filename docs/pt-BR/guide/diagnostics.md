@@ -49,7 +49,7 @@ sudo bme diag superio read --json -o fan-controller-2026-11-12
 Lê o controlador de ventoinhas como faziam os scripts avulsos, com as regras de segurança embutidas:
 
 1. Sonda as portas de configuração 2Eh e 4Eh: a chave de entrada e depois o ID do chip. Um endereço em que nada responde é deixado em paz.
-2. Procura o ID na tabela de chips. Um ID que nenhuma entrada reivindica é recusado com `HOST_REFUSED` e o ID na mensagem; o chip fica no estado em que foi encontrado. O nibble baixo do ID é a revisão do silício e é ignorado (o NCT5532D da MR9A responde `0xC562`; a folha de dados lista `0xC561`).
+2. Procura o ID na tabela de chips. Um ID que nenhuma entrada reivindica é recusado com `HOST_REFUSED` e o ID na mensagem; o chip fica no estado em que foi encontrado. O nibble baixo do ID é a revisão do silício e é ignorado (o chip da MR9A responde `0xC562`; a folha de dados lista `0xC561`). A entrada da tabela leva o nome da família, `NCT5532D/NCT6779D`: o driver `nct6775` do Linux documenta os dois juntos sob o ID `0xC56x`, então o ID sozinho não diz qual deles a placa tem; quem diz é a marcação do chip.
 3. Lê os dispositivos lógicos que o mapa lista (ativação e, quando o dispositivo tem, a base de E/S) e depois os registradores do monitor de hardware que o mapa lista, banco a banco, pelas portas de índice e de dados do monitor.
 4. Sai do modo de configuração e devolve o registrador de banco do monitor.
 
@@ -57,7 +57,7 @@ As únicas gravações são **seletores de acesso**: as chaves de entrada e saí
 
 `--json` devolve `reading` (`chip_id`, `hwm_active`, `hwm_base`, `registers` por banco e registrador, `logical_devices`) e o registro `evidence`; os nomes dos campos seguem o `live-controller.json` feito à mão na análise de parada das ventoinhas da MR9A e, nessa placa, os valores coincidem com ele. Com `-o DIR` a leitura também é salva como `superio.json`, com `manifest.json` e `evidence.json`, como uma captura.
 
-Os chips são dados em `crates/biosmod-host/data/superio.json`: portas de configuração, chaves de entrada e saída, registradores de ID, valor e máscara, dispositivos lógicos, o protocolo de acesso ao monitor de hardware e os registradores a ler, mais um campo `source` com o documento de origem do mapa. Adicionar um NCT67xx, ITE IT87xx ou Fintek F718xx é incluir uma entrada com a própria fonte; o carregador rejeita entrada sem fonte. Hoje só o NCT5532D está listado.
+Os chips são dados em `crates/biosmod-host/data/superio.json`: portas de configuração, chaves de entrada e saída, registradores de ID, valor e máscara, dispositivos lógicos, o protocolo de acesso ao monitor de hardware e os registradores a ler, mais um campo `source` com o documento de origem do mapa. Adicionar um NCT67xx, ITE IT87xx ou Fintek F718xx é incluir uma entrada com a própria fonte; o carregador rejeita entrada sem fonte. Hoje só a família NCT5532D/NCT6779D está listada.
 
 Exige root e `/dev/port` (Linux); `--device` indica outro arquivo para testes.
 
