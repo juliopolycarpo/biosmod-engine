@@ -18,7 +18,7 @@ use crate::{
 use biosmod_core::case::{
     ARTIFACT_DIRECTORY, Artifact, ArtifactFile, ArtifactKind, CASE_SCHEMA, Case, CaseInput,
     CaseStatus, CatalogSnapshot, Current, FindingRef, Verdict, public_command, public_value,
-    status, submission_files, tree_blob, tree_changes, utc_timestamp,
+    status, submission_files, tree_blob, tree_changes, unlisted, utc_timestamp,
 };
 use biosmod_core::catalog::{Board, Finding};
 use biosmod_core::draft::{DraftRequest, FirmwareDraft, draft, draft_finding};
@@ -32,7 +32,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write as _};
 use std::path::{Path, PathBuf};
 
 const CASE_FILE: &str = "case.json";
@@ -80,6 +80,7 @@ impl HostIdentity for Host {
 pub struct Environment<'a> {
     pub clock: &'a dyn Clock,
     pub host: &'a dyn HostIdentity,
+    pub copier: &'a dyn Copier,
 }
 
 pub fn run(ctx: &Ctx, command: CaseCommand) -> Result<Reply> {
@@ -87,6 +88,7 @@ pub fn run(ctx: &Ctx, command: CaseCommand) -> Result<Reply> {
     let environment = Environment {
         clock: &SystemClock,
         host: &host,
+        copier: &FilesystemCopier,
     };
     match command {
         CaseCommand::Init(args) => init(ctx, &args, &environment),
@@ -553,7 +555,170 @@ fn parse_inner(argv: &[String]) -> Result<Cli> {
     })
 }
 
+/// The next artifact number the entries of `artifacts/` leave free: one above the highest
+/// `NNN-` prefix, whether or not `case.json` lists the entry.
+///
+/// Example: `["001-scan.json", "007-x.bin"]` gives 8; an empty directory gives 1.
+fn next_after(entries: &[String]) -> u32 {
+    entries
+        .iter()
+        .filter_map(|name| name.split('-').next()?.parse::<u32>().ok())
+        .max()
+        .map_or(1, |highest| highest + 1)
+}
+
+/// Names directly under `artifacts/`, empty when the directory is absent.
+fn artifact_entries(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir.join(ARTIFACT_DIRECTORY)).map_or_else(
+        |_| Vec::new(),
+        |entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        },
+    )
+}
+
+/// The entries of `artifacts/` that `case` does not list, as `artifacts/<name>`.
+///
+/// Example: a stray `artifacts/007-x.bin` is reported; a recorded artifact is not.
+fn unlisted_in(case: &Case, dir: &Path) -> Vec<String> {
+    unlisted(case, &artifact_entries(dir))
+}
+
+/// How files get copied into a case; tests substitute a fake that fails on demand.
+pub trait Copier {
+    /// Copy one regular file, like [`fs::copy`].
+    fn copy_file(&self, from: &Path, to: &Path) -> std::io::Result<u64>;
+}
+
+/// Copies with the file system.
+pub struct FilesystemCopier;
+
+impl Copier for FilesystemCopier {
+    fn copy_file(&self, from: &Path, to: &Path) -> std::io::Result<u64> {
+        fs::copy(from, to)
+    }
+}
+
+/// The per-case lock a recording holds from reading `case.json` until it writes it back.
+///
+/// It is a file created exclusively, so two `bme case record` runs on one case cannot both
+/// number and write artifacts. A crashed run leaves it behind; the error says to delete it.
+#[derive(Debug)]
+struct CaseLock {
+    path: PathBuf,
+}
+
+impl CaseLock {
+    const NAME: &'static str = ".record.lock";
+
+    /// Take the lock for the case in `dir`, or fail with `OUTPUT_EXISTS` when it is held.
+    ///
+    /// Example: `let _lock = CaseLock::acquire(&dir)?;` releases at the end of the scope.
+    fn acquire(dir: &Path) -> Result<CaseLock> {
+        let path = dir.join(CaseLock::NAME);
+        let created = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .and_then(|mut file| file.write_all(std::process::id().to_string().as_bytes()));
+        match created {
+            Ok(()) => Ok(CaseLock { path }),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(Error::new(
+                Code::OutputExists,
+                format!(
+                    "{}: expected no other `bme case record` on this case | received an existing lock; remove it if none is running",
+                    path.display()
+                ),
+            )),
+            Err(error) => Err(io_error(&path, error)),
+        }
+    }
+}
+
+impl Drop for CaseLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+/// A scratch directory inside `artifacts/` where a recording builds its entries, so a
+/// failure part-way never leaves half of them in the case. It deletes itself on drop.
+struct Staging {
+    directory: PathBuf,
+}
+
+impl Staging {
+    const NAME: &'static str = ".stage";
+
+    /// Create an empty staging directory, clearing one a crashed recording left behind.
+    ///
+    /// Example: `Staging::create(&dir)?.directory` is `dir/artifacts/.stage`.
+    fn create(dir: &Path) -> Result<Staging> {
+        let directory = dir.join(ARTIFACT_DIRECTORY).join(Staging::NAME);
+        // The case lock is held, so anything here is a leftover of a run that died.
+        if fs::symlink_metadata(&directory).is_ok() {
+            fs::remove_dir_all(&directory).map_err(|e| io_error(&directory, e))?;
+        }
+        fs::create_dir(&directory).map_err(|e| io_error(&directory, e))?;
+        Ok(Staging { directory })
+    }
+}
+
+impl Drop for Staging {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.directory);
+    }
+}
+
+/// Delete files and directories placed in a case, ignoring ones already gone.
+fn remove_entries(paths: &[PathBuf]) {
+    for path in paths {
+        let _ = match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(path),
+            Ok(_) => fs::remove_file(path),
+            Err(_) => Ok(()),
+        };
+    }
+}
+
+/// Move the staged entries of `artifacts` into `artifacts/`, all or none.
+///
+/// Returns the final paths. When one cannot move (its target exists, or the rename fails),
+/// the ones already moved are removed again and the error names the entry.
+///
+/// Example: staged `002-a.bin` lands at `dir/artifacts/002-a.bin`.
+fn place_all(staging: &Path, dir: &Path, artifacts: &[Artifact]) -> Result<Vec<PathBuf>> {
+    let mut placed: Vec<PathBuf> = Vec::new();
+    for artifact in artifacts {
+        let name = artifact
+            .path
+            .strip_prefix(&format!("{ARTIFACT_DIRECTORY}/"))
+            .unwrap_or(&artifact.path);
+        let target = dir.join(&artifact.path);
+        let moved = if fs::symlink_metadata(&target).is_ok() {
+            Err(Error::new(
+                Code::OutputExists,
+                format!("{}: already exists", target.display()),
+            ))
+        } else {
+            fs::rename(staging.join(name), &target).map_err(|e| io_error(&target, e))
+        };
+        if let Err(error) = moved {
+            remove_entries(&placed);
+            return Err(error);
+        }
+        placed.push(target);
+    }
+    Ok(placed)
+}
+
 fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result<Reply> {
+    // Prove this is a case before the lock file is created inside it.
+    load_case(&args.dir)?;
+    let _lock = CaseLock::acquire(&args.dir)?;
     let mut case = load_case(&args.dir)?;
     let outputs = declared_outputs(&args.argv, &args.artifacts);
     if let Some(existing) = outputs
@@ -595,11 +760,8 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
     }
     let command_name = crate::command_name(&cli.command);
     let quiet = ctx.out.quiet || cli.quiet;
-    let reply = super::run(
-        cli.command,
-        Out { json: true, quiet },
-        ctx.offline || cli.offline,
-    )?;
+    // Load the catalog snapshot first: a source that cannot load must stop the recording
+    // before the command runs, not after it has already done its work.
     let catalogs = snapshots(&load_sources(
         ctx,
         &SourceArgs {
@@ -609,8 +771,15 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
         },
         &[],
     )?);
+    let reply = super::run(
+        cli.command,
+        Out { json: true, quiet },
+        ctx.offline || cli.offline,
+    )?;
     let recorded = utc_timestamp(environment.clock.unix_seconds());
-    let first = case.next_artifact_number();
+    let first = case
+        .next_artifact_number()
+        .max(next_after(&artifact_entries(&args.dir)));
     let describe = |id: String, path: String, kind, blob: Blob| Artifact {
         id,
         path,
@@ -626,7 +795,7 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
     };
     let mut artifacts = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
-    // Gather what to store before writing anything, so a bad output never leaves half a record.
+    // Gather what to store before staging anything, so a bad output is refused up front.
     let mut copies: Vec<(PathBuf, String, bool)> = Vec::new();
     for path in &outputs {
         match fs::symlink_metadata(path) {
@@ -637,7 +806,6 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
                     artifact_file_name(&file_name(path)?)
                 );
                 if metadata.is_dir() {
-                    // Validate the whole tree now; nothing has been written to the case yet.
                     tree_files(path, true)?;
                 }
                 copies.push((path.clone(), id, metadata.is_dir()));
@@ -654,36 +822,37 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
             Err(_) => skipped.push(display_path(path).into_owned()),
         }
     }
+    // Build every entry in a scratch directory, then move them in together.
+    let staging = Staging::create(&args.dir)?;
     let slug = command_name.replace(' ', "-");
     let output_id = format!("{first:03}-{slug}");
     let document = public_document(command_name, &reply);
-    let output_path = format!("{ARTIFACT_DIRECTORY}/{output_id}.json");
-    write_new(&args.dir.join(&output_path), &document)?;
+    write_new(
+        &staging.directory.join(format!("{output_id}.json")),
+        &document,
+    )?;
     artifacts.push(describe(
-        output_id,
-        output_path,
+        output_id.clone(),
+        format!("{ARTIFACT_DIRECTORY}/{output_id}.json"),
         ArtifactKind::Output,
         Blob::of(&document),
     ));
     for (source, id, is_directory) in copies {
+        let staged = staging.directory.join(&id);
         let path = format!("{ARTIFACT_DIRECTORY}/{id}");
-        let target = args.dir.join(&path);
-        if target.exists() {
-            return Err(Error::new(
-                Code::OutputExists,
-                format!("{}: already exists", target.display()),
-            ));
-        }
         if is_directory {
-            copy_tree(&source, &target)?;
+            copy_tree(environment.copier, &source, &staged)?;
             // Describe what was stored, not what the command left behind.
-            let files = tree_files(&target, true)?;
+            let files = tree_files(&staged, true)?;
             let mut artifact = describe(id, path, ArtifactKind::Directory, tree_blob(&files));
             artifact.files = files;
             artifacts.push(artifact);
         } else {
-            fs::copy(&source, &target).map_err(|e| io_error(&source, e))?;
-            artifacts.push(describe(id, path, ArtifactKind::File, hash_file(&target)?));
+            environment
+                .copier
+                .copy_file(&source, &staged)
+                .map_err(|e| io_error(&source, e))?;
+            artifacts.push(describe(id, path, ArtifactKind::File, hash_file(&staged)?));
         }
     }
     for note in &skipped {
@@ -693,7 +862,11 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
     }
     case.artifacts.extend(artifacts.iter().cloned());
     case.check()?;
-    write_atomic(&args.dir.join(CASE_FILE), &pretty(&case))?;
+    let placed = place_all(&staging.directory, &args.dir, &artifacts)?;
+    if let Err(error) = write_atomic(&args.dir.join(CASE_FILE), &pretty(&case)) {
+        remove_entries(&placed);
+        return Err(error);
+    }
     let mut text = reply.text.clone();
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');
@@ -872,10 +1045,10 @@ fn tree_files(root: &Path, strict: bool) -> Result<Vec<ArtifactFile>> {
     Ok(files)
 }
 
-/// Copy a directory tree that `tree_files(source, true)` accepted.
+/// Copy a directory tree that `tree_files(source, true)` accepted, through `copier`.
 ///
-/// Example: `copy_tree(Path::new("capture"), Path::new("case/artifacts/002-capture"))`.
-fn copy_tree(source: &Path, target: &Path) -> Result<()> {
+/// Example: `copy_tree(&FilesystemCopier, Path::new("capture"), Path::new("case/stage/capture"))`.
+fn copy_tree(copier: &dyn Copier, source: &Path, target: &Path) -> Result<()> {
     fs::create_dir_all(target).map_err(|e| io_error(target, e))?;
     for file in tree_files(source, true)? {
         let from = source.join(&file.path);
@@ -883,7 +1056,9 @@ fn copy_tree(source: &Path, target: &Path) -> Result<()> {
         if let Some(parent) = to.parent() {
             fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
         }
-        fs::copy(&from, &to).map_err(|e| io_error(&from, e))?;
+        copier
+            .copy_file(&from, &to)
+            .map_err(|e| io_error(&from, e))?;
     }
     Ok(())
 }
@@ -971,7 +1146,8 @@ fn case_status(ctx: &Ctx, args: &CaseStatusArgs) -> Result<Reply> {
             bme_version: biosmod_core::VERSION,
             catalogs: &current,
         },
-    );
+    )
+    .with_unlisted(unlisted_in(&case, &args.dir));
     for (artifact, recorded) in report.artifacts.iter_mut().zip(&case.artifacts) {
         if artifact.state != Verdict::Verified && recorded.kind == ArtifactKind::Directory {
             let found = observe_tree(&args.dir.join(&recorded.path)).unwrap_or_default();
@@ -1028,7 +1204,8 @@ fn export(args: &CaseExportArgs) -> Result<Reply> {
             bme_version: biosmod_core::VERSION,
             catalogs: &[],
         },
-    );
+    )
+    .with_unlisted(unlisted_in(&case, &args.dir));
     if !report.clean {
         return Err(Error::new(
             Code::CaseDrift,

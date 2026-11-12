@@ -93,6 +93,7 @@ impl Workspace {
         let environment = Environment {
             clock: &FixedClock(NOON),
             host,
+            copier: &FilesystemCopier,
         };
         init(
             &self.ctx,
@@ -111,9 +112,14 @@ impl Workspace {
     }
 
     fn record(&self, argv: &[&str], artifacts: &[&str]) -> Result<Reply> {
+        self.record_with(argv, artifacts, &FilesystemCopier)
+    }
+
+    fn record_with(&self, argv: &[&str], artifacts: &[&str], copier: &dyn Copier) -> Result<Reply> {
         let environment = Environment {
             clock: &FixedClock(NOON + 60),
             host: &FakeHostIdentity::with(&[]),
+            copier,
         };
         record(
             &self.ctx,
@@ -878,7 +884,7 @@ fn copy_tree_reproduces_nested_files() {
     fs::write(source.join("a/b/c.bin"), b"deep").unwrap();
     fs::write(source.join("top.bin"), b"top").unwrap();
     let target = dir.path().join("target");
-    copy_tree(&source, &target).unwrap();
+    copy_tree(&FilesystemCopier, &source, &target).unwrap();
     assert_eq!(fs::read(target.join("a/b/c.bin")).unwrap(), b"deep");
     assert_eq!(
         tree_files(&source, true).unwrap(),
@@ -1100,4 +1106,233 @@ fn check_layout_accepts_a_fresh_case_and_a_case_without_findings() {
     check_layout(&workspace.path("case")).unwrap();
     fs::remove_dir_all(workspace.path("case/findings")).ok();
     check_layout(&workspace.path("case")).unwrap();
+}
+
+/// A copier that succeeds `allowed` times, then fails the way a full disk would.
+struct FailingCopier {
+    allowed: std::cell::Cell<usize>,
+}
+
+impl FailingCopier {
+    fn after(allowed: usize) -> FailingCopier {
+        FailingCopier {
+            allowed: std::cell::Cell::new(allowed),
+        }
+    }
+}
+
+impl Copier for FailingCopier {
+    fn copy_file(&self, from: &Path, to: &Path) -> std::io::Result<u64> {
+        let left = self.allowed.get();
+        if left == 0 {
+            return Err(std::io::Error::other(format!(
+                "no space left while copying {}",
+                from.display()
+            )));
+        }
+        self.allowed.set(left - 1);
+        fs::copy(from, to)
+    }
+}
+
+/// Names directly under `case/artifacts`, sorted.
+fn artifact_entries(workspace: &Workspace) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(workspace.path("case/artifacts"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn a_copy_failure_leaves_the_case_exactly_as_it_was() {
+    let workspace = Workspace::new();
+    workspace.init();
+    let document = fs::read(workspace.path("case/case.json")).unwrap();
+    let entries = artifact_entries(&workspace);
+    let capture = workspace.path("capture");
+    let argv = ["dev", "synthetic", "-o", capture.to_str().unwrap()];
+    let error = workspace
+        .record_with(&argv, &[], &FailingCopier::after(1))
+        .unwrap_err();
+    assert_eq!(error.code, Code::Io, "{error}");
+    assert!(error.message.contains("no space left"), "{error}");
+    assert_eq!(
+        fs::read(workspace.path("case/case.json")).unwrap(),
+        document,
+        "(case.json): expected unchanged after a failed record"
+    );
+    assert_eq!(artifact_entries(&workspace), entries);
+    assert!(
+        !workspace.path("case/.record.lock").exists(),
+        "(lock): expected released after a failed record"
+    );
+    // The command's own output stays where it was made, and the case is usable again.
+    fs::remove_dir_all(&capture).unwrap();
+    workspace.record(&argv, &[]).unwrap();
+    assert_eq!(workspace.case().artifacts[1].id, "002-dev-synthetic");
+    assert!(workspace.status().is_ok());
+}
+
+#[test]
+fn status_and_export_report_unlisted_artifact_entries_as_drift() {
+    let workspace = Workspace::new();
+    workspace.init();
+    fs::write(workspace.path("case/artifacts/007-stray.bin"), b"x").unwrap();
+    let error = workspace.status().unwrap_err();
+    assert_eq!(error.code, Code::CaseDrift, "{error}");
+    assert!(
+        error.message.contains("unlisted artifacts/007-stray.bin"),
+        "{error}"
+    );
+    assert_eq!(
+        error.details.unwrap()["unlisted"][0],
+        "artifacts/007-stray.bin"
+    );
+    let refused = workspace.export("submission").unwrap_err();
+    assert_eq!(refused.code, Code::CaseDrift, "{refused}");
+    assert!(!workspace.path("submission").exists());
+}
+
+#[test]
+fn record_numbers_after_the_highest_entry_on_disk_not_only_in_the_case() {
+    let workspace = Workspace::new();
+    workspace.init();
+    fs::write(workspace.path("case/artifacts/005-stray.bin"), b"x").unwrap();
+    let dump = workspace.path("dump.bin");
+    workspace
+        .record(&["inspect", dump.to_str().unwrap()], &[])
+        .unwrap();
+    assert_eq!(workspace.case().artifacts[1].id, "006-inspect");
+}
+
+#[test]
+fn a_held_lock_stops_a_second_record_before_the_command_runs() {
+    let workspace = Workspace::new();
+    workspace.init();
+    let lock = workspace.path("case/.record.lock");
+    fs::write(&lock, b"4242").unwrap();
+    let dump = workspace.path("dump.bin");
+    let module = workspace.path("module.bin");
+    let argv = [
+        "extract",
+        dump.to_str().unwrap(),
+        "--guid",
+        &PEIM_GUID.to_string(),
+        "-o",
+        module.to_str().unwrap(),
+    ];
+    let error = workspace.record(&argv, &[]).unwrap_err();
+    assert_eq!(error.code, Code::OutputExists, "{error}");
+    assert!(error.message.contains(".record.lock"), "{error}");
+    assert!(!module.exists(), "(command): expected it never ran");
+    assert!(
+        lock.exists(),
+        "(lock): expected the other holder's lock kept"
+    );
+    fs::remove_file(&lock).unwrap();
+    workspace.record(&argv, &[]).unwrap();
+    assert!(!lock.exists(), "(lock): expected released after success");
+}
+
+#[test]
+fn case_lock_is_exclusive_and_released_on_drop() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = CaseLock::acquire(dir.path()).unwrap();
+    let second = CaseLock::acquire(dir.path()).unwrap_err();
+    assert_eq!(second.code, Code::OutputExists, "{second}");
+    drop(first);
+    CaseLock::acquire(dir.path()).unwrap();
+}
+
+#[test]
+fn staging_clears_a_leftover_and_removes_itself_on_drop() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("artifacts")).unwrap();
+    let leftover = dir.path().join("artifacts/.stage");
+    fs::create_dir(&leftover).unwrap();
+    fs::write(leftover.join("half.bin"), b"x").unwrap();
+    let staging = Staging::create(dir.path()).unwrap();
+    assert!(staging.directory.is_dir());
+    assert_eq!(fs::read_dir(&staging.directory).unwrap().count(), 0);
+    drop(staging);
+    assert!(!leftover.exists());
+}
+
+fn staged_artifact(name: &str) -> Artifact {
+    Artifact {
+        id: name.trim_end_matches(".bin").into(),
+        path: format!("artifacts/{name}"),
+        kind: ArtifactKind::File,
+        sha256: Digest256([0; 32]),
+        length: 0,
+        command: vec![],
+        bme_version: String::new(),
+        catalogs: vec![],
+        inputs: vec![],
+        recorded: String::new(),
+        files: vec![],
+    }
+}
+
+#[test]
+fn place_all_moves_staged_entries_and_rolls_back_when_one_cannot_move() {
+    let dir = tempfile::tempdir().unwrap();
+    let staging = dir.path().join("artifacts/.stage");
+    fs::create_dir_all(&staging).unwrap();
+    for name in ["002-a.bin", "003-b.bin"] {
+        fs::write(staging.join(name), name).unwrap();
+    }
+    let both = [staged_artifact("002-a.bin"), staged_artifact("003-b.bin")];
+    // A directory already sits where 003-b.bin must go, so the second move fails.
+    fs::create_dir(dir.path().join("artifacts/003-b.bin")).unwrap();
+    fs::write(dir.path().join("artifacts/003-b.bin/keep"), b"k").unwrap();
+    let error = place_all(&staging, dir.path(), &both).unwrap_err();
+    assert_eq!(error.code, Code::OutputExists, "{error}");
+    assert!(error.message.contains("003-b.bin"), "{error}");
+    assert!(
+        !dir.path().join("artifacts/002-a.bin").exists(),
+        "(rollback): expected 002-a.bin moved back out of the case"
+    );
+    assert!(dir.path().join("artifacts/003-b.bin/keep").exists());
+
+    fs::remove_dir_all(dir.path().join("artifacts/003-b.bin")).unwrap();
+    fs::write(staging.join("002-a.bin"), b"a").unwrap();
+    let placed = place_all(&staging, dir.path(), &both).unwrap();
+    assert_eq!(placed.len(), 2);
+    assert_eq!(
+        fs::read(dir.path().join("artifacts/002-a.bin")).unwrap(),
+        b"a"
+    );
+    remove_entries(&placed);
+    assert!(!dir.path().join("artifacts/002-a.bin").exists());
+    assert!(!dir.path().join("artifacts/003-b.bin").exists());
+}
+
+#[test]
+fn disk_numbers_read_the_highest_prefix_among_entries() {
+    let names = |list: &[&str]| list.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        next_after(&names(&["001-scan.json", "007-x.bin", "010-d"])),
+        11
+    );
+    assert_eq!(next_after(&names(&[".stage", "notes.txt", "x-1"])), 1);
+    assert_eq!(next_after(&[]), 1);
+}
+
+#[test]
+fn unlisted_in_reads_the_artifact_directory_and_tolerates_its_absence() {
+    let workspace = Workspace::new();
+    workspace.init();
+    let case = workspace.case();
+    assert!(unlisted_in(&case, &workspace.path("case")).is_empty());
+    fs::write(workspace.path("case/artifacts/009-x.bin"), b"x").unwrap();
+    assert_eq!(
+        unlisted_in(&case, &workspace.path("case")),
+        ["artifacts/009-x.bin"]
+    );
+    fs::remove_dir_all(workspace.path("case/artifacts")).unwrap();
+    assert!(unlisted_in(&case, &workspace.path("case")).is_empty());
 }
