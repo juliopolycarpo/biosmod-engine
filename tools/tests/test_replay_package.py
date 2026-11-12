@@ -19,7 +19,7 @@ import pe_builder  # noqa: E402
 try:
     import bme_replay as replay
     from bme_replay import __main__ as replay_main
-    from bme_replay import services, smbus
+    from bme_replay import scenario, services, smbus
 
     HAVE_RUNTIME = True
 except ImportError:  # no unicorn or pefile in this interpreter
@@ -446,6 +446,194 @@ class MainTest(unittest.TestCase):
                 del os.environ[replay.RESULT_ENV]
             with open(result) as handle:
                 self.assertEqual(json.loads(handle.read()), {"argv": ["one"], "modules": ["m.pe"]})
+
+
+OUT_5_TO_404 = bytes([0x66, 0xBA, 0x04, 0x04, 0xB0, 0x05, 0xEE, 0xC3])  # mov dx,0x404; mov al,5; out dx,al; ret
+# mov dx,0x2e; mov al,0x10; out dx,al; mov dx,0x2f; mov al,0x5a; out dx,al; ret
+WRITE_5A_TO_INDEX_10 = bytes([0x66, 0xBA, 0x2E, 0, 0xB0, 0x10, 0xEE, 0x66, 0xBA, 0x2F, 0, 0xB0, 0x5A, 0xEE, 0xC3])
+READ_MMIO_FED1C000 = bytes([0xB9, 0x00, 0xC0, 0xD1, 0xFE, 0x8B, 0x01, 0xC3])  # mov ecx,0xfed1c000; mov eax,[rcx]; ret
+READ_ADDRESS_ZERO =bytes([0x8B, 0x04, 0x25, 0, 0, 0, 0, 0xC3])  # mov eax,[0]; ret
+
+
+def scenario_for(code, expect, **extra):
+    """A `bme.scenario/1` document over the synthetic module with `code`, and the module bytes."""
+    data = pe_builder.pe(True, code)
+    document = {
+        "schema": "bme.scenario/1",
+        "id": "synthetic",
+        "module": {"sha256": sha(data), "bitness": 64},
+        "entry": {"rva": "0x1000"},
+        "budget": 1000,
+        "expect": expect,
+    }
+    document.update(extra)
+    return document, data
+
+
+@unittest.skipUnless(HAVE_RUNTIME, "unicorn and pefile are not installed in this interpreter")
+class ScenarioTest(unittest.TestCase):
+    def run_scenario(self, document, data):
+        documents = []
+        summary = scenario.run(document, data, documents.append)
+        return summary, documents
+
+    def test_a_return_value_expectation_passes(self):
+        document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": 7}])
+        summary, documents = self.run_scenario(document, data)
+        self.assertTrue(summary["passed"], documents)
+        self.assertEqual(documents[0]["received"], 7)
+        self.assertEqual(summary["return"], 7)
+
+    def test_a_wrong_value_fails_and_names_both_sides(self):
+        document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": "0x8"}])
+        summary, documents = self.run_scenario(document, data)
+        self.assertFalse(summary["passed"])
+        self.assertEqual((documents[0]["expected"], documents[0]["received"]), (8, 7))
+
+    def test_a_port_expectation_reads_the_device(self):
+        document, data = scenario_for(
+            OUT_5_TO_404,
+            [{"kind": "port", "device": "pm", "port": "0x404", "equals": 5}],
+            hardware=[{"name": "pm", "kind": "port-registers", "options": {"values": {"0x404": 0}}}],
+        )
+        summary, _ = self.run_scenario(document, data)
+        self.assertTrue(summary["passed"])
+
+    def test_a_fault_fails_every_expectation_and_names_the_fault(self):
+        document, data = scenario_for(READ_ADDRESS_ZERO, [{"kind": "return", "equals": 0}])
+        summary, documents = self.run_scenario(document, data)
+        self.assertFalse(summary["passed"])
+        self.assertIn("fault", summary["error"])
+        self.assertIsNone(documents[0]["received"])
+
+    def test_a_module_with_another_digest_is_refused(self):
+        document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": 7}])
+        document["module"]["sha256"] = "0" * 64
+        with self.assertRaises(replay.ReplayError) as caught:
+            self.run_scenario(document, data)
+        self.assertIn("module sha256: expected " + "0" * 64 + " | received " + sha(data), str(caught.exception))
+
+    def test_a_wrong_schema_is_refused(self):
+        document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": 7}])
+        document["schema"] = "bme.scenario/2"
+        with self.assertRaises(replay.ReplayError) as caught:
+            self.run_scenario(document, data)
+        self.assertIn("expected bme.scenario/1 | received 'bme.scenario/2'", str(caught.exception))
+
+    def test_an_unknown_expectation_kind_is_named(self):
+        document, data = scenario_for(RETURN_7, [{"kind": "checksum", "equals": 7}])
+        with self.assertRaises(replay.ReplayError) as caught:
+            self.run_scenario(document, data)
+        self.assertIn("received 'checksum'", str(caught.exception))
+
+    def test_symbols_resolve_against_the_declared_services(self):
+        document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": 7}], services={"kind": "dxe"})
+        document["entry"]["args"] = ["system-table", "image-base", "0x5"]
+        setup = scenario.Setup(document, data)
+        self.assertEqual(setup.operand("system-table"), setup.services.system_table)
+        self.assertEqual(setup.operand("image-base"), setup.image.base)
+        self.assertEqual(setup.operand("0x5"), 5)
+        with self.assertRaises(replay.ReplayError) as caught:
+            setup.operand("smm-table")
+        self.assertIn("symbol 'smm-table'", str(caught.exception))
+
+    def test_a_variable_expectation_reads_the_store(self):
+        guid = "2634d36a-335d-4312-b210-77e3134a61a6"
+        document, data = scenario_for(
+            RETURN_7,
+            [{"kind": "variable", "name": "Fan", "guid": guid, "equals": "0102"}],
+            variables=[{"name": "Fan", "guid": guid, "data": "0102"}],
+        )
+        summary, _ = self.run_scenario(document, data)
+        self.assertTrue(summary["passed"])
+
+    def test_a_register_expectation_applies_its_mask_to_an_indexed_device(self):
+        indexed = [{"name": "sio", "kind": "indexed-registers", "options": {"index_port": "0x2e", "data_port": "0x2f"}}]
+        for mask, equals, passed in ((0x0F, 0x0A, True), (0xFF, 0x0A, False)):
+            document, data = scenario_for(
+                WRITE_5A_TO_INDEX_10,
+                [{"kind": "register", "device": "sio", "index": "0x10", "mask": mask, "equals": equals}],
+                hardware=indexed,
+            )
+            summary, documents = self.run_scenario(document, data)
+            self.assertEqual(summary["passed"], passed, documents)
+            self.assertEqual(documents[0]["received"], 0x5A & mask)
+
+    def test_service_calls_counts_the_calls_the_module_made(self):
+        document, data = scenario_for(
+            RETURN_7,
+            [{"kind": "service-calls", "service": "GetVariable", "count": 0}],
+            services={"kind": "dxe"},
+        )
+        summary, documents = self.run_scenario(document, data)
+        self.assertTrue(summary["passed"], documents)
+
+    def test_a_binding_points_an_image_field_at_a_service_table(self):
+        code = RETURN_7 + bytes(10)
+        document, data = scenario_for(
+            code,
+            [{"kind": "return", "equals": 7}],
+            services={"kind": "dxe", "bind": [{"rva": "0x1008", "to": "runtime-services"}]},
+        )
+        setup = scenario.Setup(document, data)
+        self.assertEqual(
+            setup.machine.read_pointer(setup.image.address(0x1008)), setup.services.runtime.address
+        )
+
+    def test_an_mmio_device_is_mapped_at_its_window(self):
+        document, data = scenario_for(
+            READ_MMIO_FED1C000,
+            [{"kind": "return", "equals": 0x1234}],
+            hardware=[
+                {
+                    "name": "rcba",
+                    "kind": "mmio-registers",
+                    "base": "0xfed1c000",
+                    "size": "0x1000",
+                    "options": {"values": {"0x0": 0x1234}},
+                }
+            ],
+        )
+        summary, documents = self.run_scenario(document, data)
+        self.assertTrue(summary["passed"], documents)
+
+    def test_run_file_needs_exactly_one_module(self):
+        with self.assertRaises(replay.ReplayError) as caught:
+            scenario.run_file("s.json", [], lambda document: None)
+        self.assertIn("expected exactly one --module | received 0", str(caught.exception))
+
+    def test_word_accepts_integers_and_hex_strings_only(self):
+        self.assertEqual((scenario.word(5720), scenario.word("0x1658")), (5720, 5720))
+        with self.assertRaises(replay.ReplayError):
+            scenario.word(1.5)
+        with self.assertRaises(replay.ReplayError):
+            scenario.word(True)
+
+    def test_main_runs_a_scenario_file(self):
+        document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": 7}])
+        with tempfile.TemporaryDirectory() as tmp:
+            module, path, result = (os.path.join(tmp, n) for n in ("m.pe", "s.json", "out.jsonl"))
+            with open(module, "wb") as handle:
+                handle.write(data)
+            with open(path, "w") as handle:
+                json.dump(document, handle)
+            os.environ[replay.RESULT_ENV] = result
+            try:
+                replay_main.main(["--scenario", path, "--module", module])
+            finally:
+                del os.environ[replay.RESULT_ENV]
+            with open(result) as handle:
+                lines = [json.loads(line) for line in handle]
+        self.assertEqual([line.get("summary") for line in lines], [None, True])
+        self.assertTrue(lines[-1]["passed"])
+
+    def test_parse_reads_the_scenario_form(self):
+        self.assertEqual(
+            replay_main.parse(["--scenario", "s.json", "--module", "a.pe"]),
+            (("scenario", "s.json"), ["a.pe"], []),
+        )
+        with self.assertRaises(SystemExit):
+            replay_main.parse(["--scenario"])
 
 
 if __name__ == "__main__":

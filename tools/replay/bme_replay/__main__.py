@@ -1,4 +1,7 @@
-"""`python -m bme_replay HARNESS.py [--module PE ...] [-- ARGS...]` runs a harness script."""
+"""`python -m bme_replay HARNESS.py [--module PE ...] [-- ARGS...]` runs a harness script.
+
+`python -m bme_replay --scenario FILE --module PE` runs a `bme.scenario/1` document instead.
+"""
 
 import os
 import runpy
@@ -10,11 +13,17 @@ from . import _modules
 def parse(argv):
     """Split `argv` into `(harness, modules, script_args)`.
 
+    With `--scenario FILE` first, `harness` is `("scenario", FILE)`.
+
     Example: `parse(["h.py", "--module", "a.pe", "--", "x"])` is `("h.py", ["a.pe"], ["x"])`.
     """
     if not argv:
         raise SystemExit("usage: python -m bme_replay HARNESS.py [--module PE ...] [-- ARGS...]")
     harness, rest = argv[0], argv[1:]
+    if harness == "--scenario":
+        if not rest:
+            raise SystemExit("--scenario: expected a path | received none")
+        harness, rest = ("scenario", rest[0]), rest[1:]
     modules, script_args = [], []
     index = 0
     while index < len(rest):
@@ -35,6 +44,11 @@ def parse(argv):
 def main(argv):
     harness, modules, script_args = parse(argv)
     _modules[:] = modules
+    if isinstance(harness, tuple):
+        from . import emit, scenario
+
+        scenario.run_file(harness[1], modules, emit)
+        return
     sys.argv = [harness] + script_args
     # Isolated mode (`-I`) leaves sibling helper modules off the path.
     sys.path.insert(0, os.path.dirname(os.path.abspath(harness)))
