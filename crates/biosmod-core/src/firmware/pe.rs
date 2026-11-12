@@ -93,7 +93,18 @@ pub fn relocation_fields(image: &[u8]) -> Result<Vec<RelocatedField>> {
     let directory = if te {
         24
     } else {
-        header(image)? + 24 + if is_wide(image)? { 112 } else { 96 } + 5 * 8
+        let at = header(image)?;
+        let (wide, optional) = (
+            is_wide(image)?,
+            usize::from(le16(image, at + 20, "PE optional header size")?),
+        );
+        let data_directories = at + 24 + if wide { 112 } else { 96 };
+        // The relocation entry is DataDirectory[5]: the header must declare and hold it.
+        let declared = le32(image, data_directories - 4, "PE NumberOfRvaAndSizes")?;
+        if declared <= 5 || optional < data_directories - (at + 24) + 6 * 8 {
+            return Ok(Vec::new());
+        }
+        data_directories + 5 * 8
     };
     let map = |rva: u32| {
         if te {
@@ -124,7 +135,12 @@ pub fn relocation_fields(image: &[u8]) -> Result<Vec<RelocatedField>> {
                 10 => 8,
                 _ => continue,
             };
-            if let Some(target) = map(page.wrapping_add(u32::from(entry & 0xFFF)))? {
+            // Clip fields whose file data is missing (a section pointing past the end).
+            if let Some(target) = map(page.wrapping_add(u32::from(entry & 0xFFF)))?
+                && target
+                    .checked_add(width)
+                    .is_some_and(|end| end <= image.len())
+            {
                 fields.push((target, width));
             }
         }
@@ -375,6 +391,7 @@ mod tests {
         pe[optional..optional + 2].copy_from_slice(&0x10Bu16.to_le_bytes());
         pe[optional + 28..optional + 32].copy_from_slice(&0xFFF0_0000u32.to_le_bytes());
         pe[optional + 60..optional + 64].copy_from_slice(&0x200u32.to_le_bytes());
+        pe[optional + 92..optional + 96].copy_from_slice(&16u32.to_le_bytes());
         let reloc_dir = optional + 96 + 40;
         pe[reloc_dir..reloc_dir + 4].copy_from_slice(&0x300u32.to_le_bytes());
         pe[reloc_dir + 4..reloc_dir + 8].copy_from_slice(&12u32.to_le_bytes());
@@ -401,6 +418,34 @@ mod tests {
         assert_eq!(image_base(&pe).unwrap(), Some(0xFFF0_0000));
         assert_eq!(rva_to_offset(&pe, 0x10).unwrap(), Some(0x10));
         assert_eq!(rva_to_offset(&pe, 0x900).unwrap(), None);
+    }
+
+    #[test]
+    fn relocation_directory_beyond_the_declared_entries_is_not_read() {
+        // NumberOfRvaAndSizes = 5: DataDirectory[5] is not part of the header.
+        let mut few = tiny_pe();
+        few[0x98 + 92..0x98 + 96].copy_from_slice(&5u32.to_le_bytes());
+        assert_eq!(relocation_fields(&few).unwrap(), vec![]);
+        assert_eq!(rebase_for_report(&few).unwrap().relocations, 0);
+        // SizeOfOptionalHeader ends before DataDirectory[5] even though the count says 16.
+        let mut short = tiny_pe();
+        short[0x94..0x96].copy_from_slice(&(96u16 + 40).to_le_bytes());
+        assert_eq!(relocation_fields(&short).unwrap(), vec![]);
+    }
+
+    #[test]
+    fn relocated_field_past_the_end_of_the_file_is_skipped() {
+        // The section claims data at 0x3FE, so the field at RVA 0x210 maps to 0x3FE+.. past EOF.
+        let mut pe = tiny_pe();
+        let row = 0x98 + 0xE0;
+        pe[row + 20..row + 24].copy_from_slice(&0x3FEu32.to_le_bytes());
+        pe[row + 8..row + 12].copy_from_slice(&0x1000u32.to_le_bytes());
+        pe[row + 16..row + 20].copy_from_slice(&0x1000u32.to_le_bytes());
+        // Keep the relocation table in the header area (RVA 0x1C0) so only the field is unbacked.
+        pe.copy_within(0x300..0x30C, 0x1C0);
+        pe[0x98 + 136..0x98 + 140].copy_from_slice(&0x1C0u32.to_le_bytes());
+        assert_eq!(relocation_fields(&pe).unwrap(), vec![]);
+        assert_eq!(rebase_for_report(&pe).unwrap().relocations, 0);
     }
 
     #[test]

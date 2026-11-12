@@ -360,6 +360,7 @@ pub fn relocatable_pe(base: u32, code: &[u8]) -> Vec<u8> {
     pe[optional..optional + 2].copy_from_slice(&0x10Bu16.to_le_bytes());
     pe[optional + 28..optional + 32].copy_from_slice(&base.to_le_bytes());
     pe[optional + 60..optional + 64].copy_from_slice(&0x200u32.to_le_bytes());
+    pe[optional + 92..optional + 96].copy_from_slice(&16u32.to_le_bytes());
     let reloc_dir = optional + 96 + 40;
     pe[reloc_dir..reloc_dir + 4].copy_from_slice(&0x300u32.to_le_bytes());
     pe[reloc_dir + 4..reloc_dir + 8].copy_from_slice(&12u32.to_le_bytes());
