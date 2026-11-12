@@ -53,14 +53,32 @@ pub fn compression_section(compression_type: u8, decoded_len: u32, payload: &[u8
     section(0x01, &body)
 }
 
-/// Deterministic x86-looking code with CALL operands the BCJ filter rewrites.
+/// Deterministic x86-looking code that exercises the BCJ filter's branches.
+///
+/// Four rotating patterns: a CALL with a small positive operand, a JMP with a
+/// negative one (top byte 0xFF), three opcodes in a row (operands overlapping
+/// the next opcode) and a CALL whose top byte is not a sign extension, which
+/// the filter leaves alone.
 pub fn x86_code(size: usize) -> Vec<u8> {
     let mut code = Vec::new();
     let mut index = 0u32;
     while code.len() < size {
-        code.extend_from_slice(&[0x55, 0x89, 0xE5, 0xE8]);
-        code.extend_from_slice(&(index.wrapping_mul(37) & 0xFFFF).to_le_bytes());
-        code.extend_from_slice(&[0xC9, 0xC3, 0x90]);
+        match index % 4 {
+            0 => {
+                code.extend_from_slice(&[0x55, 0xE8]);
+                code.extend_from_slice(&(index.wrapping_mul(37) & 0xFFFF).to_le_bytes());
+            }
+            1 => {
+                code.extend_from_slice(&[0x90, 0xE9]);
+                code.extend_from_slice(&index.wrapping_mul(29).wrapping_neg().to_le_bytes());
+            }
+            2 => {
+                code.extend_from_slice(&[0xE8, 0xE8, 0xE9]);
+                code.extend_from_slice(&(index.wrapping_mul(11) & 0xFFFF).to_le_bytes());
+            }
+            _ => code.extend_from_slice(&[0xE8, 0, 0, 0, 0x40]),
+        }
+        code.push(0xC3);
         index += 1;
     }
     code.truncate(size);
@@ -352,13 +370,25 @@ impl Fixture {
 
     /// Build with a custom DXE volume length (small values leave no free space).
     pub fn with_dxe_length(follower_kind: u8, dxe_length: usize) -> Fixture {
+        Fixture::with_driver_encoding(follower_kind, dxe_length, lzma_section)
+    }
+
+    /// Build with the DXE driver's section stream wrapped by `encode`.
+    ///
+    /// Example: `Fixture::with_driver_encoding(0x07, 0x4000, brotli_section)` stores the
+    /// driver in a decode-only Brotli section.
+    pub fn with_driver_encoding(
+        follower_kind: u8,
+        dxe_length: usize,
+        encode: fn(&[u8]) -> Vec<u8>,
+    ) -> Fixture {
         let peim = module(1, 256);
         let driver = module(2, 512);
         let table = acpi(&module(3, 96));
         let pei = volume(&[ffs(PEIM_GUID, 0x06, &section(0x10, &peim), 0)], 0x4000);
         let dxe = volume(
             &[
-                ffs(DXE_GUID, 0x07, &lzma_section(&section(0x10, &driver)), 0),
+                ffs(DXE_GUID, 0x07, &encode(&section(0x10, &driver)), 0),
                 ffs(PAD_GUID, 0xF0, &[], 0),
                 ffs(NEXT_GUID, follower_kind, &section(0x10, &module(4, 64)), 0),
                 ffs(TABLE_GUID, 0x02, &section(0x19, &table), 0),
