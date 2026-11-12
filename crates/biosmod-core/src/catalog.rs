@@ -151,7 +151,7 @@ pub enum RevisionStatus {
 }
 
 /// One firmware build a board ships; patch variants are keyed by its id.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FirmwareBuild {
     pub id: String,

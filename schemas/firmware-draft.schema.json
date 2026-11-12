@@ -1,0 +1,177 @@
+{
+  "$defs": {
+    "Blob": {
+      "additionalProperties": false,
+      "properties": {
+        "length": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "sha256",
+        "length"
+      ],
+      "type": "object"
+    },
+    "Digest256": {
+      "description": "SHA-256 digest, lowercase hexadecimal",
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "FirmwareBuild": {
+      "additionalProperties": false,
+      "description": "One firmware build a board ships; patch variants are keyed by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "image_size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "version_string": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "type": "object"
+    },
+    "Guid": {
+      "description": "EFI GUID in registry format",
+      "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
+      "type": "string"
+    },
+    "LeafKind": {
+      "oneOf": [
+        {
+          "const": "pe32",
+          "description": "The PE32 or TE image section.",
+          "type": "string"
+        },
+        {
+          "const": "acpi-table",
+          "description": "A DSDT inside a RAW section.",
+          "type": "string"
+        }
+      ]
+    },
+    "ModuleDigest": {
+      "additionalProperties": false,
+      "description": "One module leaf the catalog can key a build on.",
+      "properties": {
+        "ffs_guid": {
+          "$ref": "#/$defs/Guid"
+        },
+        "leaf": {
+          "$ref": "#/$defs/LeafKind"
+        },
+        "length": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "ui_name": {
+          "description": "UI section name of the module, when it has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ffs_guid",
+        "leaf",
+        "length",
+        "sha256"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/bme.firmware-draft-1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The firmware build drafted from an image, with the facts it was drafted from.",
+  "properties": {
+    "build": {
+      "$ref": "#/$defs/FirmwareBuild",
+      "description": "The build as a board profile lists it."
+    },
+    "draft": {
+      "description": "Always true: a person reviews the draft before it goes into a catalog.",
+      "type": "boolean"
+    },
+    "identity": {
+      "description": "Printable build identity strings found in the image, banner first.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "image": {
+      "$ref": "#/$defs/Blob",
+      "description": "The image the draft describes."
+    },
+    "matches_catalog_build": {
+      "description": "The catalog build the image matched when it was scanned, if any.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "modules": {
+      "description": "PE32 and ACPI table modules with their digests.",
+      "items": {
+        "$ref": "#/$defs/ModuleDigest"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "bme.firmware-draft/1",
+      "type": "string"
+    },
+    "smbios": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "SMBIOS fields of the machine, kept only when they match this image.",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema",
+    "draft",
+    "build",
+    "image",
+    "identity",
+    "modules"
+  ],
+  "title": "FirmwareDraft",
+  "type": "object"
+}
