@@ -5,7 +5,7 @@
 //! build) and `findings/` (finding documents the investigation produces).
 //! Input dumps are listed by digest and never copied.
 
-use super::{Ctx, firmware, load_sources, read_bounded, read_image};
+use super::{Ctx, firmware, load_sources, read_image};
 use crate::config::{io_error, write_atomic, write_new};
 use crate::flash::host::Host;
 use crate::output::{Out, Reply, display_path, success_document};
@@ -137,9 +137,69 @@ fn file_name(path: &Path) -> Result<String> {
         })
 }
 
+/// Read a case document that must be a regular file, never through a symbolic link.
+///
+/// The path is checked without following links, then opened with `O_NOFOLLOW` where the
+/// platform has it, so a link swapped in between the two still fails.
+///
+/// Example: `read_regular(&dir.join("case.json"), DOCUMENT_LIMIT)?` fails on a link to a file.
+fn read_regular(path: &Path, limit: u64) -> Result<Vec<u8>> {
+    refuse_link(path)?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options.open(path).map_err(|e| io_error(path, e))?;
+    let metadata = file.metadata().map_err(|e| io_error(path, e))?;
+    if !metadata.is_file() || metadata.len() > limit {
+        return Err(Error::new(
+            Code::FormatInvalid,
+            format!(
+                "{}: expected a regular file of at most {limit} bytes | received {} bytes",
+                path.display(),
+                metadata.len()
+            ),
+        ));
+    }
+    let mut bytes = Vec::new();
+    file.take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| io_error(path, e))?;
+    Ok(bytes)
+}
+
+/// Fail when `path` is a symbolic link; a missing path is not an error here.
+///
+/// Example: `refuse_link(&dir.join("artifacts"))?` fails when `artifacts` links elsewhere.
+fn refuse_link(path: &Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(Error::new(
+            Code::FormatInvalid,
+            format!(
+                "{}: expected a plain file or directory inside the case | received a symbolic link",
+                path.display()
+            ),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Check the case's own layout: `case.json` and the three working directories are the real
+/// thing, so no read or write below follows a link out of the case.
+fn check_layout(dir: &Path) -> Result<()> {
+    for name in [CASE_FILE, ARTIFACT_DIRECTORY, "drafts", FINDINGS_DIRECTORY] {
+        refuse_link(&dir.join(name))?;
+    }
+    Ok(())
+}
+
 fn load_case(dir: &Path) -> Result<Case> {
     let path = dir.join(CASE_FILE);
-    let bytes = read_bounded(&path, DOCUMENT_LIMIT)
+    check_layout(dir)?;
+    let bytes = read_regular(&path, DOCUMENT_LIMIT)
         .map_err(|e| e.context(format!("{}: expected a case directory", dir.display())))?;
     let case: Case =
         parse_strict(&bytes, CASE_FILE).map_err(|e| Error::new(Code::FormatInvalid, e.message))?;
@@ -149,7 +209,7 @@ fn load_case(dir: &Path) -> Result<Case> {
 
 fn read_document<T: serde::de::DeserializeOwned>(dir: &Path, relative: &str) -> Result<T> {
     let path = dir.join(relative);
-    let bytes = read_bounded(&path, DOCUMENT_LIMIT)?;
+    let bytes = read_regular(&path, DOCUMENT_LIMIT)?;
     parse_strict(&bytes, relative).map_err(|e| Error::new(Code::FormatInvalid, e.message))
 }
 

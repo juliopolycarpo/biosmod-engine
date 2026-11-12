@@ -985,3 +985,119 @@ fn record_refuses_commands_that_copy_or_write_the_chip() {
     assert!(!dump.exists(), "(flash backup): expected nothing written");
     assert_eq!(fs::read(workspace.path("case/case.json")).unwrap(), before);
 }
+
+/// Replace `case/<name>` with a symbolic link to a copy of it kept outside the case.
+#[cfg(unix)]
+fn link_out(workspace: &Workspace, name: &str) {
+    let inside = workspace.path("case").join(name);
+    let outside = workspace.path("outside").join(name.replace('/', "-"));
+    fs::create_dir_all(outside.parent().unwrap()).unwrap();
+    fs::rename(&inside, &outside).unwrap();
+    std::os::unix::fs::symlink(&outside, &inside).unwrap();
+}
+
+#[cfg(unix)]
+fn assert_refused_as_link(error: Error, name: &str) {
+    assert_eq!(error.code, Code::FormatInvalid, "{name}: {error}");
+    assert!(
+        error.message.contains(name) && error.message.contains("symbolic link"),
+        "({name}): expected the link named | received {error}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn status_refuses_a_symlinked_artifacts_directory() {
+    let workspace = Workspace::new();
+    workspace.init();
+    link_out(&workspace, "artifacts");
+    assert_refused_as_link(workspace.status().unwrap_err(), "artifacts");
+}
+
+#[cfg(unix)]
+#[test]
+fn status_refuses_a_symlinked_findings_directory_and_finding_file() {
+    let workspace = Workspace::new();
+    workspace.init();
+    link_out(&workspace, "findings/OPEN1.json");
+    assert_refused_as_link(workspace.status().unwrap_err(), "OPEN1.json");
+    let restore = workspace.path("case/findings/OPEN1.json");
+    fs::remove_file(&restore).unwrap();
+    fs::rename(workspace.path("outside/findings-OPEN1.json"), &restore).unwrap();
+    workspace.status().unwrap();
+    link_out(&workspace, "findings");
+    assert_refused_as_link(workspace.status().unwrap_err(), "findings");
+}
+
+#[cfg(unix)]
+#[test]
+fn export_refuses_a_symlinked_drafts_directory_and_draft_file() {
+    let workspace = Workspace::new();
+    workspace.init();
+    link_out(&workspace, "drafts/board.json");
+    assert_refused_as_link(workspace.export("first").unwrap_err(), "board.json");
+    let restore = workspace.path("case/drafts/board.json");
+    fs::remove_file(&restore).unwrap();
+    fs::rename(workspace.path("outside/drafts-board.json"), &restore).unwrap();
+    link_out(&workspace, "drafts");
+    assert_refused_as_link(workspace.export("second").unwrap_err(), "drafts");
+}
+
+#[cfg(unix)]
+#[test]
+fn status_refuses_a_symlinked_case_document() {
+    let workspace = Workspace::new();
+    workspace.init();
+    let document = workspace.path("case/case.json");
+    let target = workspace.path("elsewhere.json");
+    fs::rename(&document, &target).unwrap();
+    std::os::unix::fs::symlink(&target, &document).unwrap();
+    assert_refused_as_link(workspace.status().unwrap_err(), "case.json");
+}
+
+#[test]
+fn read_regular_reads_files_and_refuses_oversized_and_non_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("doc.json");
+    fs::write(&file, b"12345").unwrap();
+    assert_eq!(read_regular(&file, 5).unwrap(), b"12345");
+    let long = read_regular(&file, 4).unwrap_err();
+    assert_eq!(long.code, Code::FormatInvalid, "{long}");
+    assert!(long.message.contains("doc.json"), "{long}");
+    let directory = read_regular(dir.path(), 5).unwrap_err();
+    assert!(
+        directory.message.contains("expected a regular file"),
+        "{directory}"
+    );
+    assert!(read_regular(&dir.path().join("absent"), 5).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn refuse_link_names_a_symbolic_link_and_accepts_files_and_missing_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("real");
+    fs::write(&file, b"x").unwrap();
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&file, &link).unwrap();
+    refuse_link(&file).unwrap();
+    refuse_link(&dir.path().join("absent")).unwrap();
+    let error = refuse_link(&link).unwrap_err();
+    assert_eq!(error.code, Code::FormatInvalid, "{error}");
+    assert!(
+        error.message.contains("link") && error.message.contains("symbolic link"),
+        "{error}"
+    );
+    let dangling = dir.path().join("dangling");
+    std::os::unix::fs::symlink(dir.path().join("nowhere"), &dangling).unwrap();
+    assert!(refuse_link(&dangling).is_err());
+}
+
+#[test]
+fn check_layout_accepts_a_fresh_case_and_a_case_without_findings() {
+    let workspace = Workspace::new();
+    workspace.init();
+    check_layout(&workspace.path("case")).unwrap();
+    fs::remove_dir_all(workspace.path("case/findings")).ok();
+    check_layout(&workspace.path("case")).unwrap();
+}
