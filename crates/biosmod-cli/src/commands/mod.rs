@@ -11,11 +11,13 @@ mod host;
 mod ifr;
 mod meta;
 mod nvram;
+mod replay;
+pub use replay::UNSCOPED;
 
 use crate::config::{Config, Paths, io_error};
 use crate::output::{Out, Reply};
 use crate::sources::{self, LoadPolicy, Loaded};
-use crate::{Command, DevCommand, DiagCommand, SourceArgs, ToolsCommand};
+use crate::{Command, DevCommand, DiagCommand, ReplayCommand, SourceArgs, ToolsCommand};
 use biosmod_core::catalog::LeafKind;
 use biosmod_core::firmware::Image;
 use biosmod_core::ifr::ModuleDiagnostic;
@@ -95,6 +97,7 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Catalog(sub) => catalog::run(&mut ctx, sub),
         Command::Case(sub) => case::run(&ctx, sub),
         Command::Tools(sub) => tools(&ctx, sub),
+        Command::Replay(ReplayCommand::Script(args)) => replay::script(&ctx, &args),
         Command::Diag(DiagCommand::Breadcrumbs(sub)) => diag::breadcrumbs(sub),
         Command::Diag(
             DiagCommand::Acpi(_)

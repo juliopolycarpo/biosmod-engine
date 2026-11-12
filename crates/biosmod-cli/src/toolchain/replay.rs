@@ -607,5 +607,8 @@ pub fn validate_location(runner: &dyn Runner, path: &Path) -> Result<(PathBuf, V
     Ok((python, versions))
 }
 
+pub mod package;
+pub mod script;
+
 #[cfg(all(test, unix))]
 mod tests;

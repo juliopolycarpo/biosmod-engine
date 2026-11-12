@@ -81,6 +81,9 @@ pub enum Command {
     /// Check and install external analysis tools (Ghidra).
     #[command(subcommand)]
     Tools(ToolsCommand),
+    /// Replay firmware modules against simulated hardware in the managed Python runtime.
+    #[command(subcommand)]
+    Replay(ReplayCommand),
     /// Diagnostics outside the correction catalog.
     #[command(subcommand)]
     Diag(DiagCommand),
@@ -509,6 +512,36 @@ pub enum SetupCommand {
 }
 
 #[derive(Subcommand)]
+pub enum ReplayCommand {
+    /// Run a Python harness against firmware modules and record the run as evidence.
+    Script(ReplayScriptArgs),
+}
+
+#[derive(Args)]
+pub struct ReplayScriptArgs {
+    /// The harness: a Python script that imports `bme_replay` and calls `bme_replay.emit`.
+    pub harness: PathBuf,
+    /// A firmware module the harness loads with `bme_replay.modules()` (repeatable).
+    #[arg(long = "module", value_name = "PE")]
+    pub modules: Vec<PathBuf>,
+    /// New directory for `evidence.json` and `result.jsonl`.
+    #[arg(short, long, value_name = "DIR")]
+    pub output: Option<PathBuf>,
+    /// Board id for the evidence record (default: unscoped).
+    #[arg(long, default_value = commands::UNSCOPED)]
+    pub board: String,
+    /// Firmware build id for the evidence record (default: unscoped).
+    #[arg(long, default_value = commands::UNSCOPED)]
+    pub firmware: String,
+    /// Seconds the harness may run.
+    #[arg(long, default_value_t = 600)]
+    pub timeout: u64,
+    /// Arguments for the harness, after `--`.
+    #[arg(last = true)]
+    pub args: Vec<String>,
+}
+
+#[derive(Subcommand)]
 pub enum DiagCommand {
     /// MR9A MRC checkpoint breadcrumbs in upper-bank CMOS.
     #[command(subcommand)]
@@ -732,6 +765,7 @@ fn command_name(command: &Command) -> &'static str {
             ToolsCommand::Analyze { .. } => "tools analyze",
             ToolsCommand::Paths => "tools paths",
         },
+        Command::Replay(ReplayCommand::Script(_)) => "replay script",
         Command::Diag(DiagCommand::Breadcrumbs(_)) => "diag breadcrumbs",
         Command::Diag(DiagCommand::Acpi(AcpiCommand::Capture { .. })) => "diag acpi capture",
         Command::Diag(DiagCommand::Superio(SuperioCommand::Read { .. })) => "diag superio read",

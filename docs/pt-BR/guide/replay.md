@@ -34,6 +34,33 @@ Depois de instalar, o setup move o ambiente para o lugar, lê as versões de vol
 
 O bme usa o interpretador de `BME_REPLAY_PYTHON`, depois `tools.replay_python` (salvo por `tools set replay`), depois o ambiente gerenciado. `tools set replay <caminho>` aceita um interpretador ou um diretório de ambiente virtual e o recusa, a menos que informe Python 3.10 ou mais novo e exatamente as versões fixadas. `tools status` mostra a linha como opcional, então a ausência do ambiente não torna o relatório não pronto. Um local salvo ou vindo de variável bloqueia o `setup`; execute `bme tools unset replay` antes. `tools doctor` verifica o replay quando há um ambiente instalado ou escolhido; `tools doctor replay` o exige.
 
+## Executar um harness
+
+```sh
+bme replay script harness.py --module PchSmiDispatcher.pe -o out/ -- --case 3
+```
+
+Um harness é um script Python que importa `bme_replay`, carrega os módulos informados com `--module` (`bme_replay.modules()`), chama funções do firmware e relata com `bme_replay.emit(documento)`. O bme o executa como `python -I -B` no ambiente do replay, passa os argumentos depois de `--` como `sys.argv[1:]` e coleta cada documento JSON emitido. Um harness que levanta exceção, termina com código diferente de zero ou passa de `--timeout` (600 s por padrão) faz o comando falhar com `TOOL_FAILED` e o final do stderr.
+
+`bme_replay` é código MIT que o bme embute e grava em `<diretório de dados>/replay/package` antes de cada execução, e de novo sempre que o digest embutido difere do que está no disco, então uma versão nova o atualiza sem recriar o ambiente. Ele oferece:
+
+| Peça | Uso |
+| ---- | --- |
+| `Machine(32 ou 64)`, `machine.call(endereço, *args, budget=N)` | Executa uma função na convenção Microsoft x64 ou cdecl; registradores preservados e o ponteiro de pilha são verificados, um orçamento de instruções limita a execução, uma falha levanta `EmulationFault` ou volta com `capture_fault=True` |
+| `load_pe(machine, bytes, base=...)` | Mapeia uma imagem PE32, PE32+ ou TE, aplica realocações e confere o tipo de máquina com a largura |
+| `DxeServices`, `SmmServices`, `PeiServices`, `VariableStore` | Tabelas de serviço falsas; GetVariable e SetVariable usam o repositório, qualquer outro slot precisa de um tratador ou levanta `UnmodeledService` |
+| `machine.ports.attach(dispositivo, portas, nome)`, `PortRegisters`, `IndexedRegisters` | Dispositivos de porta nomeados; uma porta que ninguém reivindica levanta `UnmodeledAccess` |
+| `machine.mmio(base, tamanho, dispositivo, nome)`, `RegisterFile` | Regiões MMIO |
+| `machine.attach_msrs(MsrBus(...))` | RDMSR e WRMSR |
+| `SmbusDevice`, `SpdEeprom` | Um controlador SMBus do PCH com escravos |
+| `machine.stub(endereço, tratador)`, `machine.trace` | Substitui uma função e lê ou calcula o hash do rastro de eventos |
+
+Com `-o DIR`, o bme grava `result.jsonl` (os documentos, um por linha) e `evidence.json`, um registro `bme.evidence/1` do tipo `offline-validation`. O bloco `replay` traz o nome do harness, as versões do interpretador e dos pacotes, o SHA-256 do harness e de cada módulo e o SHA-256 de `result.jsonl`. `--board` e `--firmware` definem o escopo do registro; ambos são `unscoped` por padrão, e um catálogo só aceita o registro depois que nomeiam uma placa e uma build reais. Sem `-o`, o registro aparece só na resposta de `--json`. Um `evidence.json` ou `result.jsonl` existente nunca é sobrescrito.
+
+`tools/replay/examples/b11_context_overread.py` é um harness completo: reexecuta o registro original do `PchSmiDispatcher` com contextos no fim de uma página legível e mostra a leitura de 16 bytes falhando no RVA `3A02` quando restam menos de 16 bytes.
+
+Uma execução emulada mostra o que as instruções fazem contra os modelos que o harness fornece. Não é uma observação em hardware, e o registro diz isso em `limits`.
+
 ## Limite de licença
 
-O Unicorn Engine é GPLv2. O bme não distribui código do Unicorn: você o instala em um ambiente separado, e o bme inicia o Python desse ambiente como subprocesso e troca arquivos e JSON com ele. Capstone e pefile são instalados do mesmo modo. Os metadados do wheel do Unicorn 2.1.4 indicam licença BSD para o binding Python; confira a licença da biblioteca do motor dentro do wheel antes de redistribuí-lo.
+O Unicorn Engine é GPLv2. O bme não distribui código do Unicorn: você o instala em um ambiente separado, e o bme inicia o Python desse ambiente como subprocesso e troca arquivos e JSON com ele. O pacote embutido `bme_replay` é código MIT que chama a API Python do Unicorn e não contém código do Unicorn. Capstone e pefile são instalados do mesmo modo. Os metadados do wheel do Unicorn 2.1.4 indicam licença BSD para o binding Python; confira a licença da biblioteca do motor dentro do wheel antes de redistribuí-lo.
