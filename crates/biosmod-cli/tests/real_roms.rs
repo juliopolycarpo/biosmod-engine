@@ -1081,3 +1081,84 @@ fn detectors_find_the_catalog_patch_sites_on_stock_and_report_the_defect_absent_
         }
     }
 }
+
+/// `case init` on a stock dump: the stored scan names the official build, the exported draft is a
+/// catalog `catalog validate` accepts, a fresh case is clean, a flipped artifact byte is `changed`,
+/// and a case moved to another directory verifies through `--input` mapping.
+#[test]
+fn case_workflow_on_stock_dumps() {
+    for (var, firmware) in [
+        ("BME_ROM_MR9A", "mnx99mr9apro-230322"),
+        ("BME_ROM_PR9", "x99ha00m-20221202"),
+    ] {
+        let Some(input) = rom(var) else { continue };
+        let sandbox = Sandbox::new();
+        let case = sandbox.path("case");
+        let init = sandbox.run(["case", "init", s(&input), "-o", s(&case), "--json"]);
+        assert_eq!(
+            init.code, 0,
+            "({var} case init): expected exit 0 | {}",
+            init.stdout
+        );
+
+        let scan: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(case.join("artifacts/001-scan.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            scan["data"]["sources"][0]["report"]["firmware"], firmware,
+            "({var} stored scan): expected firmware {firmware} | received {scan}"
+        );
+
+        let submission = sandbox.path("submission");
+        let export = sandbox.run(["case", "export", s(&case), "-o", s(&submission), "--json"]);
+        assert_eq!(
+            export.code, 0,
+            "({var} case export): expected exit 0 | {}",
+            export.stdout
+        );
+        let validate = sandbox.run(["catalog", "validate", s(&submission), "--json"]);
+        assert_eq!(
+            validate.code, 0,
+            "({var} catalog validate): expected exit 0 | {}",
+            validate.stdout
+        );
+
+        let check = |dir: &std::path::Path| {
+            sandbox.run(["case", "status", s(dir), "--input", s(&input), "--json"])
+        };
+        let clean = check(&case);
+        assert_eq!(
+            clean.code, 0,
+            "({var} case status): expected clean | {}",
+            clean.stdout
+        );
+
+        let moved = sandbox.path("moved/case");
+        std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
+        std::fs::rename(&case, &moved).unwrap();
+        let relocated = check(&moved);
+        assert_eq!(
+            relocated.code, 0,
+            "({var} moved case status): expected clean | {}",
+            relocated.stdout
+        );
+
+        let artifact = moved.join("artifacts/001-scan.json");
+        let mut bytes = std::fs::read(&artifact).unwrap();
+        bytes[0] ^= 0xff;
+        std::fs::write(&artifact, bytes).unwrap();
+        let drifted = check(&moved);
+        assert_eq!(
+            drifted.error_code(),
+            "CASE_DRIFT",
+            "({var}) {}",
+            drifted.stdout
+        );
+        assert_eq!(
+            drifted.json()["error"]["details"]["artifacts"][0]["state"],
+            "changed",
+            "({var}): expected artifact state changed | {}",
+            drifted.stdout
+        );
+    }
+}
