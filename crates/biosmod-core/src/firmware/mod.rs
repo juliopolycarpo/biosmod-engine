@@ -241,23 +241,31 @@ impl Image {
     /// The UI name of a file, if it has a UI section.
     pub fn ui_name(&self, volume: usize, file: usize) -> Option<String> {
         let file = &self.volumes[volume].files[file];
-        let mut name = None;
-        let body = file.body(&self.bytes);
-        visit(&file.sections, body, &mut |section, stream| {
-            if name.is_none() && section.kind == SECTION_UI && section.is_leaf() {
-                let units: Vec<u16> = section
-                    .body(stream)
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|c| u16::from_le_bytes([c[0], c[1]]))
-                    .take_while(|u| *u != 0)
-                    .collect();
-                name = Some(String::from_utf16_lossy(&units));
-            }
-        });
-        name
+        file_ui_name(file, &self.bytes)
     }
+}
+
+/// The UI name of `file`, given the buffer of the volume that holds it.
+///
+/// Works for files in nested volumes too, where `buffer` is the FV-image section body.
+///
+/// Example: `let name = file_ui_name(&volume.files[0], &image.bytes);`
+pub fn file_ui_name(file: &FfsFile, buffer: &[u8]) -> Option<String> {
+    let mut name = None;
+    visit(&file.sections, file.body(buffer), &mut |section, stream| {
+        if name.is_none() && section.kind == SECTION_UI && section.is_leaf() {
+            let units: Vec<u16> = section
+                .body(stream)
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .take_while(|u| *u != 0)
+                .collect();
+            name = Some(String::from_utf16_lossy(&units));
+        }
+    });
+    name
 }
 
 /// Resolve a section path within a section list.

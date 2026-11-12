@@ -214,6 +214,46 @@ impl Default for AcpiInventoryFixture {
     }
 }
 
+/// Synthetic image whose only file wraps a firmware volume (FV-image section) holding
+/// a file with one ACPI table in a raw section.
+///
+/// Example: `let fixture = NestedAcpiFixture::new(); assert_ne!(fixture.outer_guid, fixture.inner_guid);`
+#[derive(Debug, Clone)]
+pub struct NestedAcpiFixture {
+    pub image: Vec<u8>,
+    pub table: Vec<u8>,
+    pub outer_guid: Guid,
+    pub inner_guid: Guid,
+}
+
+impl NestedAcpiFixture {
+    /// Build the image and keep the nested table bytes.
+    ///
+    /// Example: `let fixture = NestedAcpiFixture::new(); assert_eq!(fixture.table.len(), 76);`
+    pub fn new() -> NestedAcpiFixture {
+        let outer_guid = DXE_GUID;
+        let inner_guid = PEIM_GUID;
+        let table = acpi_table(*b"SSDT", "Nested", 1, 40);
+        let inner = ffs(inner_guid, 0x07, &section(0x19, &table), 0);
+        let inner_volume = volume(&[inner], 0x1000);
+        let outer = ffs(outer_guid, 0x0B, &section(0x17, &inner_volume), 0);
+        let mut image = vec![0xFF; 0x1000];
+        image.extend(volume(&[outer], 0x4000));
+        NestedAcpiFixture {
+            image,
+            table,
+            outer_guid,
+            inner_guid,
+        }
+    }
+}
+
+impl Default for NestedAcpiFixture {
+    fn default() -> Self {
+        NestedAcpiFixture::new()
+    }
+}
+
 /// A replace hunk with 16 bytes of context on each side.
 pub fn hunk(data: &[u8], offset: usize, after: &[u8]) -> Hunk {
     let end = offset + after.len();

@@ -21,7 +21,10 @@
 //! ```
 
 use crate::error::{Code, Error, Result};
-use crate::firmware::{Image, SECTION_PE32, SECTION_RAW, SECTION_TE, locate, walk};
+use crate::firmware::{
+    FfsFile, Image, SECTION_PE32, SECTION_RAW, SECTION_TE, Section, Volume, file_ui_name, locate,
+    walk,
+};
 use crate::util::{Digest256, Guid, le32, sum8};
 use serde::Serialize;
 
@@ -35,7 +38,7 @@ const MAX_REVISION: u8 = 0x20;
 /// Printed with every inventory: what the list does and does not cover.
 pub const STORED_SET_NOTICE: &str = "Stored set: tables found with a valid checksum inside firmware sections. It is not the set the firmware publishes at runtime; FADT, MADT and other tables built during boot are absent.";
 
-/// Where one copy of a table sits.
+/// Where one copy of a table sits. Nested volumes inside FV-image sections are scanned too.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TableLocation {
     /// GUID of the owning top-level FFS file.
@@ -49,6 +52,10 @@ pub struct TableLocation {
     pub compressed: bool,
     /// Table offset within the section body.
     pub offset: usize,
+    /// Enclosing FFS file GUIDs, outermost first, when the file sits in a nested volume.
+    pub nested_in: Vec<Guid>,
+    /// Offset of the owning FFS file within its volume.
+    pub file_offset: usize,
 }
 
 /// One distinct table (by SHA-256) and every place it is stored.
@@ -183,7 +190,7 @@ pub fn inventory(image: &Image) -> Inventory {
     }
 }
 
-/// Distinct tables with their bytes; `only` restricts the scan to one FFS file.
+/// Distinct tables with their bytes; `only` restricts the scan to files with that GUID.
 fn distinct_tables(image: &Image, only: Option<Guid>) -> Vec<(StoredTable, Vec<u8>)> {
     let mut tables: Vec<(StoredTable, Vec<u8>)> = Vec::new();
     scan_image(image, only, &mut |location, bytes| {
@@ -196,15 +203,61 @@ fn distinct_tables(image: &Image, only: Option<Guid>) -> Vec<(StoredTable, Vec<u
     tables
 }
 
+/// Callback for [`visit_files`]: `(file, volume buffer, enclosing file GUIDs)`.
+type FileVisitor<'a> = dyn FnMut(&FfsFile, &[u8], &[Guid]) + 'a;
+
+/// Call `visit` for every FFS file in `volumes`, then for the files of volumes nested in
+/// FV-image sections, as `(file, volume buffer, enclosing file GUIDs)`.
+///
+/// Only the ACPI scan descends into nested volumes; `firmware::walk` and `Image::leaves`
+/// keep their top-level-only meaning for the patch pipeline.
+fn visit_files(
+    volumes: &[Volume],
+    buffer: &[u8],
+    nested_in: &mut Vec<Guid>,
+    visit: &mut FileVisitor,
+) {
+    for volume in volumes {
+        for file in &volume.files {
+            visit(file, buffer, nested_in);
+            let mut inner = Vec::new();
+            nested_volumes(&file.sections, file.body(buffer), &mut inner);
+            nested_in.push(file.guid);
+            for (volumes, section_body) in inner {
+                visit_files(volumes, section_body, nested_in, visit);
+            }
+            nested_in.pop();
+        }
+    }
+}
+
+/// Volumes of one FV-image section and the section body that is their buffer.
+type NestedVolumes<'a> = (&'a [Volume], &'a [u8]);
+
+/// Volumes carried by FV-image sections anywhere in `sections` (through decoded sections too),
+/// each with the section body that is its buffer.
+fn nested_volumes<'a>(sections: &'a [Section], stream: &'a [u8], out: &mut Vec<NestedVolumes<'a>>) {
+    for section in sections {
+        if let Some(decoded) = &section.decoded {
+            nested_volumes(&decoded.children, &decoded.bytes, out);
+        } else if let Some(volumes) = section.volumes.as_deref().filter(|v| !v.is_empty()) {
+            out.push((volumes, section.body(stream)));
+        }
+    }
+}
+
 /// Call `found` for every table copy in image order.
 fn scan_image(image: &Image, only: Option<Guid>, found: &mut dyn FnMut(TableLocation, &[u8])) {
-    for (v, volume) in image.volumes.iter().enumerate() {
-        for (f, file) in volume.files.iter().enumerate() {
+    visit_files(
+        &image.volumes,
+        &image.bytes,
+        &mut Vec::new(),
+        &mut |file, buffer, nested_in| {
             if only.is_some_and(|guid| guid != file.guid) {
-                continue;
+                return;
             }
-            let name = image.ui_name(v, f);
-            let stream = file.body(&image.bytes);
+            let name = file_ui_name(file, buffer);
+            let stream = file.body(buffer);
             walk(
                 &file.sections,
                 &mut Vec::new(),
@@ -222,13 +275,15 @@ fn scan_image(image: &Image, only: Option<Guid>, found: &mut dyn FnMut(TableLoca
                             section_kind,
                             compressed,
                             offset: candidate.offset,
+                            nested_in: nested_in.to_vec(),
+                            file_offset: file.offset,
                         };
                         found(location, candidate.bytes);
                     }
                 },
             );
-        }
-    }
+        },
+    );
 }
 
 /// Fields that narrow a table choice inside one FFS file; unset fields match anything.
@@ -325,7 +380,7 @@ pub fn select_table(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::synthetic::{AcpiInventoryFixture, acpi_table};
+    use crate::synthetic::{AcpiInventoryFixture, NestedAcpiFixture, acpi_table};
 
     #[test]
     fn scan_body_finds_valid_tables_and_skips_bad_checksums() {
@@ -417,6 +472,26 @@ mod tests {
         assert_eq!(in_pe.oem_id, "SYNTH");
         assert_eq!(in_pe.creator_id, "BME");
         assert!(list.notice.contains("not the set the firmware publishes"));
+    }
+
+    #[test]
+    fn tables_inside_nested_firmware_volumes_are_listed_and_selectable() {
+        let fixture = NestedAcpiFixture::new();
+        let image = Image::parse(fixture.image.clone()).unwrap();
+        let list = inventory(&image);
+        assert_eq!(
+            list.tables.len(),
+            1,
+            "(nested inventory): expected the nested table | received {:?}",
+            list.tables
+        );
+        let at = &list.tables[0].locations[0];
+        assert_eq!(at.file_guid, fixture.inner_guid);
+        assert_eq!(at.nested_in, vec![fixture.outer_guid]);
+        assert_eq!(at.section_path, vec![0]);
+        let (_, bytes) =
+            select_table(&image, fixture.inner_guid, &TableSelector::default()).unwrap();
+        assert_eq!(bytes, fixture.table);
     }
 
     #[test]
