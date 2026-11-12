@@ -5,6 +5,7 @@
 //! bytes and a [`catalog::FileSource`]; every function returns typed results.
 
 pub mod acpi;
+pub mod aml;
 pub mod analysis;
 pub mod breadcrumbs;
 pub mod catalog;
