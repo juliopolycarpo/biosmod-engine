@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "6918fa45e62d06e44a585be58e2ee4f8b0c991c8c102b1daffe841f22ec62cb3"
+      "sha256": "98d8c9625f11135c7da642785f1d19fe5d19638f7e150ca02a35938fe3022e75"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -59,7 +59,7 @@
     {
       "source": "docs/guide/porting.md",
       "translation": "docs/pt-BR/guide/porting.md",
-      "sha256": "9f7c3961f32f98eac566de3986bbacfd0fda850c21fd0fc072ed4ed7e033ad3b"
+      "sha256": "14c51d50110f497cd93b3435f23b031e44df7ee3bc84d122f6b9e877d70e3d16"
     },
     {
       "source": "docs/guide/recovery.md",

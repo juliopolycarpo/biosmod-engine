@@ -337,6 +337,54 @@ impl Default for NestedAcpiFixture {
     }
 }
 
+/// A 0x400-byte PE32 linked at `base` with one `.text` section (RVA and file offset 0x200).
+///
+/// A pointer to `base + 0x1234` at 0x210 carries the image's only HIGHLOW
+/// relocation (table at 0x300) and `code` starts at 0x220, so two images that
+/// differ only in `base` match after relocation normalization.
+///
+/// Example: `let pe = relocatable_pe(0x1000_0000, b"code");`
+pub fn relocatable_pe(base: u32, code: &[u8]) -> Vec<u8> {
+    assert!(
+        code.len() <= 0xD0,
+        "code: expected <= 0xD0 bytes | received {}",
+        code.len()
+    );
+    let mut pe = vec![0u8; 0x400];
+    pe[0..2].copy_from_slice(b"MZ");
+    pe[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+    pe[0x80..0x84].copy_from_slice(b"PE\0\0");
+    pe[0x86..0x88].copy_from_slice(&1u16.to_le_bytes());
+    pe[0x94..0x96].copy_from_slice(&0xE0u16.to_le_bytes());
+    let optional = 0x98;
+    pe[optional..optional + 2].copy_from_slice(&0x10Bu16.to_le_bytes());
+    pe[optional + 28..optional + 32].copy_from_slice(&base.to_le_bytes());
+    pe[optional + 60..optional + 64].copy_from_slice(&0x200u32.to_le_bytes());
+    let reloc_dir = optional + 96 + 40;
+    pe[reloc_dir..reloc_dir + 4].copy_from_slice(&0x300u32.to_le_bytes());
+    pe[reloc_dir + 4..reloc_dir + 8].copy_from_slice(&12u32.to_le_bytes());
+    let table = optional + 0xE0;
+    pe[table..table + 6].copy_from_slice(b".text\0");
+    for (i, v) in [0x200u32, 0x200, 0x200, 0x200].iter().enumerate() {
+        pe[table + 8 + i * 4..table + 12 + i * 4].copy_from_slice(&v.to_le_bytes());
+    }
+    pe[0x210..0x214].copy_from_slice(&base.wrapping_add(0x1234).to_le_bytes());
+    pe[0x220..0x220 + code.len()].copy_from_slice(code);
+    pe[0x300..0x304].copy_from_slice(&0x200u32.to_le_bytes());
+    pe[0x304..0x308].copy_from_slice(&12u32.to_le_bytes());
+    pe[0x308..0x30A].copy_from_slice(&(0x3000u16 | 0x10).to_le_bytes());
+    pe
+}
+
+/// A BIOS-region image holding `files` in one FFS volume.
+///
+/// Example: `let image = Image::parse(image_of_files(&[ffs(PEIM_GUID, 0x06, &section(0x10, &pe), 0)]))?;`
+pub fn image_of_files(files: &[Vec<u8>]) -> Vec<u8> {
+    let mut image = vec![0xFF; 0x1000];
+    image.extend(volume(files, 0x8000));
+    image
+}
+
 /// A replace hunk with 16 bytes of context on each side.
 pub fn hunk(data: &[u8], offset: usize, after: &[u8]) -> Hunk {
     let end = offset + after.len();

@@ -1,6 +1,7 @@
 //! Command implementations. Each returns a [`Reply`] or a typed error; printing happens in `main`.
 
 mod catalog;
+mod compare;
 mod diag;
 mod firmware;
 mod ifr;
@@ -79,6 +80,7 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Extract(args) => firmware::extract(&args),
         Command::Replace(args) => firmware::replace(&args),
         Command::Derive(args) => firmware::derive(&ctx, &args),
+        Command::Compare(args) => compare::compare(&args),
         Command::Catalog(sub) => catalog::run(&mut ctx, sub),
         Command::Tools(sub) => tools(&ctx, sub),
         Command::Diag(DiagCommand::Breadcrumbs(sub)) => diag::breadcrumbs(sub),

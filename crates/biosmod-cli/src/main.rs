@@ -70,6 +70,8 @@ pub enum Command {
     Replace(ReplaceArgs),
     /// Draft a patch variant for another build by unique signature matching.
     Derive(DeriveArgs),
+    /// Compare two images module by module (read-only report).
+    Compare(CompareArgs),
     /// Manage, validate and index catalogs.
     #[command(subcommand)]
     Catalog(CatalogCommand),
@@ -314,6 +316,14 @@ pub struct DeriveArgs {
     pub source: SourceArgs,
 }
 
+#[derive(Args)]
+pub struct CompareArgs {
+    /// The first image (reported as A).
+    pub a: PathBuf,
+    /// The second image (reported as B).
+    pub b: PathBuf,
+}
+
 #[derive(Subcommand)]
 pub enum CatalogCommand {
     /// Validate a catalog directory (or board file) without registering it.
@@ -539,6 +549,7 @@ fn command_name(command: &Command) -> &'static str {
         Command::Extract(_) => "extract",
         Command::Replace(_) => "replace",
         Command::Derive(_) => "derive",
+        Command::Compare(_) => "compare",
         Command::Catalog(c) => match c {
             CatalogCommand::Validate { .. } => "catalog validate",
             CatalogCommand::Index { .. } => "catalog index",
