@@ -70,10 +70,11 @@ and the GUI job's system packages are installed separately on each runner.
 A record is accepted when someone else can check it from the files alone.
 
 1. Add or update `catalog/boards/<id>.json`. Say how the revision is known (`observed` from the board, `unverified` from a listing, or `unknown`). Board ids are lowercase.
-2. Add the variant under the firmware build id in `catalog/patches/<id>.json`. Hunks need the exact original bytes, 16 bytes of context on each side, and source and result hashes. Ported variants start from `bme derive` and must be reviewed hunk by hunk (`bme guide porting`).
-3. Put assembly sources or notes needed to review the change in `catalog/provenance/`.
-4. Run `bme catalog index catalog` and `bme catalog validate catalog`.
-5. In the PR, state what the finding is, how it was shown (executed, analyzed, plausible), what the fix does not cover and how you checked the result.
+2. Record the defect in `catalog/findings/<id>.json` (`bme.finding/1`): affected builds, owning module (UI name and FFS GUID), finding and condition confidence graded apart, what is not established, and the evidence ids. List the finding in the board's `findings`. A patch names the findings it resolves in `fixes`, and each of those findings lists the patch in `patches` with status `fixed-by-patch`. A defect with no fix yet is still a finding.
+3. Add the variant under the firmware build id in `catalog/patches/<id>.json`. Hunks need the exact original bytes, 16 bytes of context on each side, and source and result hashes. Ported variants start from `bme derive` and must be reviewed hunk by hunk (`bme guide porting`).
+4. Put assembly sources or notes needed to review the change in `catalog/provenance/`.
+5. Run `bme catalog index catalog` and `bme catalog validate catalog`.
+6. In the PR, state what the finding is, how it was shown (executed, analyzed, plausible), what the fix does not cover and how you checked the result.
 
 Hardware observations go in `catalog/evidence/` with the exact `image_sha256` that was flashed, the patch versions, the configuration and the limits. One observation never upgrades a record's general confidence. Never include vendor images or extracted modules.
 
