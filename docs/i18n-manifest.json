@@ -9,12 +9,12 @@
     {
       "source": "CONTRIBUTING.md",
       "translation": "CONTRIBUTING.pt-BR.md",
-      "sha256": "877507ecf639da52e122998652a1e1bb72571d379aa2618822e67687b498bcee"
+      "sha256": "14e92685662db26a40e6c683b4f18ca3d621c3f1f2bbbaadf62af055f72926d2"
     },
     {
       "source": "docs/architecture.md",
       "translation": "docs/pt-BR/architecture.md",
-      "sha256": "a1bf1e731bb6bc1f4a9f3d456a2628295916364d17465d80bc8a2a89ca2bc5c4"
+      "sha256": "bdcdf61ab962c999ac852e3d9de53dcc5ed25f81ed9faf49bb49b733f1b95678"
     },
     {
       "source": "docs/baseline.md",

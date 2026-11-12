@@ -8,9 +8,9 @@ Instale [cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/) 
 
 ```sh
 cargo fmt --all --check
-cargo clippy -p biosmod-core -p biosmod-cli --all-targets -- -D warnings
-cargo nextest run --locked -p biosmod-core -p biosmod-cli
-cargo test --locked --doc -p biosmod-core -p biosmod-cli
+cargo clippy -p biosmod-core -p biosmod-host -p biosmod-cli --all-targets -- -D warnings
+cargo nextest run --locked -p biosmod-core -p biosmod-host -p biosmod-cli
+cargo test --locked --doc -p biosmod-core -p biosmod-host -p biosmod-cli
 cargo build -p biosmod-cli
 cargo clippy -p biosmod-gui --all-targets -- -D warnings
 cargo nextest run --locked -p biosmod-gui
@@ -25,7 +25,7 @@ Core e CLI mantêm Rust 1.88 e cobertura de Linux, Windows e macOS. A interface 
 
 - O core nunca faz I/O; a CLI nunca interpreta firmware por conta própria (veja [arquitetura](docs/pt-BR/architecture.md)).
 - Cada função nova recebe um teste. Correções de bugs começam com um teste que falha pelo motivo relatado.
-- I/O externo em testes usa fakes nomeados (`FakeTransport`, `FakeTools`, `FakeCmos`, `FakeFlashChip`, `FakeSysfs`), nunca rede ou hardware real.
+- I/O externo em testes usa fakes nomeados (`FakeTransport`, `FakeTools`, `FakeCmos`, `FakeFlashChip`, `FakeSysfs`, `FakeKernelLog`, `FakePrivilege`), nunca rede ou hardware real.
 - Erros informam o valor inválido e a forma esperada: `module size: expected 604832 | received 604800`.
 - A CI obrigatória não deve depender de ROMs de fornecedores ou downloads grandes. Testes que precisam de dumps reais os leem das variáveis `BME_ROM_*` e informam quando são ignorados.
 - Commits seguem Conventional Commits, uma preocupação por commit, com corpo.

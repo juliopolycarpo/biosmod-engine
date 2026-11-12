@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/biosmod-cli", "crates/biosmod-core", "crates/biosmod-gui"]
-default-members = ["crates/biosmod-core", "crates/biosmod-cli"]
+members = ["crates/biosmod-cli", "crates/biosmod-core", "crates/biosmod-gui", "crates/biosmod-host"]
+default-members = ["crates/biosmod-core", "crates/biosmod-host", "crates/biosmod-cli"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,6 +14,7 @@ rust-version = "1.88"
 
 [workspace.dependencies]
 biosmod-core = { path = "crates/biosmod-core" }
+biosmod-host = { path = "crates/biosmod-host" }
 brotli-decompressor = { version = "=6.3.1", default-features = false, features = ["std"] }
 crc32fast = { version = "1.5.4", default-features = false }
 liblzma = { version = "0.4.9", default-features = false, features = ["static"] }

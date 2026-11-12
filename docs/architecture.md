@@ -2,11 +2,12 @@
 
 English | [Brazilian Portuguese](pt-BR/architecture.md)
 
-Three crates in one workspace:
+Four crates in one workspace:
 
 | Crate                            | Owns                                                                                                   | Never does                                |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
 | `biosmod-core` (library)         | firmware parsing, catalog models and validation, patch matching, planning, rebuilding and verification | filesystem, network or terminal I/O       |
+| `biosmod-host` (library)         | reads of the running machine for `bme diag`: sysfs and procfs, the kernel log, I/O ports, effective user, receipts | firmware interpretation, printing         |
 | `biosmod-cli` (binary `bme`)     | arguments, files, catalog sources, configuration, downloads, subprocesses (Ghidra, flashrom), output   | interpret firmware on its own             |
 | `biosmod-gui` (binary `bme-gui`) | presentation, session state and `bme` subprocess supervision                                  | interpret or patch firmware independently |
 
