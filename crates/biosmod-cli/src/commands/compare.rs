@@ -1,4 +1,5 @@
-//! `compare`: read-only comparison of two images, or of two `tools analyze` exports with `--functions`.
+//! `compare`: read-only comparison of two images, of two `tools analyze` exports (`--functions`)
+//! or of their ACPI tables (`--acpi`).
 
 use super::{read_bounded, read_image};
 use crate::CompareArgs;
@@ -19,6 +20,9 @@ const MAX_EXPORT_BYTES: u64 = 256 << 20;
 pub fn compare(args: &CompareArgs) -> Result<Reply> {
     if args.functions {
         return compare_function_exports(args);
+    }
+    if args.acpi {
+        return super::compare_acpi::compare_acpi(args, &crate::toolchain::System);
     }
     let a = read_image(&args.a)?;
     let b = read_image(&args.b)?;

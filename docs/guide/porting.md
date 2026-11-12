@@ -13,3 +13,5 @@ Many X99-family boards ship related AMI Aptio images. A defect fixed on one buil
 7. `bme scan dump.bin --catalog ./my-catalog --allow-unsigned-local` should now report `present`, and a built image `fixed`.
 
 Record a hardware observation only for an image you actually flashed, with its digest.
+
+To see which ACPI methods differ, run `bme compare --acpi A B`, where A and B are ROM images or raw `.aml` tables. Tables pair by signature plus OEM table ID. For each pair, bme walks the AML namespace without executing it and lists methods and named objects that were added, removed or changed, by their full path as stored in the table (padded names such as `\_SB_.PCI0`). `--objects` also lists every object of each table with a hash. `--disassemble DIR` additionally runs `iasl -d` and writes one unified diff per changed method into `DIR`; it needs `iasl` on `PATH` (package `acpica-tools`, listed as an optional row by `bme tools status`) and refuses to overwrite existing files. Without `--disassemble` bme never calls `iasl`. The walk reads declarations only, so a method that is conditionally defined inside another method's body does not appear.

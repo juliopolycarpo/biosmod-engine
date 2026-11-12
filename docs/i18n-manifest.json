@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "ef05294147abbb0ea3ff37036d772d696ea1ac13995f82d94b2b6299299ab834"
+      "sha256": "732966a5cd7599a7065d8480dda051e28f24757432f0316ae990193c52ce489f"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -49,17 +49,17 @@
     {
       "source": "docs/guide/ghidra.md",
       "translation": "docs/pt-BR/guide/ghidra.md",
-      "sha256": "6de45be24d58d442975be768228e07e598ecf2d62834ec5e278696af90f81e45"
+      "sha256": "022e6c38e8c20f8b84729f1585dfe8f091a75eb7d54a0d88727b6225aa49e1b4"
     },
     {
       "source": "docs/guide/gui.md",
       "translation": "docs/pt-BR/guide/gui.md",
-      "sha256": "50ae632e5531c6f2d9c7bcd0b459f32d982d99c82128f86549b98e0985016f3f"
+      "sha256": "017440ed9e6ad3610507cace5b793438f8a2befdc561acfe42ba8bee0fcd11f1"
     },
     {
       "source": "docs/guide/porting.md",
       "translation": "docs/pt-BR/guide/porting.md",
-      "sha256": "14c51d50110f497cd93b3435f23b031e44df7ee3bc84d122f6b9e877d70e3d16"
+      "sha256": "31c61e9220acf63730da8b223d364163b837b94489858414a11326eb00a69db8"
     },
     {
       "source": "docs/guide/recovery.md",
