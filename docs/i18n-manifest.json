@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "53844997e3372660de327078418493eaf78e7b1ec80a33f39021c71f9c15eb2c"
+      "sha256": "1ec01fc38a4c732f1df20da7af4ef3a3a4f728dc7d92e2a20fc24e5fa22a5228"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -54,7 +54,7 @@
     {
       "source": "docs/guide/ghidra.md",
       "translation": "docs/pt-BR/guide/ghidra.md",
-      "sha256": "f7e971840fe2393fca98bfda7ea4eeaed1f27891fdb7a10942e2f31df0cb0431"
+      "sha256": "5fb6a0f4bb251c5320c89f6f4071e535393d0dc35373ff7eecbad436cb7dd9ab"
     },
     {
       "source": "docs/guide/gui.md",
@@ -65,6 +65,11 @@
       "source": "docs/guide/porting.md",
       "translation": "docs/pt-BR/guide/porting.md",
       "sha256": "87c157949b476511c9df73c8703a66d21d0f8d503577f9b8709b91717639fc1b"
+    },
+    {
+      "source": "docs/guide/replay.md",
+      "translation": "docs/pt-BR/guide/replay.md",
+      "sha256": "1da689533b6bb8d789677e275e22a60413fec873bb7b07b18b1010f873663b4a"
     },
     {
       "source": "docs/guide/recovery.md",
