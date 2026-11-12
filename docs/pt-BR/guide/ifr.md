@@ -24,6 +24,7 @@ Uma tabela por formulário, uma linha por pergunta:
 - `Setup+0xa/2` é o variable store `Setup`, offset `0x0A` em bytes, largura de 2 bytes. A pergunta guarda o valor nesse offset da variável NVRAM (o GUID e o nome do store identificam a variável).
 - `default N` vem de um opcode `Default` explícito, depois de uma opção marcada como padrão, depois dos flags do checkbox. `(default, mfg)` marca opções com flag de padrão normal e de fabricação.
 - As condições aparecem da mais externa para a mais interna. `ideqval 0x17 == 1` significa "a pergunta `0x17` vale 1". A pergunta fica oculta enquanto a condição `suppress` vale e fica somente leitura enquanto uma condição `grayout` ou `disable` vale.
+- Uma condição pode envolver um formulário inteiro (o Platform da AMI faz isso). As perguntas dele listam essa condição e o formulário a traz em `forms[].conditions`. Um formulário dentro de uma pergunta ou de outro formulário continua sendo rejeitado.
 - `--json` devolve a estrutura completa em `data.modules[].package_lists[].form_sets[].forms[].statements[]`. Além das colunas da tabela, traz `opcode_offset` (bytes desde o início do módulo), `varstore_id`, `question_flags`, offsets das opções e cada `Default` explícito com seu ID (0 padrão, 1 fabricação).
 
 Os textos das perguntas não são únicos. O mesmo texto pode aparecer em vários formulários com condições diferentes; compare pelo ID da pergunta ou pelo texto mais as condições.

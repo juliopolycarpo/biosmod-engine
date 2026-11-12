@@ -396,12 +396,56 @@ fn form_nested_in_a_question_scope_is_rejected_not_indexed_out_of_bounds() {
     assert!(message.contains("Form inside another scope"), "{message}");
 }
 
+/// AMI Platform layout: FormSet { SuppressIf { Form { .. } Form { .. } } Form { .. } }.
+fn formset_with_conditioned_forms() -> Vec<u8> {
+    [
+        formset_open(),
+        ifr_op(0x0A, true, &[]),
+        ifr_eq_id_val(9, 1),
+        ifr_op(0x01, true, &[1, 0, 0, 0]),
+        ifr_subtitle(0),
+        ifr_end(),
+        ifr_end(),
+        ifr_op(0x01, true, &[2, 0, 0, 0]),
+        ifr_subtitle(0),
+        ifr_end(),
+        ifr_end(),
+        ifr_end(),
+        ifr_op(0x01, true, &[3, 0, 0, 0]),
+        ifr_subtitle(0),
+        ifr_end(),
+        ifr_end(),
+        ifr_end(),
+    ]
+    .concat()
+}
+
 #[test]
-fn form_inside_a_condition_scope_is_rejected() {
+fn form_inside_a_condition_scope_is_decoded_and_records_the_condition() {
+    let module = decode_module(&list_with_body(&formset_with_conditioned_forms()), None)
+        .expect("forms under a FormSet-level SuppressIf decode");
+    let forms = &module.package_lists[0].form_sets[0].forms;
+    assert_eq!(forms.iter().map(|f| f.id).collect::<Vec<_>>(), [1, 2, 3]);
+    for wrapped in &forms[..2] {
+        assert_eq!(wrapped.conditions.len(), 1, "form {}", wrapped.id);
+        assert_eq!(wrapped.conditions[0].kind, ConditionKind::SuppressIf);
+        assert!(wrapped.conditions[0].expression.contains("== 1"));
+        // Statements keep binding to their own form and inherit its condition.
+        assert_eq!(wrapped.statements.len(), 1);
+        assert_eq!(wrapped.statements[0].conditions.len(), 1);
+    }
+    assert!(forms[2].conditions.is_empty());
+    assert_eq!(forms[2].statements.len(), 1);
+    assert!(forms[2].statements[0].conditions.is_empty());
+}
+
+#[test]
+fn form_inside_a_form_under_a_condition_is_rejected() {
     let body = [
         formset_open(),
         ifr_op(0x0A, true, &[]),
         ifr_op(0x01, true, &[1, 0, 0, 0]),
+        ifr_op(0x01, true, &[2, 0, 0, 0]),
     ]
     .concat();
     let message = decode_error(&list_with_body(&body));

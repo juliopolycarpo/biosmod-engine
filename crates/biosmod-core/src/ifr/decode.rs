@@ -386,22 +386,31 @@ impl Walker<'_> {
                 kind = FrameKind::FormSet;
             }
             OP_FORM => {
-                // Forms are direct children of the form set; a nested one would
-                // detach open statements from the form they were declared in.
-                if !matches!(
-                    self.stack.as_slice(),
-                    [Frame {
-                        kind: FrameKind::FormSet,
-                        ..
-                    }]
-                ) {
-                    return Err(self.fail(opcode, at, "Form inside another scope"));
+                // A form sits directly in the form set, or under condition scopes
+                // (AMI wraps whole forms in SuppressIf). Under a form or a
+                // statement it would detach open statements from their form.
+                let under_set_and_conditions = matches!(
+                    self.stack.split_first(),
+                    Some((Frame { kind: FrameKind::FormSet, .. }, rest))
+                        if rest.iter().all(|f| matches!(f.kind, FrameKind::Condition(_)))
+                );
+                if !under_set_and_conditions {
+                    let chain: Vec<_> = self.stack.iter().map(|f| opcode_name(f.opcode)).collect();
+                    return Err(self.fail(
+                        opcode,
+                        at,
+                        format!(
+                            "Form inside another scope: expected FormSet [conditions] | received {}",
+                            chain.join(" > ")
+                        ),
+                    ));
                 }
                 self.need(opcode, at, payload, 4)?;
                 let form = Form {
                     opcode_offset: at,
                     id: le16(payload, 0, "")?,
                     title: self.text(le16(payload, 2, "")?),
+                    conditions: self.conditions(),
                     statements: vec![],
                 };
                 let Some(set) = self.sets.last_mut() else {

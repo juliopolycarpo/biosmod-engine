@@ -281,3 +281,51 @@ fn stock_images_decode_every_setup_module_with_ifr() {
         );
     }
 }
+
+const PLATFORM_GUID: &str = "ABBCE13D-E25A-4D9F-A1F9-2F7710786892";
+
+/// Regression: AMI wraps whole Platform forms in a FormSet-level SuppressIf, which an
+/// over-strict walker rejected, dropping the module (and Memory Frequency with it).
+#[test]
+fn stock_images_decode_every_ifr_module_without_diagnostics() {
+    for var in ["BME_ROM_PR9", "BME_ROM_MR9A"] {
+        let Some(input) = rom(var) else { continue };
+        let doc = Sandbox::new().run(["ifr", s(&input), "--json"]).json();
+        let diagnostics = &doc["data"]["diagnostics"];
+        assert_eq!(
+            diagnostics.as_array().map(Vec::len),
+            Some(0),
+            "({var} ifr): expected no diagnostics | received {diagnostics}"
+        );
+        let modules = doc["data"]["modules"].as_array().unwrap();
+        let platform = modules
+            .iter()
+            .find(|m| m["guid"] == PLATFORM_GUID)
+            .unwrap_or_else(|| panic!("({var} ifr): expected module {PLATFORM_GUID}"));
+        let mut wrapped = 0;
+        let mut memory_frequency = 0;
+        for form in platform["package_lists"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|l| l["form_sets"].as_array().unwrap())
+            .flat_map(|set| set["forms"].as_array().unwrap())
+        {
+            wrapped += usize::from(!form["conditions"].as_array().unwrap().is_empty());
+            memory_frequency += form["statements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|st| st["prompt"].as_str() == Some("Memory Frequency"))
+                .count();
+        }
+        assert!(
+            wrapped > 0,
+            "({var} ifr): expected a Platform form under a condition | received none"
+        );
+        assert!(
+            memory_frequency > 0,
+            "({var} ifr): expected question \"Memory Frequency\" | received none"
+        );
+    }
+}

@@ -24,6 +24,7 @@ One table per form, one row per question:
 - `Setup+0xa/2` is variable store `Setup`, byte offset `0x0A`, width 2 bytes. A question stores its value at that offset of the NVRAM variable (the store GUID and name identify the variable).
 - `default N` comes from an explicit `Default` opcode, then from an option flagged default, then from the checkbox flags. `(default, mfg)` marks options flagged as standard and manufacturing default.
 - Conditions are listed from the outermost scope in. `ideqval 0x17 == 1` means "question `0x17` equals 1". A question is hidden while its `suppress` condition holds, and read-only while a `grayout` or `disable` condition holds.
+- A condition can wrap a whole form (AMI Platform does this). Its questions list that condition too, and the form carries it in `forms[].conditions`. A form inside a question or another form is still rejected.
 - `--json` returns the full structure under `data.modules[].package_lists[].form_sets[].forms[].statements[]`. Besides the table columns it has `opcode_offset` (bytes from the start of the module), `varstore_id`, `question_flags`, option offsets and every explicit `Default` with its default ID (0 standard, 1 manufacturing).
 
 Prompts are not unique. The same prompt can appear in several forms under different conditions, so match on question ID or on prompt plus conditions.

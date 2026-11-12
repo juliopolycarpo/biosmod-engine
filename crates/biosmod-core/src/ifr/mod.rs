@@ -100,6 +100,8 @@ pub struct Form {
     pub opcode_offset: usize,
     pub id: u16,
     pub title: String,
+    /// Conditions wrapping the whole form, outermost first.
+    pub conditions: Vec<Condition>,
     pub statements: Vec<Statement>,
 }
 
