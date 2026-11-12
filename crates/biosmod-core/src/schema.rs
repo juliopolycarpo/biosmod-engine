@@ -3,7 +3,7 @@
 //! Semantic rules (references, geometry, hashes) live in [`crate::validation`];
 //! a document can match its schema and still be rejected there.
 
-use crate::catalog::{Board, Evidence, Manifest, Patch};
+use crate::catalog::{Board, Evidence, Finding, Manifest, Patch};
 use crate::plan::document::{OutputManifest, PlanDocument};
 use serde_json::Value;
 
@@ -12,6 +12,7 @@ pub const NAMES: &[(&str, &str)] = &[
     ("catalog", crate::catalog::CATALOG_SCHEMA),
     ("board", crate::catalog::BOARD_SCHEMA),
     ("patch", crate::catalog::PATCH_SCHEMA),
+    ("finding", crate::catalog::FINDING_SCHEMA),
     ("evidence", crate::catalog::EVIDENCE_SCHEMA),
     ("plan", crate::plan::document::PLAN_SCHEMA),
     ("manifest", crate::plan::document::MANIFEST_SCHEMA),
@@ -36,6 +37,7 @@ pub fn generate(name: &str) -> Option<Value> {
         "catalog" => finish::<Manifest>(id),
         "board" => finish::<Board>(id),
         "patch" => finish::<Patch>(id),
+        "finding" => finish::<Finding>(id),
         "evidence" => finish::<Evidence>(id),
         "plan" => finish::<PlanDocument>(id),
         _ => finish::<OutputManifest>(id),

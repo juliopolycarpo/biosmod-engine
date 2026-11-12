@@ -138,6 +138,10 @@ pub fn catalog(catalog: &Catalog) -> Result<()> {
     }
     for patch in catalog.patches.values() {
         record(patch, catalog, &firmware, full)?;
+        patch_fixes(patch, catalog)?;
+    }
+    for finding in catalog.findings.values() {
+        finding_record(finding, catalog, &firmware, full)?;
     }
     acyclic(catalog, "requires", |p| &p.requires)?;
     acyclic(catalog, "supersedes", |p| &p.supersedes)?;
@@ -187,6 +191,176 @@ fn board_profile(board: &Board, catalog: &Catalog) -> Result<()> {
     for id in &board.evidence {
         if !catalog.evidence.contains_key(id) {
             return Err(invalid(format!("{at}: references unknown evidence {id}")));
+        }
+    }
+    unique(
+        board.findings.iter().map(String::as_str),
+        &format!("{at} findings"),
+    )?;
+    for id in &board.findings {
+        let Some(finding) = catalog.findings.get(id) else {
+            return Err(invalid(format!("{at}: references unknown finding {id}")));
+        };
+        if !finding
+            .affects
+            .builds
+            .iter()
+            .any(|b| board.firmware.iter().any(|f| &f.id == b))
+        {
+            return Err(invalid(format!(
+                "{at}: lists finding {id}, which affects none of its firmware builds"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// A confidence grade: `C0` (established) to `C3` (speculative).
+fn grade(value: &Grade, what: &str) -> Result<()> {
+    let ok = matches!(value.grade.as_bytes(), [b'C', b'0'..=b'3']);
+    if ok {
+        Ok(())
+    } else {
+        Err(invalid(format!(
+            "{what} grade: expected C0 | C1 | C2 | C3 | received {:?}",
+            value.grade
+        )))
+    }
+}
+
+fn finding_record(
+    finding: &Finding,
+    catalog: &Catalog,
+    firmware: &BTreeMap<&str, &str>,
+    full: bool,
+) -> Result<()> {
+    let at = format!("finding {}", finding.id);
+    if finding.schema != FINDING_SCHEMA {
+        return Err(invalid(format!(
+            "{at}: expected schema {FINDING_SCHEMA:?} | received {:?}",
+            finding.schema
+        )));
+    }
+    identifier(&finding.id, "finding id")?;
+    for (text, name) in [
+        (&finding.title, "title"),
+        (&finding.description, "description"),
+        (&finding.remediation, "remediation"),
+        (&finding.owner.description, "owner description"),
+        (&finding.affects.label, "affects label"),
+    ] {
+        if text.trim().is_empty() {
+            return Err(invalid(format!("{at}: {name} must not be empty")));
+        }
+    }
+    grade(
+        &finding.confidence.finding,
+        &format!("{at} finding confidence"),
+    )?;
+    if let Some(condition) = &finding.confidence.condition {
+        grade(condition, &format!("{at} condition confidence"))?;
+    }
+    if finding.affects.builds.is_empty() {
+        return Err(invalid(format!(
+            "{at}: affects.builds expects at least one firmware build"
+        )));
+    }
+    unique(
+        finding.affects.builds.iter().map(String::as_str),
+        &format!("{at} affects.builds"),
+    )?;
+    if full
+        && let Some(build) = finding
+            .affects
+            .builds
+            .iter()
+            .find(|b| !firmware.contains_key(b.as_str()))
+    {
+        return Err(invalid(format!("{at}: affects unknown firmware {build}")));
+    }
+    for reference in &finding.owner.references {
+        if let Some(build) = &reference.build
+            && !finding.affects.builds.contains(build)
+        {
+            return Err(invalid(format!(
+                "{at}: code reference {} names build {build}, which is not in affects.builds",
+                reference.location
+            )));
+        }
+    }
+    unique(
+        finding.evidence.iter().map(String::as_str),
+        &format!("{at} evidence"),
+    )?;
+    for id in &finding.evidence {
+        if !catalog.evidence.contains_key(id) {
+            return Err(invalid(format!("{at}: references unknown evidence {id}")));
+        }
+    }
+    unique(
+        finding.patches.iter().map(String::as_str),
+        &format!("{at} patches"),
+    )?;
+    if finding.status == FindingStatus::FixedByPatch && finding.patches.is_empty() {
+        return Err(invalid(format!(
+            "{at}: status fixed-by-patch expects at least one patch in patches | received none"
+        )));
+    }
+    if finding.status != FindingStatus::FixedByPatch && !finding.patches.is_empty() {
+        return Err(invalid(format!(
+            "{at}: status expected fixed-by-patch while patches are listed | received {}",
+            finding.status.label()
+        )));
+    }
+    // A board-scoped load holds only that board's patches, so the finding to
+    // patch direction is checked on full loads; `patch_fixes` covers the other
+    // direction on every load.
+    if full {
+        for id in &finding.patches {
+            let Some(patch) = catalog.patches.get(id) else {
+                return Err(invalid(format!("{at}: references unknown patch {id}")));
+            };
+            if !patch.fixes.contains(&finding.id) {
+                return Err(invalid(format!(
+                    "{at}: lists patch {id}, but {id} does not list {} in fixes",
+                    finding.id
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Check a patch's `fixes` against its findings, the finding records and the grades it records.
+fn patch_fixes(patch: &Patch, catalog: &Catalog) -> Result<()> {
+    let at = format!("patch {}", patch.id);
+    unique(
+        patch.fixes.iter().map(String::as_str),
+        &format!("{at} fixes"),
+    )?;
+    for id in &patch.fixes {
+        if !patch.findings.contains(id) {
+            return Err(invalid(format!(
+                "{at}: fixes {id}, which is not in findings"
+            )));
+        }
+        let Some(finding) = catalog.findings.get(id) else {
+            return Err(invalid(format!("{at}: fixes unknown finding {id}")));
+        };
+        if !finding.patches.contains(&patch.id) {
+            return Err(invalid(format!(
+                "{at}: fixes {id}, but finding {id} does not list {} in patches",
+                patch.id
+            )));
+        }
+        if let Some(recorded) = patch.confidence.findings.get(id) {
+            let leading = recorded.split_whitespace().next().unwrap_or("");
+            if leading != finding.confidence.finding.grade {
+                return Err(invalid(format!(
+                    "{at}: confidence for {id} expected leading grade {} (as in the finding) | received {recorded:?}",
+                    finding.confidence.finding.grade
+                )));
+            }
         }
     }
     Ok(())

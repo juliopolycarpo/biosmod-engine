@@ -257,6 +257,26 @@ fn scan_text(loaded: &Loaded, report: &ScanReport) -> String {
             let _ = writeln!(text, "  {}: unavailable: {blocked}", p.id);
         }
     }
+    if !report.findings.is_empty() {
+        let mut rows = vec![vec![
+            "ID".to_string(),
+            "PRIORITY".into(),
+            "CONFIDENCE".into(),
+            "TITLE".into(),
+        ]];
+        for f in &report.findings {
+            rows.push(vec![
+                f.id.clone(),
+                f.priority.label().into(),
+                f.confidence.clone(),
+                f.title.clone(),
+            ]);
+        }
+        let _ = writeln!(text, "Open findings ({}):", report.findings.len());
+        for line in table(&rows).lines() {
+            let _ = writeln!(text, "  {line}");
+        }
+    }
     let plannable: Vec<String> = report
         .patches
         .iter()

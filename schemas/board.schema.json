@@ -131,6 +131,13 @@
       },
       "type": "array"
     },
+    "findings": {
+      "description": "Findings that concern this board, with or without a patch.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "firmware": {
       "items": {
         "$ref": "#/$defs/FirmwareBuild"

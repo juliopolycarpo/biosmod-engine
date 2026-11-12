@@ -103,6 +103,26 @@ fn plan_patch_verify_round_trip() {
         (pa["state"].as_str(), pa["plannable"].as_bool()),
         (Some("present"), Some(true))
     );
+    let open: Vec<&str> = report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(open, ["OPEN1"], "scan lists the open findings of the build");
+    let text = sandbox.run([
+        "scan",
+        s(&image),
+        "--catalog",
+        s(&catalog),
+        "--allow-unsigned-local",
+    ]);
+    assert!(
+        text.stdout
+            .contains("Open findings (1):\n  ID     PRIORITY  CONFIDENCE"),
+        "(scan text): expected an open findings table | received {}",
+        text.stdout
+    );
 
     let plan = sandbox.path("plan.json");
     let made = sandbox.run([

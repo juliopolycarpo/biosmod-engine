@@ -1,8 +1,8 @@
-//! Catalog contract: manifest, board profiles, patch records and evidence.
+//! Catalog contract: manifest, board profiles, patch records, findings and evidence.
 //!
 //! A catalog is a directory whose `catalog.json` indexes every consumed file
 //! by relative path, kind, length and SHA-256. Files live at fixed paths:
-//! `boards/<id>.json`, `patches/<id>.json`, `evidence/<id>.json`. Loading reads
+//! `boards/<id>.json`, `patches/<id>.json`, `findings/<id>.json`, `evidence/<id>.json`. Loading reads
 //! through a [`FileSource`], so the core never touches the filesystem itself.
 //!
 //! Example:
@@ -26,6 +26,7 @@ pub const CATALOG_SCHEMA: &str = "bme.catalog/1";
 pub const BOARD_SCHEMA: &str = "bme.board/1";
 pub const PATCH_SCHEMA: &str = "bme.patch/1";
 pub const EVIDENCE_SCHEMA: &str = "bme.evidence/1";
+pub const FINDING_SCHEMA: &str = "bme.finding/1";
 
 /// Largest `catalog.json` accepted.
 pub const MAX_MANIFEST_BYTES: u64 = 1 << 20;
@@ -75,6 +76,8 @@ pub struct FileEntry {
 pub enum FileKind {
     Board,
     Patch,
+    /// A defect or observation, with or without a patch.
+    Finding,
     Evidence,
     /// Supporting material (assembly sources, notes); hashed, never interpreted.
     Provenance,
@@ -82,9 +85,10 @@ pub enum FileKind {
 
 impl FileKind {
     /// Every kind, in directory-walk order.
-    pub const ALL: [FileKind; 4] = [
+    pub const ALL: [FileKind; 5] = [
         FileKind::Board,
         FileKind::Patch,
+        FileKind::Finding,
         FileKind::Evidence,
         FileKind::Provenance,
     ];
@@ -94,6 +98,7 @@ impl FileKind {
         match self {
             FileKind::Board => "boards",
             FileKind::Patch => "patches",
+            FileKind::Finding => "findings",
             FileKind::Evidence => "evidence",
             FileKind::Provenance => "provenance",
         }
@@ -117,6 +122,9 @@ pub struct Board {
     #[serde(default)]
     pub facts: Vec<Fact>,
     pub patches: Vec<String>,
+    /// Findings that concern this board, with or without a patch.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub findings: Vec<String>,
     #[serde(default)]
     pub evidence: Vec<String>,
 }
@@ -224,6 +232,10 @@ pub struct Patch {
     pub class: PatchClass,
     pub tier: Tier,
     pub findings: Vec<String>,
+    /// Findings this patch resolves; a subset of `findings`. Each named
+    /// finding lists this patch in its own `patches`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fixes: Vec<String>,
     pub confidence: Confidence,
     #[serde(default)]
     pub packing: Packing,
@@ -402,6 +414,149 @@ pub struct GuardHeader {
     pub value: u32,
 }
 
+/// Audit priority of a finding.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+pub enum Priority {
+    P1,
+    P2,
+    P3,
+}
+
+impl Priority {
+    /// The label used in documents and tables.
+    ///
+    /// Example: `Priority::P1.label() == "P1"`.
+    pub fn label(self) -> &'static str {
+        match self {
+            Priority::P1 => "P1",
+            Priority::P2 => "P2",
+            Priority::P3 => "P3",
+        }
+    }
+}
+
+/// Where a finding stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum FindingStatus {
+    /// Not resolved; no patch in the catalog fixes it.
+    Open,
+    /// At least one patch lists it in `fixes`.
+    FixedByPatch,
+    /// Withdrawn or superseded by later analysis; kept for the record.
+    Retired,
+    /// Understood, and no change is justified.
+    WontFix,
+}
+
+impl FindingStatus {
+    /// The kebab-case name used in documents and CLI output.
+    ///
+    /// Example: `FindingStatus::FixedByPatch.label() == "fixed-by-patch"`.
+    pub fn label(self) -> &'static str {
+        match self {
+            FindingStatus::Open => "open",
+            FindingStatus::FixedByPatch => "fixed-by-patch",
+            FindingStatus::Retired => "retired",
+            FindingStatus::WontFix => "wont-fix",
+        }
+    }
+}
+
+/// One confidence grade (`C0` to `C3`) and the aspect it grades.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Grade {
+    pub grade: String,
+    /// What the grade covers or qualifies, such as `code`, `cause` or `conditional`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// Confidence in the finding and in the condition that triggers it, graded apart.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FindingConfidence {
+    /// How well the code behavior or observation is established.
+    pub finding: Grade,
+    /// How well the condition or cause that makes it matter is established.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<Grade>,
+}
+
+/// The firmware builds a finding affects.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Affects {
+    /// Scope in words, such as `Both` or `PR9 only`.
+    pub label: String,
+    /// Firmware build ids; boards follow from the profiles that ship them.
+    pub builds: Vec<String>,
+}
+
+/// A module that owns the defective code, named as the firmware names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ModuleRef {
+    /// UI section name of the FFS file.
+    pub ui_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ffs_guid: Option<Guid>,
+}
+
+/// A function or offset inside an owning module.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CodeReference {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
+    /// UI name of the module the location is relative to.
+    pub module: String,
+    /// Function, RVA, file offset or range, as the analyst wrote it.
+    pub location: String,
+}
+
+/// The code that owns a finding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Owner {
+    /// Owning module and routine in words.
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modules: Vec<ModuleRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<CodeReference>,
+}
+
+/// A defect or observation found in firmware, independent of any patch.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Finding {
+    pub schema: String,
+    pub id: String,
+    pub title: String,
+    pub priority: Priority,
+    pub status: FindingStatus,
+    pub affects: Affects,
+    pub owner: Owner,
+    pub confidence: FindingConfidence,
+    /// The defect and its status.
+    pub description: String,
+    /// What the analysis does not establish.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_established: Option<String>,
+    /// Remediation strategy, or why there is none, with the fix confidence.
+    pub remediation: String,
+    /// Evidence record ids that support or weaken the finding.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<String>,
+    /// Patches that fix it; the same patches list this id in `fixes`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub patches: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum EvidenceKind {
@@ -481,6 +636,7 @@ pub struct Catalog {
     pub manifest_sha256: Digest256,
     pub boards: BTreeMap<String, Board>,
     pub patches: BTreeMap<String, Patch>,
+    pub findings: BTreeMap<String, Finding>,
     pub evidence: BTreeMap<String, Evidence>,
     /// Every file read, with its verified hash.
     pub consumed: Vec<FileEntry>,
@@ -509,6 +665,7 @@ impl Catalog {
             manifest_sha256,
             boards: BTreeMap::new(),
             patches: BTreeMap::new(),
+            findings: BTreeMap::new(),
             evidence: BTreeMap::new(),
             consumed: Vec::new(),
             scope: scope.clone(),
@@ -545,6 +702,12 @@ impl Catalog {
                 let patch: Patch = parse_strict(bytes, &entry.path)?;
                 let id = patch.id.clone();
                 self.patches.insert(id.clone(), patch);
+                id
+            }
+            FileKind::Finding => {
+                let finding: Finding = parse_strict(bytes, &entry.path)?;
+                let id = finding.id.clone();
+                self.findings.insert(id.clone(), finding);
                 id
             }
             FileKind::Evidence => {
@@ -604,7 +767,28 @@ impl Catalog {
                     .cloned(),
             );
         }
-        for id in &board.evidence {
+        // Findings come from the board and from the patches it loaded, so a
+        // patch's `fixes` always resolves inside the closure.
+        let mut finding_ids: BTreeSet<String> = board.findings.iter().cloned().collect();
+        for patch in self.patches.values() {
+            finding_ids.extend(patch.fixes.iter().cloned());
+        }
+        for id in &finding_ids {
+            let path = format!("findings/{id}.json");
+            let entry = loader
+                .entry(&path)
+                .map_err(|e| e.context(format!("board {} references finding {id}", board.id)))?
+                .clone();
+            let bytes = loader.read(&path)?;
+            self.insert(&entry, &bytes)?;
+        }
+        let evidence_ids: BTreeSet<String> = board
+            .evidence
+            .iter()
+            .cloned()
+            .chain(self.findings.values().flat_map(|f| f.evidence.clone()))
+            .collect();
+        for id in &evidence_ids {
             let path = format!("evidence/{id}.json");
             let entry = loader
                 .entry(&path)
@@ -642,6 +826,15 @@ impl Catalog {
         self.patches
             .values()
             .filter(move |p| p.variants.contains_key(firmware))
+    }
+
+    /// Findings that affect `firmware`, in id order.
+    ///
+    /// Example: `catalog.findings_for("build-id").filter(|f| f.status == FindingStatus::Open)`.
+    pub fn findings_for(&self, firmware: &str) -> impl Iterator<Item = &Finding> {
+        self.findings
+            .values()
+            .filter(move |f| f.affects.builds.iter().any(|b| b == firmware))
     }
 
     /// Hardware observations that include `patch` at its current version.
@@ -715,7 +908,7 @@ pub fn index_files(files: &[(String, Vec<u8>)]) -> Result<Vec<FileEntry>> {
         else {
             return Err(Error::new(
                 Code::CatalogInvalid,
-                format!("{path}: expected boards/, patches/, evidence/ or provenance/"),
+                format!("{path}: expected boards/, patches/, findings/, evidence/ or provenance/"),
             ));
         };
         entries.push(FileEntry {

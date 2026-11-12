@@ -1,0 +1,259 @@
+{
+  "$defs": {
+    "Affects": {
+      "additionalProperties": false,
+      "description": "The firmware builds a finding affects.",
+      "properties": {
+        "builds": {
+          "description": "Firmware build ids; boards follow from the profiles that ship them.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "label": {
+          "description": "Scope in words, such as `Both` or `PR9 only`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "builds"
+      ],
+      "type": "object"
+    },
+    "CodeReference": {
+      "additionalProperties": false,
+      "description": "A function or offset inside an owning module.",
+      "properties": {
+        "build": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "location": {
+          "description": "Function, RVA, file offset or range, as the analyst wrote it.",
+          "type": "string"
+        },
+        "module": {
+          "description": "UI name of the module the location is relative to.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "module",
+        "location"
+      ],
+      "type": "object"
+    },
+    "FindingConfidence": {
+      "additionalProperties": false,
+      "description": "Confidence in the finding and in the condition that triggers it, graded apart.",
+      "properties": {
+        "condition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Grade"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How well the condition or cause that makes it matter is established."
+        },
+        "finding": {
+          "$ref": "#/$defs/Grade",
+          "description": "How well the code behavior or observation is established."
+        }
+      },
+      "required": [
+        "finding"
+      ],
+      "type": "object"
+    },
+    "FindingStatus": {
+      "description": "Where a finding stands.",
+      "oneOf": [
+        {
+          "const": "open",
+          "description": "Not resolved; no patch in the catalog fixes it.",
+          "type": "string"
+        },
+        {
+          "const": "fixed-by-patch",
+          "description": "At least one patch lists it in `fixes`.",
+          "type": "string"
+        },
+        {
+          "const": "retired",
+          "description": "Withdrawn or superseded by later analysis; kept for the record.",
+          "type": "string"
+        },
+        {
+          "const": "wont-fix",
+          "description": "Understood, and no change is justified.",
+          "type": "string"
+        }
+      ]
+    },
+    "Grade": {
+      "additionalProperties": false,
+      "description": "One confidence grade (`C0` to `C3`) and the aspect it grades.",
+      "properties": {
+        "grade": {
+          "type": "string"
+        },
+        "note": {
+          "description": "What the grade covers or qualifies, such as `code`, `cause` or `conditional`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "grade"
+      ],
+      "type": "object"
+    },
+    "Guid": {
+      "description": "EFI GUID in registry format",
+      "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
+      "type": "string"
+    },
+    "ModuleRef": {
+      "additionalProperties": false,
+      "description": "A module that owns the defective code, named as the firmware names it.",
+      "properties": {
+        "ffs_guid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Guid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ui_name": {
+          "description": "UI section name of the FFS file.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ui_name"
+      ],
+      "type": "object"
+    },
+    "Owner": {
+      "additionalProperties": false,
+      "description": "The code that owns a finding.",
+      "properties": {
+        "description": {
+          "description": "Owning module and routine in words.",
+          "type": "string"
+        },
+        "modules": {
+          "items": {
+            "$ref": "#/$defs/ModuleRef"
+          },
+          "type": "array"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/CodeReference"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "description"
+      ],
+      "type": "object"
+    },
+    "Priority": {
+      "description": "Audit priority of a finding.",
+      "enum": [
+        "P1",
+        "P2",
+        "P3"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/bme.finding-1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A defect or observation found in firmware, independent of any patch.",
+  "properties": {
+    "affects": {
+      "$ref": "#/$defs/Affects"
+    },
+    "confidence": {
+      "$ref": "#/$defs/FindingConfidence"
+    },
+    "description": {
+      "description": "The defect and its status.",
+      "type": "string"
+    },
+    "evidence": {
+      "description": "Evidence record ids that support or weaken the finding.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "id": {
+      "type": "string"
+    },
+    "not_established": {
+      "description": "What the analysis does not establish.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "owner": {
+      "$ref": "#/$defs/Owner"
+    },
+    "patches": {
+      "description": "Patches that fix it; the same patches list this id in `fixes`.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "priority": {
+      "$ref": "#/$defs/Priority"
+    },
+    "remediation": {
+      "description": "Remediation strategy, or why there is none, with the fix confidence.",
+      "type": "string"
+    },
+    "schema": {
+      "const": "bme.finding/1",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/FindingStatus"
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "title",
+    "priority",
+    "status",
+    "affects",
+    "owner",
+    "confidence",
+    "description",
+    "remediation"
+  ],
+  "title": "Finding",
+  "type": "object"
+}

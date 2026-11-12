@@ -164,6 +164,7 @@ pub fn import(
         class: PatchClass::Correction,
         tier,
         findings: record.findings,
+        fixes: Vec::new(),
         confidence: Confidence {
             findings: record.finding_confidence,
             offline_fix: record.local_fix_confidence,

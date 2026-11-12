@@ -118,7 +118,10 @@ fn boards_for_lists_shipping_boards_and_is_empty_for_unknown_firmware() {
 fn every_file_kind_maps_to_its_own_directory() {
     use biosmod_core::catalog::FileKind;
     let dirs: Vec<&str> = FileKind::ALL.iter().map(|k| k.directory()).collect();
-    assert_eq!(dirs, ["boards", "patches", "evidence", "provenance"]);
+    assert_eq!(
+        dirs,
+        ["boards", "patches", "findings", "evidence", "provenance"]
+    );
 }
 
 #[test]
