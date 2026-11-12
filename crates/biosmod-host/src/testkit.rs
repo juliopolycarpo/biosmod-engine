@@ -850,10 +850,59 @@ impl KernelLog for UnreadableKernelLog {
     }
 }
 
+/// A tree whose named files exist but read as permission denied, like the root-only
+/// firmware tables seen by an unprivileged user.
+pub struct RootOnlyFiles {
+    inner: RootedFiles,
+    denied: Vec<&'static str>,
+}
+
+impl RootOnlyFiles {
+    /// `inner` with `denied` paths refused.
+    ///
+    /// Example: `RootOnlyFiles::new(sysfs.files(), ["/sys/firmware/dmi/tables/DMI"])`.
+    pub fn new(
+        inner: RootedFiles,
+        denied: impl IntoIterator<Item = &'static str>,
+    ) -> RootOnlyFiles {
+        RootOnlyFiles {
+            inner,
+            denied: denied.into_iter().collect(),
+        }
+    }
+}
+
+impl HostFiles for RootOnlyFiles {
+    fn read(&self, path: &str) -> std::io::Result<Vec<u8>> {
+        if self.denied.contains(&path) {
+            return Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+        }
+        self.inner.read(path)
+    }
+
+    fn entries(&self, path: &str) -> std::io::Result<Vec<DirEntry>> {
+        self.inner.entries(path)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ports::PortIo;
+
+    #[test]
+    fn root_only_files_refuse_the_named_paths_and_read_the_rest() {
+        let sysfs = FakeSysfs::new().file("sys/a", "1").file("sys/b", "2");
+        let files = RootOnlyFiles::new(sysfs.files(), ["/sys/a"]);
+        let error = files.read("/sys/a").unwrap_err();
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::PermissionDenied,
+            "{error}"
+        );
+        assert_eq!(files.read("/sys/b").unwrap(), b"2");
+        assert_eq!(files.entries("/sys").unwrap().len(), 2);
+    }
 
     #[test]
     fn the_power_fake_counts_a_mem_write_that_would_really_sleep() {
