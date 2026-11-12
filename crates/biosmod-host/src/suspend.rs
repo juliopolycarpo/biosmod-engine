@@ -229,7 +229,7 @@ pub fn pm_test(host: &HostSurfaces, power: &dyn HostWrite, stage: Stage) -> Resu
         return Err(Error::new(
             Code::HostRefused,
             format!(
-                "{PM_TEST_PATH} selection: expected none | received {:?} (another test is armed; stop it first)",
+                "{PM_TEST_PATH} selection: expected none | received {:?} (a test is still armed, probably left by a run that was killed before it could restore; no suspend was triggered. If nothing else is running one, put it back with: echo none > {PM_TEST_PATH})",
                 selected(&modes).unwrap_or("")
             ),
         ));
@@ -580,6 +580,11 @@ mod tests {
             "{error}"
         );
         assert!(armed.writes().is_empty());
+        // A leftover from a killed run must come with the repair, not only the refusal.
+        assert!(
+            error.message.contains("echo none > /sys/power/pm_test"),
+            "(leftover pm_test message): expected the repair command | received {error}"
+        );
     }
 
     #[test]

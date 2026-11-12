@@ -85,7 +85,7 @@ O que ele confere, em ordem, e recusa com `HOST_REFUSED` antes de gravar qualque
 
 1. O usuário é root.
 2. O estágio não é `none`: isso é uma suspensão real, e um comando que não consegue acordar a máquina não é um diagnóstico.
-3. `/sys/power/pm_test` lista o estágio e seleciona `none` no momento. Um teste armado por outra pessoa não é tocado.
+3. `/sys/power/pm_test` lista o estágio e seleciona `none` no momento. Um teste armado por outra pessoa não é tocado. Um resto de uma execução interrompida tem a mesma aparência, então a recusa traz o reparo: `echo none > /sys/power/pm_test`, para rodar quando nada mais estiver testando.
 4. `/sys/power/state` lista `mem`.
 5. Para `platform`, `processors` e `core`, `/sys/power/mem_sleep` seleciona `deep`. Com `s2idle` o kernel nunca chega a esses pontos e a gravação seria uma suspensão real. `freezer` e `devices` param antes de o modo importar e, por isso, rodam com `s2idle`, que é o que a MR9A usa ao iniciar.
 

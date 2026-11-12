@@ -85,7 +85,7 @@ What it checks, in order, and refuses with `HOST_REFUSED` before writing anythin
 
 1. The user is root.
 2. The stage is not `none`: that is a real sleep, and a command that cannot wake the machine is not a diagnostic.
-3. `/sys/power/pm_test` lists the stage and currently selects `none`. A test somebody else armed is not touched.
+3. `/sys/power/pm_test` lists the stage and currently selects `none`. A test somebody else armed is not touched. A leftover from a killed run looks the same, so the refusal names the repair: `echo none > /sys/power/pm_test`, to run once nothing else is testing.
 4. `/sys/power/state` lists `mem`.
 5. For `platform`, `processors` and `core`, `/sys/power/mem_sleep` selects `deep`. With `s2idle` the kernel never reaches those checkpoints, and the write would be a real sleep. `freezer` and `devices` stop before the mode matters, so they run under `s2idle`, which is what the MR9A boots with.
 
