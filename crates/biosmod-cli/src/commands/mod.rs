@@ -112,11 +112,14 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
 fn tools(ctx: &Ctx, command: ToolsCommand) -> Result<Reply> {
     use crate::toolchain;
     match command {
-        ToolsCommand::Doctor { deep } => toolchain::doctor(ctx, deep),
+        ToolsCommand::Doctor { tool, deep } => toolchain::doctor(ctx, deep, tool),
         ToolsCommand::Status => toolchain::run_status(ctx),
         ToolsCommand::Set { tool, path } => toolchain::set(ctx, &toolchain::System, tool, &path),
         ToolsCommand::Unset { tool } => toolchain::unset(ctx, tool),
         ToolsCommand::Setup(crate::SetupCommand::Ghidra(args)) => toolchain::setup(ctx, &args),
+        ToolsCommand::Setup(crate::SetupCommand::Replay(args)) => {
+            toolchain::setup_replay(ctx, &args)
+        }
         ToolsCommand::Analyze {
             project,
             output,

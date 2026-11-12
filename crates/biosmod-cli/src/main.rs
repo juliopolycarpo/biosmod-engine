@@ -462,9 +462,11 @@ pub struct CaseExportArgs {
 
 #[derive(Subcommand)]
 pub enum ToolsCommand {
-    /// Read-only check of Ghidra, JDK and extension compatibility.
+    /// Read-only check of Ghidra, JDK and extension compatibility, and of the replay runtime once installed.
     Doctor {
-        /// Also start Ghidra headless and import a tiny file.
+        /// Check only one tool; `replay` also fails when its runtime is not installed.
+        tool: Option<toolchain::DoctorTool>,
+        /// Also start Ghidra headless on a tiny file, or execute an instruction in Unicorn.
         #[arg(long)]
         deep: bool,
     },
@@ -476,7 +478,8 @@ pub enum ToolsCommand {
     /// Use an existing copy of a tool and remember it in the configuration.
     Set {
         tool: toolchain::Locatable,
-        /// Ghidra installation directory, or the flashrom executable.
+        /// Ghidra installation directory, the flashrom executable, or a Python interpreter or
+        /// virtual environment with the pinned replay packages.
         path: PathBuf,
     },
     /// Forget a saved tool location and go back to the default lookup.
@@ -501,6 +504,8 @@ pub enum ToolsCommand {
 pub enum SetupCommand {
     /// Ghidra with the ghidra-firmware-utils extension, from the pinned profile.
     Ghidra(toolchain::SetupArgs),
+    /// A Python environment with hash-locked Unicorn, Capstone and pefile for `bme replay`.
+    Replay(toolchain::ReplaySetupArgs),
 }
 
 #[derive(Subcommand)]
@@ -722,7 +727,8 @@ fn command_name(command: &Command) -> &'static str {
             ToolsCommand::Status => "tools status",
             ToolsCommand::Set { .. } => "tools set",
             ToolsCommand::Unset { .. } => "tools unset",
-            ToolsCommand::Setup(_) => "tools setup ghidra",
+            ToolsCommand::Setup(SetupCommand::Ghidra(_)) => "tools setup ghidra",
+            ToolsCommand::Setup(SetupCommand::Replay(_)) => "tools setup replay",
             ToolsCommand::Analyze { .. } => "tools analyze",
             ToolsCommand::Paths => "tools paths",
         },

@@ -6,6 +6,7 @@
 //! the [`Runner`] interface so tests can substitute a named fake.
 
 mod archive;
+mod replay;
 mod runner;
 mod status;
 // Setup is Linux-only for now; the fakes model a Unix layout.
@@ -13,6 +14,7 @@ mod status;
 mod tests;
 
 pub use archive::{Limits, extract_zip};
+pub use replay::ReplaySetupArgs;
 pub use runner::{Finished, Invocation, Runner, System};
 pub use status::{Locatable, TOOL_IDS, run_status, set, unset};
 
@@ -352,7 +354,7 @@ pub fn startup_check(runner: &dyn Runner, home: &Path) -> Check {
     }
 }
 
-fn checks_reply(checks: Vec<Check>, home: &GhidraHome) -> Result<Reply> {
+fn checks_reply(checks: Vec<Check>, context: Value) -> Result<Reply> {
     let mut text = String::new();
     for c in &checks {
         text += &format!(
@@ -363,18 +365,17 @@ fn checks_reply(checks: Vec<Check>, home: &GhidraHome) -> Result<Reply> {
         );
     }
     let failed: Vec<&str> = checks.iter().filter(|c| !c.ok).map(|c| c.check).collect();
+    let mut data = context;
+    data["checks"] = json!(checks);
     if failed.is_empty() {
-        return Ok(Reply::new(
-            json!({"ghidra_home": home, "checks": checks}),
-            text,
-        ));
+        return Ok(Reply::new(data, text));
     }
     eprint!("{text}");
     Err(Error::new(
         Code::ToolUnavailable,
         format!("tools doctor: failed checks: {}", failed.join(", ")),
     )
-    .with_details(json!({"ghidra_home": home, "checks": checks})))
+    .with_details(data))
 }
 
 fn env<'a>(ctx: &Ctx, runner: &'a dyn Runner, transport: &'a dyn Transport) -> Env<'a> {
@@ -388,14 +389,46 @@ fn env<'a>(ctx: &Ctx, runner: &'a dyn Runner, transport: &'a dyn Transport) -> E
     }
 }
 
-pub fn doctor(ctx: &Ctx, deep: bool) -> Result<Reply> {
+/// Tools `tools doctor` can be limited to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum DoctorTool {
+    /// The JDK, Ghidra and its extension.
+    Ghidra,
+    /// The Python runtime for `bme replay`.
+    Replay,
+}
+
+/// Replay lookup from the process environment.
+fn replay_home_now(ctx: &Ctx) -> replay::ReplayHome {
+    replay::replay_home(
+        &|key| std::env::var_os(key).filter(|v| !v.is_empty()),
+        &ctx.config,
+        &ctx.paths.data,
+    )
+}
+
+/// `tools doctor`: Ghidra checks, plus the replay runtime once one is installed or chosen.
+///
+/// `only` limits the report to one tool; `doctor replay` also fails when the runtime is missing.
+pub fn doctor(ctx: &Ctx, deep: bool, only: Option<DoctorTool>) -> Result<Reply> {
     let env = env(ctx, &System, &Offline);
-    let home = ghidra_home(&ctx.config, &env.data, &env.profile);
-    let mut checks = inspect(&env, &home);
-    if deep && checks.iter().all(|c| c.ok) {
-        checks.push(startup_check(env.runner, &home.path));
+    let mut checks = Vec::new();
+    let mut context = json!({});
+    if only != Some(DoctorTool::Replay) {
+        let home = ghidra_home(&ctx.config, &env.data, &env.profile);
+        checks.extend(inspect(&env, &home));
+        if deep && checks.iter().all(|c| c.ok) {
+            checks.push(startup_check(env.runner, &home.path));
+        }
+        context["ghidra_home"] = json!(home);
     }
-    checks_reply(checks, &home)
+    let replay = replay_home_now(ctx);
+    // Without a tool named, a runtime nobody installed is not a failure of `tools doctor`.
+    if only == Some(DoctorTool::Replay) || replay.python.is_file() {
+        checks.extend(replay::replay_checks(&env, &replay, deep));
+        context["replay"] = json!(replay);
+    }
+    checks_reply(checks, context)
 }
 
 /// The flashrom a chip command would run, as `tools paths` reports it to the desktop app.
@@ -418,7 +451,8 @@ pub fn paths(ctx: &Ctx) -> Result<Reply> {
     let home = ghidra_home(&ctx.config, &ctx.paths.data, &profile);
     let get = |key: &str| std::env::var_os(key);
     let flashrom = flashrom_location(&get, ctx.config.tools.flashrom.as_deref());
-    let data = json!({"config": display_path(&ctx.paths.config_file()), "cache": display_path(&ctx.paths.cache), "data": display_path(&ctx.paths.data), "ghidra_home": home, "flashrom": flashrom, "profile": profile});
+    let replay = replay_home_now(ctx);
+    let data = json!({"config": display_path(&ctx.paths.config_file()), "cache": display_path(&ctx.paths.cache), "data": display_path(&ctx.paths.data), "ghidra_home": home, "flashrom": flashrom, "replay": replay, "profile": profile});
     let text = format!(
         "config   {}\ncache    {}\ndata     {}\nghidra   {} ({})\n",
         ctx.paths.config_file().display(),
@@ -451,6 +485,31 @@ pub fn setup(ctx: &Ctx, args: &SetupArgs) -> Result<Reply> {
         env.profile.ghidra_version,
         installed.ghidra.display(),
         installed.extension.display()
+    );
+    Ok(Reply::new(installed, text))
+}
+
+/// `tools setup replay`: create the Python environment with the hash-locked packages.
+pub fn setup_replay(ctx: &Ctx, args: &ReplaySetupArgs) -> Result<Reply> {
+    let env = env(ctx, &System, &Offline);
+    let installed = replay::install_replay(&env, args, &mut |m| ctx.out.note(m))?;
+    let shadow = replay_home_now(ctx);
+    if shadow.origin != "managed" {
+        ctx.out.note(format!(
+            "{} ({}) still wins over this environment; run `bme tools unset replay` or unset the variable to use it",
+            shadow.python.display(),
+            shadow.origin
+        ));
+    }
+    let text = format!(
+        "Replay runtime {} at {}\n{}\nCheck it with: bme tools doctor replay --deep\n",
+        if installed.installed {
+            "ready"
+        } else {
+            "already ready"
+        },
+        installed.python.display(),
+        installed.versions.summary()
     );
     Ok(Reply::new(installed, text))
 }

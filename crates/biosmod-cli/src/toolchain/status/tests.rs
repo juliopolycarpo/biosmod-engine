@@ -36,6 +36,8 @@ impl FakeInstalledTools {
                     "Intel ACPI Component Architecture\nASL+ Optimizing Compiler/Disassembler version 20250404",
                 ),
                 ("flashrom", "flashrom v1.6.0 on Linux 7.0 (x86_64)"),
+                ("python3", BASE_PYTHON_JSON),
+                ("python", PINNED_PACKAGES_JSON),
             ]),
             calls: RefCell::new(Vec::new()),
             timeouts: RefCell::new(Vec::new()),
@@ -132,6 +134,14 @@ impl Scene {
         }
     }
 
+    /// The managed replay interpreter under this scene's data directory.
+    fn replay_home(&self) -> ReplayHome {
+        ReplayHome {
+            python: replay::venv_python(&replay::managed_venv(&self.root.path().join("data"))),
+            origin: "managed",
+        }
+    }
+
     fn rows(&self, ghidra: &GhidraHome) -> Vec<ToolRow> {
         let env = Env {
             runner: &self.runner,
@@ -142,9 +152,11 @@ impl Scene {
             profile: Profile::pinned(),
         };
         let get = |key: &str| self.variables.get(key).cloned();
+        let replay = self.replay_home();
         status(&Probe {
             env: &env,
             ghidra,
+            replay: &replay,
             get: &get,
             flashrom: self.configured_flashrom.as_deref(),
             sbin: &[],
@@ -253,6 +265,7 @@ fn every_package_has_a_command_on_every_known_family() {
 fn a_complete_installation_is_ready_with_versions_and_locations() {
     let mut scene = Scene::new(FakeInstalledTools::complete());
     scene.configured_flashrom = Some("/opt/fr/flashrom".into());
+    install_replay_interpreter(&scene);
     let rows = scene.rows(&pinned_ghidra(&scene));
     for row in &rows {
         assert_eq!(
@@ -675,6 +688,9 @@ fn every_status_probe_together_fits_inside_the_gui_engine_timeout() {
     const GUI_ENGINE_TIMEOUT: Duration = Duration::from_secs(120);
     let mut scene = Scene::new(FakeInstalledTools::complete());
     scene.configured_flashrom = Some("/opt/fr/flashrom".into());
+    // The worst case: an interpreter that exists but fails, so setup's python3 probe runs too.
+    install_replay_interpreter(&scene);
+    scene.runner.answers.remove("python");
     scene.rows(&pinned_ghidra(&scene));
     let timeouts = scene.runner.timeouts.borrow();
     let worst: Duration = timeouts.iter().sum();
@@ -927,6 +943,129 @@ fn a_missing_iasl_is_optional_and_names_its_package() {
     );
 }
 
+const PINNED_PACKAGES_JSON: &str = r#"{"python": "3.14.4", "packages": {"unicorn": "2.1.4", "capstone": "5.0.9", "pefile": "2024.8.26"}}"#;
+const BASE_PYTHON_JSON: &str = r#"{"python": "3.14.4", "venv": true}"#;
+const OTHER_UNICORN_JSON: &str = r#"{"python": "3.14.4", "packages": {"unicorn": "2.0.1", "capstone": "5.0.9", "pefile": "2024.8.26"}}"#;
+const NO_PACKAGES_JSON: &str =
+    r#"{"python": "3.14.4", "packages": {"unicorn": null, "capstone": null, "pefile": null}}"#;
+
+/// Put a file where the managed replay interpreter would be.
+fn install_replay_interpreter(scene: &Scene) {
+    let home = scene.replay_home();
+    fs::create_dir_all(home.python.parent().unwrap()).unwrap();
+    executable(&home.python);
+}
+
+/// A virtual-environment directory holding an executable `bin/python`.
+fn replay_environment(root: &Path) -> PathBuf {
+    let venv = root.join("venv");
+    fs::create_dir_all(venv.join("bin")).unwrap();
+    executable(&venv.join("bin/python"));
+    venv
+}
+
+#[test]
+fn a_missing_replay_runtime_is_an_optional_row_with_the_setup_command() {
+    let scene = Scene::new(FakeInstalledTools::complete().answering("python3", BASE_PYTHON_JSON));
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    let replay = row(&rows, "replay");
+    assert_eq!(
+        (
+            replay.health,
+            replay.optional,
+            replay.custom_location,
+            replay.origin
+        ),
+        (Health::Missing, true, true, "managed")
+    );
+    assert_eq!(
+        (replay.install.command.as_deref(), replay.install.automatic),
+        (Some("bme tools setup replay"), true)
+    );
+    assert!(
+        render(&rows).contains("bme tools setup replay"),
+        "(status text): expected the setup command"
+    );
+}
+
+#[test]
+fn replay_setup_is_blocked_while_python_is_missing_or_too_old() {
+    let scene = Scene::new(FakeInstalledTools::complete().without("python3"));
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    let blocked = row(&rows, "replay")
+        .install
+        .blocked
+        .as_deref()
+        .unwrap_or_default();
+    assert!(
+        blocked.contains("apt install python3"),
+        "(python3 missing): expected the package command | received {blocked:?}"
+    );
+    let old = Scene::new(
+        FakeInstalledTools::complete().answering("python3", r#"{"python": "3.9.2", "venv": true}"#),
+    );
+    let rows = old.rows(&pinned_ghidra(&old));
+    let replay = row(&rows, "replay");
+    assert!(
+        replay
+            .install
+            .blocked
+            .as_deref()
+            .is_some_and(|b| b.contains("expected Python >= 3.10 | received 3.9.2")),
+        "(python3 3.9.2): expected the version refusal | received {:?}",
+        replay.install.blocked
+    );
+    assert_eq!(replay.install.command, None);
+}
+
+#[test]
+fn a_replay_runtime_with_the_pinned_packages_is_ready_and_reports_versions() {
+    let scene =
+        Scene::new(FakeInstalledTools::complete().answering("python", PINNED_PACKAGES_JSON));
+    install_replay_interpreter(&scene);
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    let replay = row(&rows, "replay");
+    assert_eq!(replay.health, Health::Ready);
+    assert_eq!(
+        replay.version.as_deref(),
+        Some("unicorn 2.1.4, capstone 5.0.9, pefile 2024.8.26")
+    );
+}
+
+#[test]
+fn other_package_versions_need_attention_and_empty_environments_are_missing() {
+    let scene = Scene::new(FakeInstalledTools::complete().answering("python", OTHER_UNICORN_JSON));
+    install_replay_interpreter(&scene);
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    let replay = row(&rows, "replay");
+    assert_eq!(replay.health, Health::Attention);
+    assert!(
+        replay
+            .detail
+            .contains("unicorn: expected 2.1.4 | received 2.0.1"),
+        "(attention detail): {}",
+        replay.detail
+    );
+    let scene = Scene::new(FakeInstalledTools::complete().answering("python", NO_PACKAGES_JSON));
+    install_replay_interpreter(&scene);
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    assert_eq!(row(&rows, "replay").health, Health::Missing);
+}
+
+#[test]
+fn a_missing_replay_runtime_never_makes_the_report_not_ready() {
+    let mut scene = Scene::new(FakeInstalledTools::complete());
+    scene.configured_flashrom = Some("/opt/fr/flashrom".into());
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    assert_eq!(row(&rows, "replay").health, Health::Missing);
+    assert!(
+        rows.iter()
+            .filter(|r| r.health != Health::Ready)
+            .all(|r| r.optional),
+        "(complete tools without replay): expected only optional rows pending"
+    );
+}
+
 #[test]
 fn iasl_reports_its_version_when_installed() {
     let scene = Scene::new(FakeInstalledTools::complete());
@@ -945,4 +1084,86 @@ fn status_reports_exactly_the_rows_of_the_id_constant_in_order() {
         ids, TOOL_IDS,
         "(tools status ids): expected the TOOL_IDS order | received {ids:?}"
     );
+}
+
+#[test]
+fn a_saved_or_environment_interpreter_blocks_the_managed_replay_install() {
+    let scene = Scene::new(FakeInstalledTools::complete().answering("python3", BASE_PYTHON_JSON));
+    let env = Env {
+        runner: &scene.runner,
+        transport: &Offline,
+        offline: false,
+        data: scene.root.path().join("data"),
+        cache: scene.root.path().join("cache"),
+        profile: Profile::pinned(),
+    };
+    let ghidra = pinned_ghidra(&scene);
+    for origin in ["config", "BME_REPLAY_PYTHON"] {
+        let home = ReplayHome {
+            python: scene.root.path().join("env/bin/python"),
+            origin,
+        };
+        let get = |_: &str| None;
+        let rows = status(&Probe {
+            env: &env,
+            ghidra: &ghidra,
+            replay: &home,
+            get: &get,
+            flashrom: None,
+            sbin: &[],
+            os_release: Some(UBUNTU),
+            linux: true,
+        });
+        let replay = row(&rows, "replay");
+        assert_eq!(
+            replay.install.command, None,
+            "({origin}): expected no setup command"
+        );
+        assert!(
+            replay
+                .install
+                .blocked
+                .as_deref()
+                .is_some_and(|b| b.contains("bme tools setup replay")),
+            "({origin}): expected the unblock path | received {:?}",
+            replay.install.blocked
+        );
+    }
+}
+
+#[test]
+fn set_saves_a_replay_environment_with_pinned_packages_and_unset_removes_it() {
+    let root = tempfile::tempdir().unwrap();
+    let ctx = context(root.path());
+    let venv = replay_environment(root.path());
+    let runner = FakeInstalledTools::complete().answering("python", PINNED_PACKAGES_JSON);
+    let reply = set(&ctx, &runner, Locatable::Replay, &venv).unwrap();
+    assert_eq!(reply.data["tool"], "replay");
+    let saved = Config::load(&ctx.paths).unwrap();
+    assert_eq!(saved.tools.replay_python.as_deref(), Some(venv.as_path()));
+    let ctx = Ctx {
+        config: saved,
+        ..context(root.path())
+    };
+    let reply = unset(&ctx, Locatable::Replay).unwrap();
+    assert_eq!(reply.data["previous"], venv.to_string_lossy().as_ref());
+    assert_eq!(Config::load(&ctx.paths).unwrap().tools.replay_python, None);
+}
+
+#[test]
+fn set_rejects_a_replay_environment_with_other_package_versions_and_saves_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    let ctx = context(root.path());
+    let venv = replay_environment(root.path());
+    let runner = FakeInstalledTools::complete().answering("python", OTHER_UNICORN_JSON);
+    let error = set(&ctx, &runner, Locatable::Replay, &venv).unwrap_err();
+    assert_eq!(error.code, Code::Usage);
+    assert!(
+        error
+            .message
+            .contains("unicorn: expected 2.1.4 | received 2.0.1"),
+        "{}",
+        error.message
+    );
+    assert_eq!(Config::load(&ctx.paths).unwrap().tools.replay_python, None);
 }

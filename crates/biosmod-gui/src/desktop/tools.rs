@@ -196,7 +196,8 @@ pub fn tool_rows(ui: &AppWindow, report: &Value) -> Vec<ToolRowData> {
                 (Some(path), None) => path.to_string(),
                 _ => String::new(),
             };
-            let custom = row["custom_location"] == true;
+            // Only tools the desktop knows how to choose get the controls; the replay runtime is set from the command line.
+            let custom = row["custom_location"] == true && locatable(id).is_some();
             ToolRowData {
                 id: id.into(),
                 name: row["name"].as_str().unwrap_or(id).into(),

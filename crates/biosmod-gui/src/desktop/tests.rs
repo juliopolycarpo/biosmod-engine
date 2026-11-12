@@ -1881,3 +1881,25 @@ fn a_missing_extension_beside_a_ready_ghidra_offers_the_install_button() {
         "(ghidra card, ready): expected no install button"
     );
 }
+
+#[test]
+fn the_replay_runtime_card_shows_its_command_and_no_unusable_choose_button() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = AppWindow::new().unwrap();
+    let report = json!({"tools": [{
+        "id": "replay", "name": "Replay runtime", "purpose": "", "health": "missing",
+        "version": null, "path": "/data/replay/venv/bin/python", "origin": "config", "detail": "",
+        "install": {"method": "bme", "command": "bme tools setup replay", "automatic": true, "blocked": null},
+        "custom_location": true, "optional": true
+    }]});
+    let card = &tool_rows(&window, &report)[0];
+    assert_eq!(
+        (
+            card.can_choose,
+            card.can_reset,
+            card.install_command.as_str()
+        ),
+        (false, false, "bme tools setup replay"),
+        "(replay card): expected no Choose or Reset button and the command text"
+    );
+}

@@ -718,7 +718,11 @@ fn non_utf8_tool_paths_serialize_in_replies() {
         path: path.clone(),
         origin: "config",
     };
-    let failed = checks_reply(vec![check("test", false, "missing")], &home).unwrap_err();
+    let failed = checks_reply(
+        vec![check("test", false, "missing")],
+        json!({"ghidra_home": home}),
+    )
+    .unwrap_err();
     assert_eq!(
         failed.details.unwrap()["ghidra_home"]["path"],
         path.to_string_lossy().as_ref()
