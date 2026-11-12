@@ -1,5 +1,6 @@
 //! Command implementations. Each returns a [`Reply`] or a typed error; printing happens in `main`.
 
+mod case;
 mod catalog;
 mod compare;
 mod compare_acpi;
@@ -91,6 +92,7 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Derive(args) => firmware::derive(&ctx, &args),
         Command::Compare(args) => compare::compare(&args),
         Command::Catalog(sub) => catalog::run(&mut ctx, sub),
+        Command::Case(sub) => case::run(&ctx, sub),
         Command::Tools(sub) => tools(&ctx, sub),
         Command::Diag(DiagCommand::Breadcrumbs(sub)) => diag::breadcrumbs(sub),
         Command::Diag(

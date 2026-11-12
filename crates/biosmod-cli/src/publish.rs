@@ -220,6 +220,46 @@ pub fn publish_directory(output: &Path, files: &[(&str, &[u8])]) -> Result<()> {
     Ok(())
 }
 
+/// Create `directory` as a new, empty directory, refusing one that exists.
+///
+/// The refusal is the kernel's `mkdir` result, so two writers cannot both succeed.
+/// The caller fills it and removes it again with [`remove_failed_directory`] if
+/// filling fails. Example: `create_new_directory(Path::new("case-dir"))?`.
+pub fn create_new_directory(directory: &Path) -> Result<()> {
+    fs::create_dir(directory).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            Error::new(
+                Code::OutputExists,
+                format!(
+                    "{}: already exists; choose a new output name",
+                    directory.display()
+                ),
+            )
+        } else {
+            io_error(directory, error)
+        }
+    })
+}
+
+/// Remove a directory this process created after filling it failed.
+///
+/// Returns `cause` unchanged, or `PUBLISH_INCOMPLETE` naming the directory when it
+/// cannot be removed either. Example: `Err(remove_failed_directory(dir, error))`.
+pub fn remove_failed_directory(directory: &Path, cause: Error) -> Error {
+    match fs::remove_dir_all(directory) {
+        Ok(()) => cause,
+        Err(error) => Error::new(
+            Code::PublishIncomplete,
+            format!(
+                "{}; the partly written directory {} remains ({error})",
+                cause.message,
+                directory.display()
+            ),
+        )
+        .with_details(json!({"directory": directory.to_string_lossy(), "cause": cause.code})),
+    }
+}
+
 fn sync_parent(path: &Path) {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty())
         && let Ok(dir) = fs::File::open(parent)
@@ -271,6 +311,38 @@ mod tests {
         let error = publish(&Filesystem, &out, b"other", b"{}").unwrap_err();
         assert_eq!(error.code, Code::OutputExists, "{error}");
         assert_eq!(fs::read(&out).unwrap(), b"image");
+    }
+
+    #[test]
+    fn new_directory_is_created_once_and_refuses_an_existing_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("case");
+        create_new_directory(&target).unwrap();
+        assert!(target.is_dir());
+        let error = create_new_directory(&target).unwrap_err();
+        assert_eq!(error.code, Code::OutputExists, "{error}");
+        let missing_parent = dir.path().join("absent/case");
+        assert_eq!(
+            create_new_directory(&missing_parent).unwrap_err().code,
+            Code::Io
+        );
+    }
+
+    #[test]
+    fn failed_directory_is_removed_and_the_cause_returned() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("case");
+        create_new_directory(&target).unwrap();
+        fs::write(target.join("partial.json"), b"{}").unwrap();
+        let returned = remove_failed_directory(&target, Error::new(Code::Io, "disk full"));
+        assert_eq!(returned.code, Code::Io, "{returned}");
+        assert!(!target.exists(), "{}: expected removal", target.display());
+        let gone = remove_failed_directory(&target, Error::new(Code::Io, "again"));
+        assert_eq!(
+            gone.code,
+            Code::PublishIncomplete,
+            "(already removed directory): expected PUBLISH_INCOMPLETE | {gone}"
+        );
     }
 
     #[test]

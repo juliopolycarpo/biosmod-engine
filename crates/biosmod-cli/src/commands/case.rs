@@ -1,0 +1,868 @@
+//! `case` subcommands: start an investigation, record command results, check them, export a draft.
+//!
+//! A case directory holds `case.json` (the `bme.case/1` document), `artifacts/`
+//! (recorded results), `drafts/` (the unreviewed board profile and firmware
+//! build) and `findings/` (finding documents the investigation produces).
+//! Input dumps are listed by digest and never copied.
+
+use super::{Ctx, firmware, load_sources, read_bounded, read_image};
+use crate::config::{io_error, write_atomic, write_new};
+use crate::flash::host::Host;
+use crate::output::{Out, Reply, display_path, success_document};
+use crate::publish::{check_outputs, create_new_directory, remove_failed_directory};
+use crate::sources::Loaded;
+use crate::{
+    CaseCommand, CaseExportArgs, CaseInitArgs, CaseRecordArgs, CaseStatusArgs, Cli, Command,
+    ScanArgs, SourceArgs,
+};
+use biosmod_core::case::{
+    ARTIFACT_DIRECTORY, Artifact, ArtifactKind, CASE_SCHEMA, Case, CaseInput, CaseStatus,
+    CatalogSnapshot, Current, FindingRef, Verdict, status, submission_files, utc_timestamp,
+};
+use biosmod_core::catalog::{Board, Finding};
+use biosmod_core::draft::{DraftRequest, FirmwareDraft, draft, draft_finding};
+use biosmod_core::json::{parse_strict, pretty};
+use biosmod_core::plan::document::Blob;
+use biosmod_core::util::Digest256;
+use biosmod_core::{Code, Error, Result};
+use clap::Parser;
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
+use std::fs;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+const CASE_FILE: &str = "case.json";
+const BOARD_DRAFT: &str = "drafts/board.json";
+const FIRMWARE_DRAFT: &str = "drafts/firmware.json";
+const FINDINGS_DIRECTORY: &str = "findings";
+/// Largest case document or draft read.
+const DOCUMENT_LIMIT: u64 = 16 << 20;
+/// The artifact id the scan made by `case init` takes.
+const SCAN_ARTIFACT: &str = "001-scan";
+
+/// The time source; tests substitute [`FixedClock`].
+pub trait Clock {
+    /// Seconds since the Unix epoch.
+    fn unix_seconds(&self) -> u64;
+}
+
+/// The system clock.
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn unix_seconds(&self) -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs())
+    }
+}
+
+/// Where SMBIOS identity comes from; tests substitute [`FakeHostIdentity`].
+pub trait HostIdentity {
+    /// DMI fields of the running machine, such as `board_name` and `bios_date`.
+    fn smbios(&self) -> BTreeMap<String, String>;
+}
+
+impl HostIdentity for Host {
+    fn smbios(&self) -> BTreeMap<String, String> {
+        self.dmi()
+            .into_iter()
+            .map(|(field, value)| (field.to_string(), value))
+            .collect()
+    }
+}
+
+/// What `case` reads from its surroundings.
+pub struct Environment<'a> {
+    pub clock: &'a dyn Clock,
+    pub host: &'a dyn HostIdentity,
+}
+
+pub fn run(ctx: &Ctx, command: CaseCommand) -> Result<Reply> {
+    let host = Host::current();
+    let environment = Environment {
+        clock: &SystemClock,
+        host: &host,
+    };
+    match command {
+        CaseCommand::Init(args) => init(ctx, &args, &environment),
+        CaseCommand::Record(args) => record(ctx, &args, &environment),
+        CaseCommand::Status(args) => case_status(ctx, &args),
+        CaseCommand::Export(args) => export(&args),
+    }
+}
+
+/// Digest a regular file without reading it into memory.
+///
+/// Example: `hash_file(Path::new("dump.bin"))?.length` is the file size.
+fn hash_file(path: &Path) -> Result<Blob> {
+    let metadata = fs::metadata(path).map_err(|e| io_error(path, e))?;
+    if !metadata.is_file() {
+        return Err(Error::new(
+            Code::Io,
+            format!("{}: expected a regular file", path.display()),
+        ));
+    }
+    let mut file = fs::File::open(path).map_err(|e| io_error(path, e))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 64 << 10];
+    let mut length = 0u64;
+    loop {
+        let count = file.read(&mut buffer).map_err(|e| io_error(path, e))?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+        length += count as u64;
+    }
+    Ok(Blob {
+        sha256: Digest256(hasher.finalize().into()),
+        length,
+    })
+}
+
+fn file_name(path: &Path) -> Result<String> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            Error::new(
+                Code::Usage,
+                format!("{}: expected a file path with a UTF-8 name", path.display()),
+            )
+        })
+}
+
+fn load_case(dir: &Path) -> Result<Case> {
+    let path = dir.join(CASE_FILE);
+    let bytes = read_bounded(&path, DOCUMENT_LIMIT)
+        .map_err(|e| e.context(format!("{}: expected a case directory", dir.display())))?;
+    let case: Case =
+        parse_strict(&bytes, CASE_FILE).map_err(|e| Error::new(Code::FormatInvalid, e.message))?;
+    case.check()?;
+    Ok(case)
+}
+
+fn read_document<T: serde::de::DeserializeOwned>(dir: &Path, relative: &str) -> Result<T> {
+    let path = dir.join(relative);
+    let bytes = read_bounded(&path, DOCUMENT_LIMIT)?;
+    parse_strict(&bytes, relative).map_err(|e| Error::new(Code::FormatInvalid, e.message))
+}
+
+/// The finding documents in `findings/`, in id order. Each file is named for its id.
+fn case_findings(dir: &Path) -> Result<Vec<Finding>> {
+    let directory = dir.join(FINDINGS_DIRECTORY);
+    let mut paths: Vec<PathBuf> = match fs::read_dir(&directory) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|e| e == "json"))
+            .collect(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(io_error(&directory, error)),
+    };
+    paths.sort();
+    let mut findings = Vec::new();
+    for path in paths {
+        let name = file_name(&path)?;
+        let finding: Finding = read_document(dir, &format!("{FINDINGS_DIRECTORY}/{name}"))?;
+        if format!("{}.json", finding.id) != name {
+            return Err(Error::new(
+                Code::FormatInvalid,
+                format!(
+                    "{FINDINGS_DIRECTORY}/{name}: file name expected {}.json | received id {:?}",
+                    finding.id, finding.id
+                ),
+            ));
+        }
+        findings.push(finding);
+    }
+    Ok(findings)
+}
+
+fn snapshots(loaded: &[Loaded]) -> Vec<CatalogSnapshot> {
+    loaded
+        .iter()
+        .map(|source| CatalogSnapshot {
+            alias: source.alias.clone(),
+            id: source.catalog.manifest.id.clone(),
+            version: source.catalog.manifest.version.to_string(),
+            manifest_sha256: source.catalog.manifest_sha256,
+        })
+        .collect()
+}
+
+/// The `scan` arguments equivalent to `args`, without the dump path.
+fn source_arguments(args: &SourceArgs) -> Vec<String> {
+    let mut words = Vec::new();
+    for catalog in &args.catalogs {
+        words.extend(["--catalog".to_string(), catalog.clone()]);
+    }
+    if args.allow_unsigned_local {
+        words.push("--allow-unsigned-local".into());
+    }
+    if let Some(firmware) = &args.firmware {
+        words.extend(["--firmware".to_string(), firmware.clone()]);
+    }
+    words
+}
+
+/// Write `(relative path, bytes)` pairs under `root`, creating directories.
+fn write_tree(root: &Path, files: &[(String, Vec<u8>)]) -> Result<()> {
+    for (relative, bytes) in files {
+        let path = root.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
+        }
+        write_new(&path, bytes)?;
+    }
+    Ok(())
+}
+
+/// Create `directory` and fill it, removing it again when filling fails.
+fn publish_tree(directory: &Path, files: &[(String, Vec<u8>)]) -> Result<()> {
+    create_new_directory(directory)?;
+    write_tree(directory, files).map_err(|cause| remove_failed_directory(directory, cause))
+}
+
+// ---- init ----------------------------------------------------------------------------------
+
+/// Detector hits of one scan source: the build it matched and the catalog findings that hit.
+fn scan_summary<'a>(data: &Value, loaded: &'a [Loaded]) -> (Option<String>, Vec<&'a Finding>) {
+    let mut matched = None;
+    let mut hits: Vec<&Finding> = Vec::new();
+    for (index, source) in data["sources"].as_array().into_iter().flatten().enumerate() {
+        let report = &source["report"];
+        if matched.is_none() {
+            matched = report["firmware"].as_str().map(str::to_string);
+        }
+        for detector in report["detectors"].as_array().into_iter().flatten() {
+            if detector["state"] != "likely-present" {
+                continue;
+            }
+            let Some(finding) = detector["finding"]
+                .as_str()
+                .and_then(|id| loaded.get(index)?.catalog.findings.get(id))
+            else {
+                continue;
+            };
+            if !hits.iter().any(|known| known.id == finding.id) {
+                hits.push(finding);
+            }
+        }
+    }
+    (matched, hits)
+}
+
+fn init(ctx: &Ctx, args: &CaseInitArgs, environment: &Environment) -> Result<Reply> {
+    check_outputs(&[&args.output], &[&args.dump])?;
+    let name = file_name(&args.dump)?;
+    let image = read_image(&args.dump)?;
+    let input = CaseInput {
+        name: name.clone(),
+        sha256: Digest256::of(&image.bytes),
+        length: image.bytes.len() as u64,
+    };
+    let loaded = load_sources(ctx, &args.source, &[])?;
+    let scan = firmware::scan(
+        ctx,
+        &ScanArgs {
+            rom: args.dump.clone(),
+            source: args.source.clone(),
+        },
+    )?;
+    let (matched, hits) = scan_summary(&scan.data, &loaded);
+    let smbios = environment.host.smbios();
+    let (board, firmware_draft) = draft(&DraftRequest {
+        image: &image,
+        board_id: args.board_id.as_deref(),
+        smbios: &smbios,
+        matches_catalog_build: matched.as_deref(),
+    })?;
+    let findings: Vec<Finding> = hits
+        .iter()
+        .map(|source| draft_finding(source, &firmware_draft.build.id, SCAN_ARTIFACT))
+        .collect();
+    let recorded = utc_timestamp(environment.clock.unix_seconds());
+    let mut command = vec!["scan".to_string(), name];
+    command.extend(source_arguments(&args.source));
+    let mut scan_bytes = success_document("scan", &scan).into_bytes();
+    scan_bytes.push(b'\n');
+    let blob = Blob::of(&scan_bytes);
+    let case = Case {
+        schema: CASE_SCHEMA.into(),
+        id: board.id.clone(),
+        engine: biosmod_core::VERSION.into(),
+        created: recorded.clone(),
+        catalogs: snapshots(&loaded),
+        inputs: vec![input.clone()],
+        artifacts: vec![Artifact {
+            id: SCAN_ARTIFACT.into(),
+            path: format!("{ARTIFACT_DIRECTORY}/{SCAN_ARTIFACT}.json"),
+            kind: ArtifactKind::Output,
+            sha256: blob.sha256,
+            length: blob.length,
+            command,
+            bme_version: biosmod_core::VERSION.into(),
+            catalogs: snapshots(&loaded),
+            inputs: vec![input.clone()],
+            recorded,
+            files: vec![],
+        }],
+    };
+    case.check()?;
+    // The drafts must already export as a valid catalog, so a case is never born unusable.
+    submission_files(&case, board.clone(), &firmware_draft, findings.clone())?;
+    let mut files: Vec<(String, Vec<u8>)> = vec![
+        (CASE_FILE.into(), pretty(&case)),
+        (case.artifacts[0].path.clone(), scan_bytes),
+        (BOARD_DRAFT.into(), pretty(&board)),
+        (FIRMWARE_DRAFT.into(), pretty(&firmware_draft)),
+    ];
+    files.extend(
+        findings
+            .iter()
+            .map(|f| (format!("{FINDINGS_DIRECTORY}/{}.json", f.id), pretty(f))),
+    );
+    publish_tree(&args.output, &files)?;
+    let finding_ids: Vec<&str> = findings.iter().map(|f| f.id.as_str()).collect();
+    let mut text = format!(
+        "Created case {} (draft board {}, draft firmware {})\n",
+        display_path(&args.output),
+        board.id,
+        firmware_draft.build.id
+    );
+    let _ = writeln!(
+        text,
+        "  input     {} sha256 {} ({} bytes)",
+        input.name, input.sha256, input.length
+    );
+    let _ = writeln!(
+        text,
+        "  scan      {}: {}",
+        case.artifacts[0].path,
+        match &matched {
+            Some(build) => format!("matches catalog build {build}"),
+            None => "no catalog build matched".into(),
+        }
+    );
+    if finding_ids.is_empty() {
+        text.push_str("  detectors no defect signature matched\n");
+    } else {
+        let _ = writeln!(
+            text,
+            "  detectors likely present: {} (drafted under {FINDINGS_DIRECTORY}/)",
+            finding_ids.join(", ")
+        );
+    }
+    let _ = writeln!(
+        text,
+        "  smbios    {}",
+        if firmware_draft.smbios.is_empty() {
+            "not recorded (this machine's BIOS date is not in the image)"
+        } else {
+            "recorded from this machine"
+        }
+    );
+    let _ = writeln!(
+        text,
+        "Drafts are unreviewed. Next: bme case export {} -o <directory>",
+        display_path(&args.output)
+    );
+    Ok(Reply::new(
+        json!({
+            "directory": display_path(&args.output),
+            "case": case,
+            "board": board.id,
+            "firmware": firmware_draft.build.id,
+            "matches_catalog_build": matched,
+            "smbios_recorded": !firmware_draft.smbios.is_empty(),
+            "findings": finding_ids,
+            "modules": firmware_draft.modules.len(),
+        }),
+        text,
+    ))
+}
+
+// ---- record --------------------------------------------------------------------------------
+
+/// Output paths a command line declares: `-o X`, `--output X`, `--output=X`, plus `extra`.
+///
+/// Example: `["extract", "a.bin", "-o", "m.bin"]` declares `m.bin`.
+fn declared_outputs(argv: &[String], extra: &[PathBuf]) -> Vec<PathBuf> {
+    let mut outputs: Vec<PathBuf> = Vec::new();
+    let mut words = argv.iter();
+    while let Some(word) = words.next() {
+        let value = match word.as_str() {
+            "-o" | "--output" => words.next().map(String::as_str),
+            other => other.strip_prefix("--output="),
+        };
+        if let Some(value) = value {
+            outputs.push(PathBuf::from(value));
+        }
+    }
+    outputs.extend(extra.iter().cloned());
+    let mut seen = BTreeSet::new();
+    outputs.retain(|path| seen.insert(path.clone()));
+    outputs
+}
+
+/// Existing regular files a command line names, by digest.
+///
+/// Both `path` and `--flag=path` words count. Example: `["scan", "dump.bin"]`
+/// yields `dump.bin` with its digest when that file exists.
+fn argument_inputs(argv: &[String]) -> Vec<CaseInput> {
+    let mut inputs: Vec<CaseInput> = Vec::new();
+    for word in argv {
+        let candidate = match word.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => value,
+            _ => word.as_str(),
+        };
+        if candidate.is_empty() {
+            continue;
+        }
+        let path = Path::new(candidate);
+        let (Some(name), Ok(blob)) = (path.file_name().and_then(|n| n.to_str()), hash_file(path))
+        else {
+            continue;
+        };
+        let input = CaseInput {
+            name: name.to_string(),
+            sha256: blob.sha256,
+            length: blob.length,
+        };
+        if !inputs.contains(&input) {
+            inputs.push(input);
+        }
+    }
+    inputs
+}
+
+/// A file name safe inside `artifacts/`: `[A-Za-z0-9._-]`, not starting with a dot.
+fn artifact_file_name(name: &str) -> String {
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = safe.trim_start_matches('.');
+    if trimmed.is_empty() {
+        "file".into()
+    } else {
+        trimmed.chars().take(48).collect()
+    }
+}
+
+fn parse_inner(argv: &[String]) -> Result<Cli> {
+    let mut words = vec!["bme".to_string()];
+    words.extend(argv.iter().cloned());
+    if !argv.iter().any(|word| word == "--json") {
+        words.push("--json".into());
+    }
+    Cli::try_parse_from(&words).map_err(|error| {
+        let text = error.to_string();
+        let first = text
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim_start_matches("error: ");
+        Error::new(
+            Code::Usage,
+            format!("case record -- {}: {first}", argv.join(" ")),
+        )
+    })
+}
+
+fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result<Reply> {
+    let mut case = load_case(&args.dir)?;
+    let outputs = declared_outputs(&args.argv, &args.artifacts);
+    if let Some(existing) = outputs
+        .iter()
+        .find(|path| fs::symlink_metadata(path).is_ok())
+    {
+        return Err(Error::new(
+            Code::Usage,
+            format!(
+                "{}: expected a path the command creates | received an existing file",
+                existing.display()
+            ),
+        ));
+    }
+    let inputs = argument_inputs(&args.argv);
+    let cli = parse_inner(&args.argv)?;
+    if matches!(cli.command, Command::Case(_)) {
+        return Err(Error::new(
+            Code::Usage,
+            "case record: expected a bme command other than `case`",
+        ));
+    }
+    let command_name = crate::command_name(&cli.command);
+    let quiet = ctx.out.quiet || cli.quiet;
+    let reply = super::run(
+        cli.command,
+        Out { json: true, quiet },
+        ctx.offline || cli.offline,
+    )?;
+    let catalogs = snapshots(&load_sources(
+        ctx,
+        &SourceArgs {
+            catalogs: vec![],
+            allow_unsigned_local: false,
+            firmware: None,
+        },
+        &[],
+    )?);
+    let recorded = utc_timestamp(environment.clock.unix_seconds());
+    let first = case.next_artifact_number();
+    let describe = |id: String, path: String, kind, blob: Blob| Artifact {
+        id,
+        path,
+        kind,
+        sha256: blob.sha256,
+        length: blob.length,
+        command: args.argv.clone(),
+        bme_version: biosmod_core::VERSION.into(),
+        catalogs: catalogs.clone(),
+        inputs: inputs.clone(),
+        recorded: recorded.clone(),
+        files: vec![],
+    };
+    let mut artifacts = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+    // Gather what to store before writing anything, so a bad output never leaves half a record.
+    let mut copies: Vec<(PathBuf, String)> = Vec::new();
+    for path in &outputs {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_file() => {
+                let id = format!(
+                    "{:03}-{}",
+                    first + 1 + copies.len() as u32,
+                    artifact_file_name(&file_name(path)?)
+                );
+                copies.push((path.clone(), id));
+            }
+            Ok(_) => {
+                return Err(Error::new(
+                    Code::Usage,
+                    format!(
+                        "{}: expected a file | received a directory or special file; name its files with --artifact",
+                        path.display()
+                    ),
+                ));
+            }
+            Err(_) => skipped.push(display_path(path).into_owned()),
+        }
+    }
+    let slug = command_name.replace(' ', "-");
+    let output_id = format!("{first:03}-{slug}");
+    let mut document = success_document(command_name, &reply).into_bytes();
+    document.push(b'\n');
+    let output_path = format!("{ARTIFACT_DIRECTORY}/{output_id}.json");
+    write_new(&args.dir.join(&output_path), &document)?;
+    artifacts.push(describe(
+        output_id,
+        output_path,
+        ArtifactKind::Output,
+        Blob::of(&document),
+    ));
+    for (source, id) in copies {
+        let path = format!("{ARTIFACT_DIRECTORY}/{id}");
+        let target = args.dir.join(&path);
+        if target.exists() {
+            return Err(Error::new(
+                Code::OutputExists,
+                format!("{}: already exists", target.display()),
+            ));
+        }
+        fs::copy(&source, &target).map_err(|e| io_error(&source, e))?;
+        artifacts.push(describe(id, path, ArtifactKind::File, hash_file(&target)?));
+    }
+    for note in &skipped {
+        ctx.out.note(format!(
+            "{note}: not created by the command; nothing recorded for it"
+        ));
+    }
+    case.artifacts.extend(artifacts.iter().cloned());
+    case.check()?;
+    write_atomic(&args.dir.join(CASE_FILE), &pretty(&case))?;
+    let mut text = reply.text.clone();
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    for artifact in &artifacts {
+        let _ = writeln!(
+            text,
+            "Recorded {} (sha256 {}, {} bytes)",
+            artifact.path, artifact.sha256, artifact.length
+        );
+    }
+    Ok(Reply::new(
+        json!({"command": command_name, "artifacts": artifacts, "not_created": skipped}),
+        text,
+    ))
+}
+
+// ---- status --------------------------------------------------------------------------------
+
+/// Match `--input` words to the case's inputs and find the rest beside the working directory
+/// and the case directory. Returns the path found for each input name, if any.
+fn locate_inputs(
+    case: &Case,
+    mappings: &[String],
+    case_directory: &Path,
+    working_directory: &Path,
+) -> Result<BTreeMap<String, Option<PathBuf>>> {
+    let mut found: BTreeMap<String, PathBuf> = BTreeMap::new();
+    let names: Vec<&str> = case.inputs.iter().map(|i| i.name.as_str()).collect();
+    for mapping in mappings {
+        if let Some((name, path)) = mapping.split_once('=')
+            && names.contains(&name)
+        {
+            found.insert(name.to_string(), PathBuf::from(path));
+            continue;
+        }
+        let path = Path::new(mapping);
+        if path.is_dir() {
+            for input in &case.inputs {
+                let candidate = path.join(&input.name);
+                if candidate.is_file() {
+                    found.entry(input.name.clone()).or_insert(candidate);
+                }
+            }
+        } else if path.is_file() {
+            let blob = hash_file(path)?;
+            let by_name = path.file_name().and_then(|n| n.to_str());
+            let input = case
+                .inputs
+                .iter()
+                .find(|i| Some(i.name.as_str()) == by_name)
+                .or_else(|| case.inputs.iter().find(|i| i.sha256 == blob.sha256));
+            let Some(input) = input else {
+                return Err(Error::new(
+                    Code::Usage,
+                    format!(
+                        "--input {mapping}: expected a file named one of [{}] or with a recorded sha256 | received sha256 {}",
+                        names.join(", "),
+                        blob.sha256
+                    ),
+                ));
+            };
+            found.insert(input.name.clone(), path.to_path_buf());
+        } else {
+            return Err(Error::new(
+                Code::Usage,
+                format!("--input {mapping}: expected an existing file, directory or NAME=PATH"),
+            ));
+        }
+    }
+    let search = [
+        Some(working_directory),
+        case_directory
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty()),
+    ];
+    Ok(case
+        .inputs
+        .iter()
+        .map(|input| {
+            let path = found.remove(&input.name).or_else(|| {
+                search
+                    .iter()
+                    .flatten()
+                    .map(|directory| directory.join(&input.name))
+                    .find(|candidate| candidate.is_file())
+            });
+            (input.name.clone(), path)
+        })
+        .collect())
+}
+
+/// Digests of the artifacts as stored, `None` for a missing or non-regular file.
+fn observe_artifacts(case: &Case, directory: &Path) -> BTreeMap<String, Option<Blob>> {
+    case.artifacts
+        .iter()
+        .map(|artifact| {
+            let path = directory.join(&artifact.path);
+            let regular = fs::symlink_metadata(&path).is_ok_and(|m| m.is_file());
+            let blob = regular.then(|| hash_file(&path).ok()).flatten();
+            (artifact.path.clone(), blob)
+        })
+        .collect()
+}
+
+fn status_text(case: &Case, report: &CaseStatus) -> String {
+    let mut text = format!("Case {} (created {})\n", case.id, case.created);
+    for input in &report.inputs {
+        let _ = writeln!(
+            text,
+            "  input     {:<28} {}",
+            input.name,
+            input.state.label()
+        );
+    }
+    for artifact in &report.artifacts {
+        let _ = writeln!(
+            text,
+            "  artifact  {:<28} {}",
+            artifact.path,
+            artifact.state.label()
+        );
+        for reason in &artifact.stale {
+            let _ = writeln!(text, "            stale: {reason}");
+        }
+    }
+    for finding in &report.findings {
+        let _ = writeln!(
+            text,
+            "  finding   {:<28} {}",
+            finding.id,
+            finding.status.label()
+        );
+    }
+    let stale = report.stale().len();
+    let _ = writeln!(
+        text,
+        "{}",
+        match (report.clean, stale) {
+            (true, 0) => "clean".to_string(),
+            (true, n) =>
+                format!("clean, {n} stale result(s): record them again with `bme case record`"),
+            (false, _) => "changed or missing files".to_string(),
+        }
+    );
+    text
+}
+
+fn case_status(ctx: &Ctx, args: &CaseStatusArgs) -> Result<Reply> {
+    let case = load_case(&args.dir)?;
+    let working = std::env::current_dir().map_err(|e| io_error(Path::new("."), e))?;
+    let located = locate_inputs(&case, &args.inputs, &args.dir, &working)?;
+    let inputs: BTreeMap<String, Option<Blob>> = located
+        .iter()
+        .map(|(name, path)| {
+            (
+                name.clone(),
+                path.as_ref().and_then(|path| hash_file(path).ok()),
+            )
+        })
+        .collect();
+    let artifacts = observe_artifacts(&case, &args.dir);
+    let loaded = load_sources(
+        ctx,
+        &SourceArgs {
+            catalogs: args.catalogs.clone(),
+            allow_unsigned_local: args.allow_unsigned_local,
+            firmware: None,
+        },
+        &[],
+    )?;
+    let current = snapshots(&loaded);
+    let mut report = status(
+        &case,
+        &inputs,
+        &artifacts,
+        &Current {
+            bme_version: biosmod_core::VERSION,
+            catalogs: &current,
+        },
+    );
+    report.findings = case_findings(&args.dir)?
+        .into_iter()
+        .map(|f| FindingRef {
+            id: f.id,
+            status: f.status,
+        })
+        .collect();
+    let text = status_text(&case, &report);
+    if report.clean {
+        return Ok(Reply::new(report, text));
+    }
+    let hints = if report.inputs.iter().any(|i| i.state == Verdict::Missing) {
+        " (point --input at the dump files)"
+    } else {
+        ""
+    };
+    Err(Error::new(
+        Code::CaseDrift,
+        format!("case {}: {}{hints}", case.id, report.drifted().join("; ")),
+    )
+    .with_details(serde_json::to_value(&report).expect("status serializes")))
+}
+
+// ---- export --------------------------------------------------------------------------------
+
+fn export(args: &CaseExportArgs) -> Result<Reply> {
+    check_outputs(&[&args.output], &[&args.dir])?;
+    let case = load_case(&args.dir)?;
+    // Evidence is only as good as its artifacts: refuse to export ones that changed.
+    let inputs: BTreeMap<String, Option<Blob>> = case
+        .inputs
+        .iter()
+        .map(|i| {
+            (
+                i.name.clone(),
+                Some(Blob {
+                    sha256: i.sha256,
+                    length: i.length,
+                }),
+            )
+        })
+        .collect();
+    let report = status(
+        &case,
+        &inputs,
+        &observe_artifacts(&case, &args.dir),
+        &Current {
+            bme_version: biosmod_core::VERSION,
+            catalogs: &[],
+        },
+    );
+    if !report.clean {
+        return Err(Error::new(
+            Code::CaseDrift,
+            format!(
+                "case {}: expected recorded artifacts to match their digests | {}",
+                case.id,
+                report.drifted().join("; ")
+            ),
+        )
+        .with_details(serde_json::to_value(&report).expect("status serializes")));
+    }
+    let board: Board = read_document(&args.dir, BOARD_DRAFT)?;
+    let firmware: FirmwareDraft = read_document(&args.dir, FIRMWARE_DRAFT)?;
+    let findings = case_findings(&args.dir)?;
+    let files = submission_files(&case, board.clone(), &firmware, findings.clone())?;
+    publish_tree(&args.output, &files)?;
+    let paths: Vec<&str> = files.iter().map(|(path, _)| path.as_str()).collect();
+    let output = display_path(&args.output);
+    let text = format!(
+        "Exported {} files to {output} (draft board {}, firmware {}, {} findings, {} evidence records)\nThe submission is unreviewed; check vendor, model and revision, then run `bme catalog validate {output}`.\n",
+        files.len(),
+        board.id,
+        firmware.build.id,
+        findings.len(),
+        case.artifacts.len(),
+    );
+    Ok(Reply::new(
+        json!({
+            "directory": output,
+            "files": paths,
+            "board": board.id,
+            "firmware": firmware.build.id,
+            "findings": findings.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(),
+            "evidence": case.artifacts.len(),
+        }),
+        text,
+    ))
+}
+
+#[cfg(test)]
+mod tests;

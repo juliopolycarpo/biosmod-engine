@@ -101,6 +101,13 @@ impl Out {
     }
 }
 
+/// The exact text `--json` prints for a success: one `bme/1` document.
+///
+/// Example: `success_document("scan", &reply)` is what `bme scan --json` writes.
+pub fn success_document(command: &str, reply: &Reply) -> String {
+    envelope(command, json!({"ok": true, "data": reply.data}))
+}
+
 fn envelope(command: &str, body: Value) -> String {
     let mut doc = json!({"protocol": PROTOCOL, "product": PRODUCT, "version": biosmod_core::VERSION, "command": command});
     if let (Value::Object(target), Value::Object(extra)) = (&mut doc, body) {

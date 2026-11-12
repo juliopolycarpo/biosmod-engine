@@ -6,7 +6,7 @@
 //! caller must repeat the image digest. The chip is read back after the write.
 
 mod flashrom;
-mod host;
+pub(crate) mod host;
 #[cfg(all(test, unix))]
 mod tests;
 
