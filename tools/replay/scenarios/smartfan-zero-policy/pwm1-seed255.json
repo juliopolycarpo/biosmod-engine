@@ -1,0 +1,100 @@
+{
+  "schema": "bme.scenario/1",
+  "id": "smartfan-zero-policy-pwm1-seed255",
+  "description": "MR9A SioDxeInit Smart Fan routine with a CPU curve whose first PWM step is 1: the value reaches the NCT5532D PWM1 register unclamped, with the first curve threshold, the temperature sources (CPUFAN PECI Agent0, SYSFAN PECI Agent1) and the critical full-speed mode programmed. The hardware monitor starts from pseudo-random state (seed 255). Models GetVariable and the indexed registers only; not the fan curve engine, fan stopping or restarting.",
+  "module": {
+    "name": "SioDxeInit",
+    "sha256": "8e8827a64c9ef65d42d0ffe21a82e51062ba2c4b40b125ad525a21c229732d04",
+    "bitness": 64
+  },
+  "entry": {
+    "rva": "0x1658"
+  },
+  "services": {
+    "kind": "dxe",
+    "bind": [
+      {
+        "rva": "0x2468",
+        "to": "runtime-services"
+      }
+    ]
+  },
+  "hardware": [
+    {
+      "name": "hwm",
+      "kind": "indexed-registers",
+      "options": {
+        "index_port": "0xa25",
+        "data_port": "0xa26",
+        "banks": 16,
+        "bank_register": "0x4e",
+        "seed": 255
+      }
+    }
+  ],
+  "variables": [
+    {
+      "name": "NCT5532D_SMF",
+      "guid": "2634D36A-335D-4312-B210-77E3134A61A6",
+      "data": "01642328323c0164b4ff4600ff0200642328323c0164b4ff4600ff02"
+    }
+  ],
+  "budget": 30000,
+  "expect": [
+    {
+      "kind": "service-calls",
+      "service": "GetVariable",
+      "count": 1
+    },
+    {
+      "kind": "register",
+      "device": "hwm",
+      "bank": 2,
+      "index": "0x00",
+      "equals": "0x10"
+    },
+    {
+      "kind": "register",
+      "device": "hwm",
+      "bank": 1,
+      "index": "0x00",
+      "equals": "0x11"
+    },
+    {
+      "kind": "register",
+      "device": "hwm",
+      "bank": 2,
+      "index": "0x02",
+      "equals": "0x42"
+    },
+    {
+      "kind": "register",
+      "device": "hwm",
+      "bank": 2,
+      "index": "0x21",
+      "equals": 35
+    },
+    {
+      "kind": "register",
+      "device": "hwm",
+      "bank": 2,
+      "index": "0x27",
+      "equals": 1
+    },
+    {
+      "kind": "register",
+      "device": "hwm",
+      "bank": 2,
+      "index": "0x35",
+      "equals": 70
+    },
+    {
+      "kind": "register",
+      "device": "hwm",
+      "bank": 2,
+      "index": "0x36",
+      "mask": 1,
+      "equals": 0
+    }
+  ]
+}
