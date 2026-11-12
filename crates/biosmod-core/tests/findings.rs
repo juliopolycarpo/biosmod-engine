@@ -298,11 +298,29 @@ fn detector_with_duplicate_wildcard_index_is_refused() {
 }
 
 #[test]
-fn detector_pattern_of_only_wildcards_is_refused() {
+fn detector_pattern_with_fewer_than_four_fixed_bytes_is_refused() {
     rejects_detector(
         |d| d["signatures"][0]["defect"]["wild"] = json!([0, 1, 2, 3, 4, 5, 6, 7]),
-        "wild expects at least one fixed byte | received all 8 bytes wild",
+        "expected at least 4 fixed (non-wild) bytes | received 0 of 8",
     );
+    rejects_detector(
+        |d| d["signatures"][0]["defect"]["wild"] = json!([0, 1, 2, 3, 4]),
+        "expected at least 4 fixed (non-wild) bytes | received 3 of 8",
+    );
+    rejects_detector(
+        |d| d["signatures"][0]["fixed"]["wild"] = json!([0, 1, 2, 3, 4]),
+        "fixed: expected at least 4 fixed (non-wild) bytes | received 3 of 8",
+    );
+}
+
+#[test]
+fn detector_pattern_with_exactly_four_fixed_bytes_is_accepted() {
+    let catalog = load_edited("findings/OPEN1.json", Scope::All, |doc| {
+        doc["detectors"][0]["signatures"][0]["defect"]["wild"] = json!([0, 1, 2, 3]);
+        doc["detectors"][0]["signatures"][0]["fixed"]["wild"] = json!([0, 1, 2, 3]);
+    })
+    .unwrap();
+    assert_eq!(catalog.findings["OPEN1"].detectors.len(), 1);
 }
 
 #[test]

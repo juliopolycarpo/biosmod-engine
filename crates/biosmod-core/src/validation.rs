@@ -376,7 +376,12 @@ fn detector_record(detector: &Detector, at: &str) -> Result<()> {
     Ok(())
 }
 
+/// Fewest non-wildcard bytes a detector pattern may have.
+const MIN_FIXED_BYTES: usize = 4;
+
 /// A pattern needs bytes, and every wildcard index must fall inside them once.
+///
+/// Example: eight bytes with wildcards at 0 and 1 pass; four bytes with one wildcard fail.
 fn pattern_record(pattern: &Pattern, at: &str) -> Result<()> {
     let length = pattern.bytes.0.len();
     if length == 0 {
@@ -390,9 +395,11 @@ fn pattern_record(pattern: &Pattern, at: &str) -> Result<()> {
             )));
         }
     }
-    if seen.len() == length {
+    // Fewer fixed bytes match far too much code to name a defect.
+    let fixed = length - seen.len();
+    if fixed < MIN_FIXED_BYTES {
         return Err(invalid(format!(
-            "{at}: wild expects at least one fixed byte | received all {length} bytes wild"
+            "{at}: expected at least {MIN_FIXED_BYTES} fixed (non-wild) bytes | received {fixed} of {length}"
         )));
     }
     Ok(())
