@@ -93,6 +93,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 | `tools status/set/unset/doctor/setup ghidra/analyze/paths` | ver, localizar e instalar o Ghidra 12.2 com ghidra-firmware-utils |
 | `diag breadcrumbs decode/read` | diagnóstico de checkpoint MRC do MR9A (read usa somente portas 72h/73h) |
 | `diag acpi capture` | pacote com hashes das tabelas ACPI, estado de suspensão e mensagens de suspensão do kernel, com registro de evidência (Linux, root) |
+| `diag smbios` | decodifica a tabela SMBIOS: BIOS, sistema, placa e dispositivos de memória com larguras e velocidades dos slots; sem root, só campos de nível de modelo (Linux) |
 | `diag suspend pm-test` | executa um estágio do teste de suspensão do kernel que para no ponto de verificação, informa os contadores de suspensão e sempre restaura `pm_test` (Linux, root) |
 | `diag superio read` | identifica o chip Super I/O pelo ID e lê seus registradores de monitoramento; só seletores de acesso são gravados (Linux, root) |
 | `flash doctor`, `flash probe`, `flash backup`, `flash write` | diagnosticar, localizar, fazer backup e gravar o chip pelo flashrom (Linux) |

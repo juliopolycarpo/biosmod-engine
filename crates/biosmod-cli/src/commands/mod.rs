@@ -60,6 +60,9 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Diag(DiagCommand::Acpi(sub)) => return host::run_acpi(sub),
         Command::Diag(DiagCommand::Superio(sub)) => return host::run_superio(sub),
         Command::Diag(DiagCommand::Suspend(sub)) => return host::run_suspend(sub),
+        Command::Diag(DiagCommand::Smbios { output }) => {
+            return host::run_smbios(output.as_deref());
+        }
         other => other,
     };
     let paths = Paths::from_env()?;
@@ -90,7 +93,12 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Catalog(sub) => catalog::run(&mut ctx, sub),
         Command::Tools(sub) => tools(&ctx, sub),
         Command::Diag(DiagCommand::Breadcrumbs(sub)) => diag::breadcrumbs(sub),
-        Command::Diag(DiagCommand::Acpi(_) | DiagCommand::Superio(_) | DiagCommand::Suspend(_)) => {
+        Command::Diag(
+            DiagCommand::Acpi(_)
+            | DiagCommand::Superio(_)
+            | DiagCommand::Suspend(_)
+            | DiagCommand::Smbios { .. },
+        ) => {
             unreachable!("host diagnostics return before configuration")
         }
         Command::Dev(DevCommand::Synthetic { output }) => diag::synthetic(&output),

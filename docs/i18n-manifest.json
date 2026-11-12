@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "a5b07eb3fa9e79c81824e129dfe38738c8ad346bcd0e0da2ab06031c89cc887d"
+      "sha256": "c6350aa4fc77e96a7a3b933c938c42c87dbd339a320b0d9cca652c461740a08a"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -44,7 +44,7 @@
     {
       "source": "docs/guide/diagnostics.md",
       "translation": "docs/pt-BR/guide/diagnostics.md",
-      "sha256": "b547e228938f8ab7a51ad65254da70af20b91af6d47cce4b13175113b4d9752c"
+      "sha256": "f779552476d5ce9253fb5988e49978242047ba34fd1ccc6eacee13853a73bd7e"
     },
     {
       "source": "docs/guide/flashing.md",
