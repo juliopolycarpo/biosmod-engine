@@ -41,6 +41,7 @@ O `record` executa o comando dentro do `bme` e guarda:
 
 - o documento `--json` dele como `artifacts/NNN-<comando>.json`;
 - cada arquivo que ele cria, encontrado por `-o`/`--output` ou indicado com `--artifact CAMINHO` (repetível), como `artifacts/NNN-<nome do arquivo>`;
+- cada diretório que ele cria do mesmo modo, copiado inteiro como `artifacts/NNN-<nome do diretório>/`, com o SHA-256 e o tamanho de cada arquivo listados em `case.json`. Os nomes internos usam `A-Z a-z 0-9 . _ -` e não começam com ponto; links simbólicos são recusados;
 - em `case.json`, para cada artefato: o SHA-256 e o tamanho, os argumentos exatos, a versão do `bme`, o snapshot do catálogo, os digests de cada arquivo existente citado nos argumentos e o horário.
 
 Um comando que falha não registra nada. As saídas não podem existir antes de o comando rodar. O `case record` não se aninha. O mecanismo aceita qualquer subcomando do `bme`; comandos adicionados depois são registrados sem mudanças em `case`.
@@ -56,12 +57,12 @@ O `status` recalcula o hash de cada artefato e de cada entrada e informa:
 | Relatório | Significado |
 |---|---|
 | `verified` | os bytes correspondem ao registro |
-| `changed` | o arquivo existe com outros bytes |
+| `changed` | o arquivo existe com outros bytes; em um diretório, um arquivo difere ou foi acrescentado |
 | `missing` | o arquivo não existe |
 | `stale` | um artefato veio de outra versão do `bme` ou de outro snapshot de catálogo que o atual, ou de uma entrada diferente da do caso |
 | achados | os documentos de achado em `findings/` e o status deles |
 
-`changed` ou `missing` encerra o comando com código de saída `1` e código de erro `CASE_DRIFT`; `error.details` traz o relatório completo. Resultados `stale` não reprovam a verificação: registre-os de novo.
+`changed` ou `missing` encerra o comando com código de saída `1` e código de erro `CASE_DRIFT`; `error.details` traz o relatório completo, até os arquivos alterados, ausentes ou acrescentados de um artefato de diretório. Resultados `stale` não reprovam a verificação: registre-os de novo.
 
 As entradas são encontradas pelo nome. `--input` aceita um arquivo, um diretório com os dumps ou `NOME=CAMINHO`. Um arquivo com nome diferente corresponde pelo digest. Sem `--input`, o `status` procura cada nome no diretório de trabalho e ao lado do diretório do caso. Use `--catalog` (e `--allow-unsigned-local`) para avaliar a obsolescência em relação a outro catálogo que não o oficial.
 

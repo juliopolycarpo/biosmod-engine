@@ -41,6 +41,7 @@ bme case record work/mr9a-case -- inspect dump.bin --files
 
 - its `--json` document as `artifacts/NNN-<command>.json`;
 - every file it creates, found through `-o`/`--output` or named with `--artifact PATH` (repeatable), as `artifacts/NNN-<file name>`;
+- every directory it creates the same way, copied whole as `artifacts/NNN-<directory name>/` with the SHA-256 and length of each file listed in `case.json`. Names inside must use `A-Z a-z 0-9 . _ -` and not start with a dot, and symbolic links are refused;
 - in `case.json`, for each artifact: the SHA-256 and length, the exact arguments, the `bme` version, the catalog snapshot, the digests of every existing file the arguments name, and the time.
 
 A failed command records nothing. Outputs must not exist before the command runs. `case record` does not nest. The mechanism takes any `bme` subcommand, so commands added later record without changes to `case`.
@@ -56,12 +57,12 @@ bme case status work/mr9a-case --input dump.bin
 | Report | Meaning |
 |---|---|
 | `verified` | the bytes match the record |
-| `changed` | the file exists with other bytes |
+| `changed` | the file exists with other bytes; for a directory, a file differs or was added |
 | `missing` | the file is absent |
 | `stale` | an artifact came from another `bme` version or catalog snapshot than the current one, or from an input that differs from the case's |
 | findings | the finding documents in `findings/` and their status |
 
-`changed` or `missing` ends the command with exit code `1` and error code `CASE_DRIFT`; `error.details` holds the full report. Stale results do not fail the check: record them again.
+`changed` or `missing` ends the command with exit code `1` and error code `CASE_DRIFT`; `error.details` holds the full report, down to the changed, missing or added files of a directory artifact. Stale results do not fail the check: record them again.
 
 Inputs are found by name. `--input` takes a file, a directory that holds the dumps, or `NAME=PATH`. A file whose name differs matches by digest. Without `--input`, `status` looks for each name in the working directory and beside the case directory. Pass `--catalog` (and `--allow-unsigned-local`) to judge staleness against a catalog other than the official one.
 
