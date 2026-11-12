@@ -823,6 +823,18 @@ fn decode_section(
     Ok(())
 }
 
+/// Keep a section opaque when a decode-only encoding fails on corrupt or foreign data.
+///
+/// The error text becomes the section's diagnostic. Only `FormatInvalid` degrades:
+/// a size-limit failure (`FormatUnsupported`) still aborts the parse, as it does for LZMA.
+fn degrade(section: &mut Section, error: Error) -> Result<Option<Found>> {
+    if error.code != Code::FormatInvalid {
+        return Err(error);
+    }
+    section.diagnostic = Some(error.message);
+    Ok(None)
+}
+
 /// Parse the stream decoded from the section at `place`.
 fn parse_decoded(
     bytes: &[u8],
@@ -884,7 +896,7 @@ fn decode_compression_section(
                 h + 5
             ),
         );
-        return Err(error);
+        return degrade(section, error);
     }
     let declared = le32(raw, h, "compression section decoded length")? as usize;
     if raw[h + 4] != 1 {
@@ -898,7 +910,10 @@ fn decode_compression_section(
     let payload = &raw[h + 5..];
     let place = section.place.clone();
     let decode = |variant, limit| codec::efi_decompress_as(payload, variant, limit);
-    decode_efi_variants(payload, declared, &place, depth, budget, decode).map(Some)
+    match decode_efi_variants(payload, declared, &place, depth, budget, decode) {
+        Ok(found) => Ok(Some(found)),
+        Err(error) => degrade(section, error),
+    }
 }
 
 /// Try the Tiano then EFI 1.1 decoders (`decode`) on `payload`; see [`decode_compression_section`].
@@ -986,6 +1001,8 @@ fn decode_efi_variants(
 
 /// GUID-defined section: LZMA, LZMA F86, Brotli and CRC32 are decoded.
 ///
+/// A damaged LZMA or CRC32 section fails the parse. The decode-only encodings
+/// (F86, Brotli) degrade to opaque sections with a diagnostic instead.
 fn decode_guid_defined_section(
     section: &mut Section,
     raw: &[u8],
@@ -1019,7 +1036,15 @@ fn decode_guid_defined_section(
             return Ok(None);
         }
     };
-    decode_guid_content(section, raw, encoding, depth, budget).map(Some)
+    let found = decode_guid_content(section, raw, encoding, depth, budget);
+    if encoding.is_rebuildable() {
+        found.map(Some)
+    } else {
+        match found {
+            Ok(found) => Ok(Some(found)),
+            Err(error) => degrade(section, error),
+        }
+    }
 }
 
 /// Decode the payload of a recognised GUID-defined section.
@@ -1448,41 +1473,62 @@ mod encoding_tests {
         assert!(image.volumes[0].files[0].opaque_sections().is_empty());
     }
 
+    /// The diagnostic of the only section of the only file, which must be opaque.
+    fn opaque_diagnostic(image: &Image) -> String {
+        let file = &image.volumes[0].files[0];
+        assert!(file.opaque, "expected an opaque file");
+        let section = &file.sections[0];
+        assert!(section.decoded.is_none() && section.encoding.is_none());
+        section
+            .diagnostic
+            .clone()
+            .expect("opaque section has a diagnostic")
+    }
+
     #[test]
     fn declared_section_length_must_match_the_decoded_stream() {
-        let error = parse_one(&compression_section(1, 303, STREAM_TIANO)).unwrap_err();
-        assert_eq!(error.code, Code::FormatInvalid);
+        let image = parse_one(&compression_section(1, 303, STREAM_TIANO)).expect("parses");
         assert!(
-            error.message.contains(
+            opaque_diagnostic(&image).contains(
                 "EFI compression section at 0x60: expected decoded length 0x12f from the section header | received 0x130"
             ),
-            "{error}"
+            "{}",
+            opaque_diagnostic(&image)
         );
     }
 
     #[test]
-    fn corrupt_streams_fail_naming_the_encoding_and_offset() {
+    fn corrupt_decode_only_streams_stay_opaque_with_a_diagnostic() {
         let mut truncated = STREAM_TIANO.to_vec();
         truncated.truncate(60);
-        let error = parse_one(&compression_section(1, 304, &truncated)).unwrap_err();
-        assert_eq!(error.code, Code::FormatInvalid, "{error}");
+        let image = parse_one(&compression_section(1, 304, &truncated)).expect("parses");
+        let reason = opaque_diagnostic(&image);
         assert!(
-            error.message.starts_with("EFI compression section at 0x60"),
-            "{error}"
+            reason.starts_with("EFI compression section at 0x60"),
+            "{reason}"
         );
 
-        let error = parse_one(&brotli_section(304, &STREAM_BROTLI[..40])).unwrap_err();
-        assert_eq!(error.code, Code::FormatInvalid, "{error}");
+        let image = parse_one(&brotli_section(304, &STREAM_BROTLI[..40])).expect("parses");
+        let reason = opaque_diagnostic(&image);
+        assert!(reason.starts_with("Brotli section at 0x60"), "{reason}");
+        let line = image.volumes[0].files[0].opaque_sections().remove(0);
         assert!(
-            error.message.starts_with("Brotli section at 0x60"),
-            "{error}"
+            line.starts_with(&format!(
+                "GUID-defined section {BROTLI_GUID} at 0x60: Brotli"
+            )),
+            "{line}"
         );
 
-        let error = parse_one(&guid_defined_section(LZMA_F86_GUID, &[0; 5])).unwrap_err();
-        assert!(
-            error.message.starts_with("LZMA F86 section at 0x60"),
-            "{error}"
-        );
+        let image = parse_one(&guid_defined_section(LZMA_F86_GUID, &[0; 5])).expect("parses");
+        let reason = opaque_diagnostic(&image);
+        assert!(reason.starts_with("LZMA F86 section at 0x60"), "{reason}");
+    }
+
+    #[test]
+    fn corrupt_lzma_and_crc32_sections_still_fail_the_parse() {
+        let error = parse_one(&guid_defined_section(LZMA_GUID, &[0; 5])).unwrap_err();
+        assert_eq!(error.code, Code::FormatInvalid, "{error}");
+        assert!(error.message.starts_with("LZMA section at 0x60"), "{error}");
     }
 
     #[test]
