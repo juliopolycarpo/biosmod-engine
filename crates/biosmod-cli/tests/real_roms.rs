@@ -938,12 +938,16 @@ fn pr9_vs_mr9a_dsdt_changes_sios_and_siow_and_keeps_s3() {
         );
     }
 }
-/// Detector result for one finding in a `scan --json` report: its state and, per module GUID,
-/// the number of defect and fixed-pattern sites.
-fn detector_sites(
-    report: &serde_json::Value,
-    finding: &str,
-) -> (String, std::collections::BTreeMap<String, (usize, usize)>) {
+
+/// What a `scan --json` report holds for one detector: state, per-module (defect, fixed) site
+/// counts keyed by FFS GUID, and the GUIDs of candidate files the engine could not read.
+struct DetectorView {
+    state: String,
+    modules: std::collections::BTreeMap<String, (usize, usize)>,
+    unreadable: Vec<String>,
+}
+
+fn detector_sites(report: &serde_json::Value, finding: &str) -> DetectorView {
     let detector = report["detectors"]
         .as_array()
         .unwrap()
@@ -964,8 +968,23 @@ fn detector_sites(
             )
         })
         .collect();
-    (detector["state"].as_str().unwrap().to_string(), modules)
+    let unreadable = detector["unsupported"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .map(|g| g.as_str().unwrap().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    DetectorView {
+        state: detector["state"].as_str().unwrap().to_string(),
+        modules,
+        unreadable,
+    }
 }
+
+/// An undecodable DXE driver that both stock dumps carry; B09 cannot rule it out.
+const UNREADABLE_DRIVER: &str = "91B4D9C1-141C-4824-8D02-3C298E36EB3F";
 
 /// FFS GUIDs of the components a catalog patch edits in `firmware`, read from the repository catalog.
 fn patch_guids(patch: &str, firmware: &str) -> std::collections::BTreeSet<String> {
@@ -1003,7 +1022,7 @@ fn detectors_find_the_catalog_patch_sites_on_stock_and_report_the_defect_absent_
         let stock = &stock["data"]["sources"][0]["report"];
         for (finding, sites) in DETECTOR_SITES {
             let sites = sites.unwrap_or(copies);
-            let (state, modules) = detector_sites(stock, finding);
+            let DetectorView { state, modules, .. } = detector_sites(stock, finding);
             assert_eq!(
                 state, "likely-present",
                 "({var} {finding}): expected detector state likely-present | received {state}"
@@ -1035,10 +1054,22 @@ fn detectors_find_the_catalog_patch_sites_on_stock_and_report_the_defect_absent_
         let patched = &patched["data"]["sources"][0]["report"];
         for (finding, sites) in DETECTOR_SITES {
             let sites = sites.unwrap_or(copies);
-            let (state, modules) = detector_sites(patched, finding);
+            let DetectorView {
+                state,
+                modules,
+                unreadable,
+            } = detector_sites(patched, finding);
+            // Every hit module shows only the corrected shape. B09 scans all PE32 modules,
+            // so the undecodable driver keeps it from claiming that for the whole image.
+            let (expected, expected_unreadable) = if finding == "B09" {
+                ("unsupported", vec![UNREADABLE_DRIVER.to_string()])
+            } else {
+                ("fixed-pattern", vec![])
+            };
             assert_eq!(
-                state, "fixed-pattern",
-                "({var} patched {finding}): expected detector state fixed-pattern | received {state}"
+                (state.as_str(), &unreadable),
+                (expected, &expected_unreadable),
+                "({var} patched {finding}): expected detector state and unreadable files | received {state} {unreadable:?}"
             );
             let defect: usize = modules.values().map(|(d, _)| d).sum();
             let fixed: usize = modules.values().map(|(_, f)| f).sum();
