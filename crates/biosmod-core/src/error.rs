@@ -166,7 +166,7 @@ impl Code {
                 "a flash chip write or its read-back failed; the chip may hold a partial image"
             }
             Code::HostRefused => {
-                "a host diagnostic refused to run: the user, chip, board or request is outside what its safety rules cover; nothing was changed"
+                "a host diagnostic refused to run: the user, chip, board or request is outside what its safety rules cover; no configuration was changed (at most probe selectors were written)"
             }
             Code::Internal => "an internal invariant failed; please report it",
         }
@@ -255,5 +255,12 @@ mod tests {
             assert!(!code.meaning().is_empty(), "{code}: expected a meaning");
         }
         assert_eq!(Code::HostRefused.as_str(), "HOST_REFUSED");
+        // A refused chip probe has written its index and entry key, so the meaning
+        // must not promise that nothing was touched.
+        let refused = Code::HostRefused.meaning();
+        assert!(
+            refused.contains("no configuration was changed") && refused.contains("probe selectors"),
+            "(HOST_REFUSED meaning): expected no configuration was changed and only probe selectors written | received {refused:?}"
+        );
     }
 }

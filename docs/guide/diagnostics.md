@@ -10,7 +10,7 @@ All of it needs Linux. Commands that read protected files or ports need root; ru
 
 - **Read-only unless the command says otherwise.** The only file a read-only command creates is its new output directory. `diag superio read` also writes the chip's access selectors, and nothing else.
 - **New outputs only.** A capture directory that exists, even empty, is refused before the host is read. Nothing is overwritten or merged into.
-- **A refusal is an error, not a guess.** `HOST_REFUSED` means the user, the detected chip or the requested mode is outside what the command's safety rules cover; nothing on the machine was changed.
+- **A refusal is an error, not a guess.** `HOST_REFUSED` means the user, the detected chip or the requested mode is outside what the command's safety rules cover; no configuration was changed, and at most a chip probe wrote its access selectors.
 - **A receipt for every reading.** A `bme.evidence/1` record of kind `hardware-observation` names the command, the boot ID (`/proc/sys/kernel/random/boot_id`), the kernel release and the SHA-256 of the artifacts, in its `host` object. Board and firmware come from DMI and are not resolved against a catalog, so `bme catalog validate` does not accept these records as catalog evidence; they are receipts.
 - **No identity beyond the model.** Serial numbers, UUIDs and asset tags are never copied.
 - **Hardware access goes through traits.** The code reads files, the kernel log and ports through `biosmod-host` traits and the tests use named fakes (`FakeSysfs`, `FakeKernelLog`, `FakePrivilege`); no test touches the machine it runs on.

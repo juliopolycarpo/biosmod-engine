@@ -10,7 +10,7 @@ Tudo exige Linux. Comandos que leem arquivos ou portas protegidos exigem root; e
 
 - **Somente leitura, salvo quando o comando disser o contrário.** O único arquivo que um comando de leitura cria é o seu novo diretório de saída. `diag superio read` também grava os seletores de acesso do chip, e nada além disso.
 - **Somente saídas novas.** Um diretório de captura que já existe, mesmo vazio, é recusado antes de ler o host. Nada é sobrescrito nem mesclado.
-- **Uma recusa é um erro, não um palpite.** `HOST_REFUSED` significa que o usuário, o chip detectado ou o modo pedido está fora do que as regras de segurança do comando cobrem; nada na máquina foi alterado.
+- **Uma recusa é um erro, não um palpite.** `HOST_REFUSED` significa que o usuário, o chip detectado ou o modo pedido está fora do que as regras de segurança do comando cobrem; nenhuma configuração foi alterada e, no máximo, uma sondagem de chip gravou seus seletores de acesso.
 - **Um recibo para cada leitura.** Um registro `bme.evidence/1` do tipo `hardware-observation` informa o comando, o boot ID (`/proc/sys/kernel/random/boot_id`), a versão do kernel e o SHA-256 dos artefatos, no objeto `host`. Placa e firmware vêm do DMI e não são resolvidos em um catálogo; por isso `bme catalog validate` não aceita esses registros como evidência de catálogo. São recibos.
 - **Nenhuma identidade além do modelo.** Números de série, UUIDs e etiquetas de patrimônio nunca são copiados.
 - **O acesso ao hardware passa por traits.** O código lê arquivos, o log do kernel e portas por traits de `biosmod-host` e os testes usam fakes nomeados (`FakeSysfs`, `FakeKernelLog`, `FakePrivilege`); nenhum teste toca a máquina em que roda.
