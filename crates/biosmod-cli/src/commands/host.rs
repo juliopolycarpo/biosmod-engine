@@ -7,10 +7,12 @@
 
 use crate::output::{Reply, display_path};
 use crate::publish::{check_outputs, publish_directory};
-use crate::{AcpiCommand, SuperioCommand};
-use biosmod_core::Result;
+use crate::{AcpiCommand, SuperioCommand, SuspendCommand};
+use biosmod_core::{Code, Error, Result};
 use biosmod_host::bundle::{Bundle, EVIDENCE_FILE, MANIFEST_FILE};
+use biosmod_host::files::HostWrite;
 use biosmod_host::ports::PortIo;
+use biosmod_host::suspend::{self, Stage, Status};
 use biosmod_host::{HostSurfaces, acpi, superio};
 use serde_json::json;
 use std::path::Path;
@@ -167,6 +169,84 @@ pub fn read_superio_to(
     ))
 }
 
+pub fn run_suspend(command: SuspendCommand) -> Result<Reply> {
+    match command {
+        SuspendCommand::PmTest {
+            stage,
+            output,
+            i_understand_this_suspends: _,
+        } => suspend_pm_test(&stage, &output),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn suspend_pm_test(stage: &str, output: &Path) -> Result<Reply> {
+    use biosmod_host::RootedFiles;
+    check_outputs(&[output], &[])?;
+    // Parsed before the host is touched: `none` and typos never reach /sys/power.
+    let stage = Stage::parse(stage)?;
+    on_this_machine(|surfaces| pm_test_to(surfaces, &RootedFiles::system(), stage, output))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn suspend_pm_test(stage: &str, output: &Path) -> Result<Reply> {
+    check_outputs(&[output], &[])?;
+    Stage::parse(stage)?;
+    Err(unsupported("diag suspend pm-test"))
+}
+
+/// Run one stage through `surfaces` and `power`, and publish the bundle at `output`.
+///
+/// The bundle is saved whatever the verdict. A pass is the reply; a fail or an error
+/// is a `HOST_FAILED` error whose details carry the report, so the evidence of a failed
+/// test is never lost.
+///
+/// Example: with `FakePowerSysfs`, `pm_test_to(&surfaces, &fake, Stage::Freezer, dir)`
+/// replies with `report.status == "pass"`.
+pub fn pm_test_to(
+    surfaces: &HostSurfaces,
+    power: &dyn HostWrite,
+    stage: Stage,
+    output: &Path,
+) -> Result<Reply> {
+    let run = suspend::pm_test(surfaces, power, stage)?;
+    publish_bundle(output, &run.bundle)?;
+    let report = &run.report;
+    let change = |name: &str| report.delta.get(name).copied().unwrap_or(0);
+    let summary = format!(
+        "Stage {} ended {}: suspend success {:+}, fail {:+}; pm_test is {}",
+        report.stage.name(),
+        report.status.name(),
+        change("success"),
+        change("fail"),
+        suspend::selected(&report.restored_pm_test).unwrap_or("unknown"),
+    );
+    let data = json!({
+        "report": report,
+        "directory": display_path(output),
+        "evidence": display_path(&output.join(EVIDENCE_FILE)),
+    });
+    if report.status != Status::Pass {
+        return Err(Error::new(
+            Code::HostFailed,
+            format!(
+                "diag suspend pm-test: {summary}{}; evidence saved to {}",
+                report
+                    .error
+                    .as_ref()
+                    .map(|e| format!(" ({e})"))
+                    .unwrap_or_default(),
+                output.display()
+            ),
+        )
+        .with_details(data));
+    }
+    Ok(Reply::new(
+        data,
+        format!("{summary}\nSaved to {}\n", output.display()),
+    ))
+}
+
 /// Human summary of a reading, whichever way it was taken.
 #[cfg_attr(
     not(target_os = "linux"),
@@ -270,7 +350,7 @@ mod tests {
     use super::*;
     use biosmod_core::Code;
     use biosmod_host::testkit::{
-        FakeKernelLog, FakePrivilege, FakeSuperIoPorts, FakeSysfs, FixedClock,
+        FakeKernelLog, FakePowerSysfs, FakePrivilege, FakeSuperIoPorts, FakeSysfs, FixedClock,
     };
 
     fn sysfs() -> FakeSysfs {
@@ -376,6 +456,79 @@ mod tests {
         assert_eq!(error.code, Code::HostRefused, "{error}");
         assert!(error.message.contains("received nct6775"), "{error}");
         assert!(ports.trace.is_empty());
+    }
+
+    fn pm_test_run(
+        fake: &FakePowerSysfs,
+        privilege: &FakePrivilege,
+        stage: Stage,
+        output: &Path,
+    ) -> Result<Reply> {
+        pm_test_to(
+            &HostSurfaces {
+                files: fake,
+                kernel_log: fake,
+                privilege,
+                clock: &FixedClock,
+            },
+            fake,
+            stage,
+            output,
+        )
+    }
+
+    #[test]
+    fn a_passing_stage_publishes_the_bundle_and_replies_with_the_report() {
+        let out = tempfile::tempdir().unwrap();
+        let target = out.path().join("freezer");
+        let fake = FakePowerSysfs::mr9a_s2idle();
+        let reply = pm_test_run(&fake, &FakePrivilege::root(), Stage::Freezer, &target).unwrap();
+        assert_eq!(reply.data["report"]["status"], "pass");
+        assert_eq!(reply.data["report"]["delta"]["success"], 1);
+        assert!(
+            reply.text.contains("Stage freezer ended pass"),
+            "{}",
+            reply.text
+        );
+        for file in [
+            "pm-test.json",
+            "kernel/delta.log",
+            MANIFEST_FILE,
+            EVIDENCE_FILE,
+        ] {
+            assert!(target.join(file).is_file(), "{file}");
+        }
+        assert_eq!(fake.pm_test(), "none");
+    }
+
+    #[test]
+    fn a_failed_stage_still_publishes_its_evidence_and_reports_host_failed() {
+        let out = tempfile::tempdir().unwrap();
+        let target = out.path().join("devices");
+        let fake = FakePowerSysfs::mr9a_deep().failing_suspend();
+        let error =
+            pm_test_run(&fake, &FakePrivilege::root(), Stage::Devices, &target).unwrap_err();
+        assert_eq!(error.code, Code::HostFailed, "{error}");
+        assert!(
+            error.message.contains("Stage devices ended fail"),
+            "{error}"
+        );
+        assert!(error.message.contains("evidence saved to"), "{error}");
+        let details = error.details.as_ref().unwrap();
+        assert_eq!(details["report"]["delta"]["fail"], 1);
+        assert!(target.join(EVIDENCE_FILE).is_file());
+        assert_eq!(fake.pm_test(), "none");
+    }
+
+    #[test]
+    fn a_refused_stage_leaves_no_directory_behind() {
+        let out = tempfile::tempdir().unwrap();
+        let target = out.path().join("core");
+        let fake = FakePowerSysfs::mr9a_s2idle();
+        let error = pm_test_run(&fake, &FakePrivilege::root(), Stage::Core, &target).unwrap_err();
+        assert_eq!(error.code, Code::HostRefused, "{error}");
+        assert!(!target.exists());
+        assert!(fake.writes().is_empty());
     }
 
     #[test]

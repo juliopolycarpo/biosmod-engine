@@ -94,3 +94,83 @@ fn superio_read_refuses_an_existing_output_before_the_device_opens() {
     ]);
     assert_eq!(run.error_code(), "OUTPUT_EXISTS", "{}", run.stdout);
 }
+
+// Every pm-test run below refuses before the host is touched. A valid stage with a new
+// output directory would suspend the machine running the tests, so none exists here.
+
+#[test]
+fn pm_test_requires_the_suspend_confirmation() {
+    let sandbox = Sandbox::new();
+    let output = sandbox.path("pm");
+    let run = sandbox.run([
+        "diag",
+        "suspend",
+        "pm-test",
+        "--stage",
+        "freezer",
+        "-o",
+        output.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!((run.code, run.error_code().as_str()), (2, "USAGE"));
+    assert!(!output.exists());
+}
+
+#[test]
+fn pm_test_refuses_an_existing_output_before_the_stage_is_looked_at() {
+    let sandbox = Sandbox::new();
+    let existing = sandbox.path("pm");
+    std::fs::create_dir(&existing).unwrap();
+    let run = sandbox.run([
+        "diag",
+        "suspend",
+        "pm-test",
+        "--stage",
+        "freezer",
+        "-o",
+        existing.to_str().unwrap(),
+        "--i-understand-this-suspends",
+        "--json",
+    ]);
+    assert_eq!(run.error_code(), "OUTPUT_EXISTS", "{}", run.stdout);
+    assert_eq!(run.json()["command"], "diag suspend pm-test");
+}
+
+#[test]
+fn pm_test_refuses_none_as_a_real_sleep_and_rejects_unknown_stages() {
+    let sandbox = Sandbox::new();
+    let output = sandbox.path("pm");
+    for (stage, code) in [("none", "HOST_REFUSED"), ("warp", "USAGE")] {
+        let run = sandbox.run([
+            "diag",
+            "suspend",
+            "pm-test",
+            "--stage",
+            stage,
+            "-o",
+            output.to_str().unwrap(),
+            "--i-understand-this-suspends",
+            "--json",
+        ]);
+        assert_eq!(run.error_code(), code, "{stage}: {}", run.stdout);
+        assert!(!output.exists());
+    }
+}
+
+#[test]
+fn capabilities_list_pm_test_with_its_sysfs_writes() {
+    let capabilities = Sandbox::new().run(["capabilities", "--json"]).json();
+    let commands = capabilities["data"]["commands"].as_array().unwrap();
+    let entry = commands
+        .iter()
+        .find(|c| c["name"] == "diag suspend pm-test")
+        .unwrap_or_else(|| {
+            panic!("(capabilities): expected diag suspend pm-test | received {commands:?}")
+        });
+    assert!(
+        entry["writes"][0]
+            .as_str()
+            .unwrap()
+            .contains("/sys/power/pm_test")
+    );
+}
