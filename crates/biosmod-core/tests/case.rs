@@ -3,7 +3,8 @@
 use biosmod_core::case::{
     ARTIFACT_DIRECTORY, Artifact, ArtifactFile, ArtifactKind, CASE_SCHEMA, Case, CaseInput,
     CatalogSnapshot, Current, Verdict, bounded_id, evidence_id, evidence_record, public_command,
-    public_text, public_value, status, submission_files, tree_blob, tree_changes, utc_timestamp,
+    public_text, public_value, status, submission_files, tree_blob, tree_changes, unlisted,
+    utc_timestamp,
 };
 use biosmod_core::catalog::{Catalog, FindingStatus, MemorySource, RevisionStatus, Scope};
 use biosmod_core::draft::{
@@ -797,6 +798,38 @@ fn evidence_shows_flag_equals_paths_as_flag_and_base_name() {
         "{}",
         evidence.title
     );
+}
+
+#[test]
+fn unlisted_names_the_entries_no_artifact_accounts_for() {
+    let case = case_with(vec![artifact("001-scan", 1), directory_artifact()]);
+    let entries = words(&["001-scan.json", "002-capture", "007-stray.bin", ".stage"]);
+    assert_eq!(
+        unlisted(&case, &entries),
+        ["artifacts/.stage", "artifacts/007-stray.bin"]
+    );
+    assert!(unlisted(&case, &entries[..2]).is_empty());
+}
+
+#[test]
+fn unlisted_entries_make_a_verified_case_drift() {
+    let case = case_with(vec![artifact("001-scan", 1)]);
+    let (inputs, artifacts) = observed(&case);
+    let current = Current {
+        bme_version: "0.1.0",
+        catalogs: CURRENT_CATALOGS,
+    };
+    let report = status(&case, &inputs, &artifacts, &current);
+    assert!(report.clean);
+    assert!(report.unlisted.is_empty());
+    let report = report.with_unlisted(words(&["artifacts/007-stray.bin"]));
+    assert!(!report.clean);
+    assert_eq!(report.drifted(), ["unlisted artifacts/007-stray.bin"]);
+    assert_eq!(
+        serde_json::to_value(&report).unwrap()["unlisted"][0],
+        "artifacts/007-stray.bin"
+    );
+    assert!(report.with_unlisted(vec![]).clean);
 }
 
 #[test]

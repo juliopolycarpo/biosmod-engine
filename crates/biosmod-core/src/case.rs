@@ -366,9 +366,23 @@ pub struct CaseStatus {
     pub inputs: Vec<InputStatus>,
     pub artifacts: Vec<ArtifactStatus>,
     pub findings: Vec<FindingRef>,
+    /// Entries of `artifacts/` that no artifact in the case accounts for.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unlisted: Vec<String>,
 }
 
 impl CaseStatus {
+    /// This status with the unlisted entries `unlisted` found; any of them makes it unclean.
+    ///
+    /// Example: `status.with_unlisted(vec!["artifacts/007-stray.bin".into()])` is not clean.
+    pub fn with_unlisted(mut self, unlisted: Vec<String>) -> CaseStatus {
+        self.unlisted = unlisted;
+        let verified = self.inputs.iter().all(|i| i.state == Verdict::Verified)
+            && self.artifacts.iter().all(|a| a.state == Verdict::Verified);
+        self.clean = verified && self.unlisted.is_empty();
+        self
+    }
+
     /// The inputs and artifacts that are changed or missing, one line each.
     ///
     /// Example: after a byte flip, `status.drifted()` is `["input dump.bin: changed"]`.
@@ -383,7 +397,8 @@ impl CaseStatus {
             .iter()
             .filter(|a| a.state != Verdict::Verified)
             .map(|a| format!("artifact {}: {}", a.path, a.state.label()));
-        inputs.chain(artifacts).collect()
+        let unlisted = self.unlisted.iter().map(|path| format!("unlisted {path}"));
+        inputs.chain(artifacts).chain(unlisted).collect()
     }
 
     /// Artifacts produced by an older engine, catalog or input than the current ones.
@@ -503,7 +518,38 @@ pub fn status(
         inputs,
         artifacts,
         findings: Vec::new(),
+        unlisted: Vec::new(),
     }
+}
+
+/// The entries of `artifacts/` that no artifact of the case accounts for, as
+/// `artifacts/<name>`, sorted.
+///
+/// A half-finished recording, a stray copy or an unrecorded result all show up here, so
+/// an artifact directory holds nothing the case does not vouch for.
+///
+/// Example: with `001-scan.json` recorded, `["001-scan.json", "007-x.bin"]` leaves
+/// `["artifacts/007-x.bin"]`.
+/// ```
+/// use biosmod_core::case::{Case, CASE_SCHEMA, unlisted};
+/// let case = Case {
+///     schema: CASE_SCHEMA.into(), id: "draft".into(), engine: "0.1.0".into(),
+///     created: "2026-11-12T10:00:00Z".into(), catalogs: vec![], inputs: vec![], artifacts: vec![],
+/// };
+/// assert_eq!(unlisted(&case, &["a.bin".to_string()]), ["artifacts/a.bin"]);
+/// ```
+pub fn unlisted(case: &Case, entries: &[String]) -> Vec<String> {
+    let prefix = format!("{ARTIFACT_DIRECTORY}/");
+    let known: BTreeSet<&str> = case
+        .artifacts
+        .iter()
+        .filter_map(|a| a.path.strip_prefix(&prefix))
+        .collect();
+    let stray: BTreeSet<&String> = entries
+        .iter()
+        .filter(|entry| !known.contains(entry.as_str()))
+        .collect();
+    stray.into_iter().map(|e| format!("{prefix}{e}")).collect()
 }
 
 /// The last component of a `/` or `\` separated path; the whole text when nothing is left.
