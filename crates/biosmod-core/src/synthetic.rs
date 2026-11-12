@@ -11,7 +11,7 @@
 use crate::catalog::*;
 use crate::codec;
 use crate::firmware::rebuild::make_file;
-use crate::firmware::{FFS2_GUID, LZMA_GUID};
+use crate::firmware::{BROTLI_GUID, FFS2_GUID, LZMA_F86_GUID, LZMA_GUID};
 pub use crate::json::pretty;
 use crate::util::{Digest256, Guid, HexBytes, align, sha256};
 use semver::Version;
@@ -34,16 +34,81 @@ pub fn section(kind: u8, body: &[u8]) -> Vec<u8> {
     out
 }
 
-/// An LZMA GUID-defined section wrapping a section stream.
-pub fn lzma_section(stream: &[u8]) -> Vec<u8> {
-    let mut template = vec![0x5D, 0, 0, 1, 0];
-    template.extend_from_slice(&[0xFF; 8]);
-    let packed = codec::compress_like(stream, &template).expect("synthetic LZMA");
-    let mut body = LZMA_GUID.0.to_vec();
+/// A GUID-defined section with the 24-byte header (GUID, data offset 24, attributes 1).
+pub fn guid_defined_section(guid: Guid, payload: &[u8]) -> Vec<u8> {
+    let mut body = guid.0.to_vec();
     body.extend_from_slice(&24u16.to_le_bytes());
     body.extend_from_slice(&1u16.to_le_bytes());
-    body.extend(packed);
+    body.extend_from_slice(payload);
     section(0x02, &body)
+}
+
+/// A compression section (type 01) holding `payload` of the given compression type.
+///
+/// `decoded_len` is the uncompressed length the section header declares.
+pub fn compression_section(compression_type: u8, decoded_len: u32, payload: &[u8]) -> Vec<u8> {
+    let mut body = decoded_len.to_le_bytes().to_vec();
+    body.push(compression_type);
+    body.extend_from_slice(payload);
+    section(0x01, &body)
+}
+
+/// Deterministic x86-looking code with CALL operands the BCJ filter rewrites.
+pub fn x86_code(size: usize) -> Vec<u8> {
+    let mut code = Vec::new();
+    let mut index = 0u32;
+    while code.len() < size {
+        code.extend_from_slice(&[0x55, 0x89, 0xE5, 0xE8]);
+        code.extend_from_slice(&(index.wrapping_mul(37) & 0xFFFF).to_le_bytes());
+        code.extend_from_slice(&[0xC9, 0xC3, 0x90]);
+        index += 1;
+    }
+    code.truncate(size);
+    code
+}
+
+/// An LZMA F86 GUID-defined section: the x86 filter, then LZMA, around a section stream.
+pub fn lzma_f86_section(stream: &[u8]) -> Vec<u8> {
+    let mut filtered = stream.to_vec();
+    codec::x86_convert(&mut filtered, true);
+    guid_defined_section(LZMA_F86_GUID, &lzma_payload(&filtered))
+}
+
+/// A Brotli stream of one uncompressed meta-block (at most 64 KiB) plus the final empty one.
+///
+/// Lets tests build Brotli sections around any bytes without a compressor.
+pub fn brotli_stored(data: &[u8]) -> Vec<u8> {
+    assert!(
+        (1..=1 << 16).contains(&data.len()),
+        "stored Brotli block: expected 1..=65536 bytes | received {}",
+        data.len()
+    );
+    // Bits, LSB first: WBITS=16 (0), ISLAST=0, MNIBBLES=4 (00), MLEN-1 (16), ISUNCOMPRESSED=1.
+    let header = (((data.len() - 1) as u32) << 4) | (1 << 20);
+    let mut stream = header.to_le_bytes()[..3].to_vec();
+    stream.extend_from_slice(data);
+    // ISLAST=1, ISLASTEMPTY=1.
+    stream.push(0x03);
+    stream
+}
+
+/// A Brotli GUID-defined section (EDK II layout) wrapping a section stream.
+pub fn brotli_section(stream: &[u8]) -> Vec<u8> {
+    let mut payload = (stream.len() as u64).to_le_bytes().to_vec();
+    payload.extend_from_slice(&0u64.to_le_bytes());
+    payload.extend(brotli_stored(stream));
+    guid_defined_section(BROTLI_GUID, &payload)
+}
+
+fn lzma_payload(stream: &[u8]) -> Vec<u8> {
+    let mut template = vec![0x5D, 0, 0, 1, 0];
+    template.extend_from_slice(&[0xFF; 8]);
+    codec::compress_like(stream, &template).expect("synthetic LZMA")
+}
+
+/// An LZMA GUID-defined section wrapping a section stream.
+pub fn lzma_section(stream: &[u8]) -> Vec<u8> {
+    guid_defined_section(LZMA_GUID, &lzma_payload(stream))
 }
 
 /// An FFS file with valid checksums.
