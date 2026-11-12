@@ -259,7 +259,11 @@ fn record_stores_the_output_the_files_and_their_provenance() {
         (file.id.as_str(), file.kind),
         ("003-module.bin", ArtifactKind::File)
     );
-    assert_eq!(output.command, argv);
+    assert_eq!(
+        output.command[..2],
+        ["extract".to_string(), "dump.bin".to_string()]
+    );
+    assert_eq!(output.command[5], "module.bin");
     assert_eq!(output.bme_version, biosmod_core::VERSION);
     assert_eq!(output.recorded, "2026-11-12T12:01:00Z");
     assert_eq!(output.inputs.len(), 1);
@@ -889,4 +893,95 @@ fn observe_tree_is_none_for_a_missing_path_or_a_plain_file() {
     assert!(observe_tree(&dir.path().join("absent")).is_none());
     assert!(observe_tree(&dir.path().join("file.bin")).is_none());
     assert!(observe_tree(dir.path()).is_some());
+}
+
+/// Every file under `root` whose bytes contain `needle`, as case-relative paths.
+fn files_containing(root: &Path, needle: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if fs::read(&path)
+                .unwrap()
+                .windows(needle.len())
+                .any(|window| window == needle.as_bytes())
+            {
+                found.push(path.strip_prefix(root).unwrap().display().to_string());
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+#[test]
+fn a_case_holds_no_path_of_this_machine_after_init_and_record() {
+    let workspace = Workspace::new();
+    workspace.init();
+    let dump = workspace.path("dump.bin");
+    let module = workspace.path("module.bin");
+    let spelled = format!("--output={}", workspace.path("module2.bin").display());
+    let guid = PEIM_GUID.to_string();
+    workspace
+        .record(
+            &[
+                "extract",
+                dump.to_str().unwrap(),
+                "--guid",
+                &guid,
+                "-o",
+                module.to_str().unwrap(),
+            ],
+            &[],
+        )
+        .unwrap();
+    workspace
+        .record(
+            &["extract", dump.to_str().unwrap(), "--guid", &guid, &spelled],
+            &[],
+        )
+        .unwrap();
+    workspace
+        .record(&["inspect", dump.to_str().unwrap(), "--files"], &[])
+        .unwrap();
+    let root = workspace.dir.path().to_str().unwrap();
+    let leaks = files_containing(&workspace.path("case"), root);
+    assert!(
+        leaks.is_empty(),
+        "(case files): expected no occurrence of {root} | received it in {leaks:?}"
+    );
+    let case = workspace.case();
+    assert_eq!(case.artifacts[1].command[1], "dump.bin");
+    assert_eq!(case.artifacts[1].command[5], "module.bin");
+    assert_eq!(case.artifacts[3].command[4], "--output=module2.bin");
+}
+
+#[test]
+fn record_refuses_commands_that_copy_or_write_the_chip() {
+    let workspace = Workspace::new();
+    workspace.init();
+    let before = fs::read(workspace.path("case/case.json")).unwrap();
+    let dump = workspace.path("chip-dump.bin");
+    let backup = ["flash", "backup", "-o", dump.to_str().unwrap()];
+    let write = [
+        "flash",
+        "write",
+        "image.bin",
+        "--backup",
+        "backup.bin",
+        "--dry-run",
+    ];
+    for (argv, name) in [(&backup[..], "flash backup"), (&write[..], "flash write")] {
+        let error = workspace.record(argv, &[]).unwrap_err();
+        assert_eq!(error.code, Code::Usage, "{name}: {error}");
+        assert!(
+            error.message.contains(name) && error.message.contains("expected"),
+            "({name}): expected the refused command named | received {error}"
+        );
+    }
+    assert!(!dump.exists(), "(flash backup): expected nothing written");
+    assert_eq!(fs::read(workspace.path("case/case.json")).unwrap(), before);
 }

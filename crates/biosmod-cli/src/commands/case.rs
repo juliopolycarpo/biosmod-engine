@@ -13,12 +13,12 @@ use crate::publish::{check_outputs, create_new_directory, remove_failed_director
 use crate::sources::Loaded;
 use crate::{
     CaseCommand, CaseExportArgs, CaseInitArgs, CaseRecordArgs, CaseStatusArgs, Cli, Command,
-    ScanArgs, SourceArgs,
+    FlashCommand, ScanArgs, SourceArgs,
 };
 use biosmod_core::case::{
     ARTIFACT_DIRECTORY, Artifact, ArtifactFile, ArtifactKind, CASE_SCHEMA, Case, CaseInput,
-    CaseStatus, CatalogSnapshot, Current, FindingRef, Verdict, status, submission_files, tree_blob,
-    tree_changes, utc_timestamp,
+    CaseStatus, CatalogSnapshot, Current, FindingRef, Verdict, public_command, public_value,
+    status, submission_files, tree_blob, tree_changes, utc_timestamp,
 };
 use biosmod_core::catalog::{Board, Finding};
 use biosmod_core::draft::{DraftRequest, FirmwareDraft, draft, draft_finding};
@@ -211,6 +211,18 @@ fn source_arguments(args: &SourceArgs) -> Vec<String> {
     words
 }
 
+/// The `--json` document of a result as a case stores it: one line-terminated `bme/1`
+/// envelope with every absolute path in its strings reduced to a base name.
+///
+/// Example: a scan of `/home/me/dump.bin` stores `"dump.bin"` where the path was.
+fn public_document(command: &str, reply: &Reply) -> Vec<u8> {
+    let document: Value = serde_json::from_str(&success_document(command, reply))
+        .expect("a success document is JSON");
+    let mut bytes = serde_json::to_vec_pretty(&public_value(&document)).expect("JSON serializes");
+    bytes.push(b'\n');
+    bytes
+}
+
 /// Write `(relative path, bytes)` pairs under `root`, creating directories.
 fn write_tree(root: &Path, files: &[(String, Vec<u8>)]) -> Result<()> {
     for (relative, bytes) in files {
@@ -290,8 +302,7 @@ fn init(ctx: &Ctx, args: &CaseInitArgs, environment: &Environment) -> Result<Rep
     let recorded = utc_timestamp(environment.clock.unix_seconds());
     let mut command = vec!["scan".to_string(), name];
     command.extend(source_arguments(&args.source));
-    let mut scan_bytes = success_document("scan", &scan).into_bytes();
-    scan_bytes.push(b'\n');
+    let scan_bytes = public_document("scan", &scan);
     let blob = Blob::of(&scan_bytes);
     let case = Case {
         schema: CASE_SCHEMA.into(),
@@ -306,7 +317,7 @@ fn init(ctx: &Ctx, args: &CaseInitArgs, environment: &Environment) -> Result<Rep
             kind: ArtifactKind::Output,
             sha256: blob.sha256,
             length: blob.length,
-            command,
+            command: public_command(&command),
             bme_version: biosmod_core::VERSION.into(),
             catalogs: snapshots(&loaded),
             inputs: vec![input.clone()],
@@ -505,6 +516,23 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
             "case record: expected a bme command other than `case`",
         ));
     }
+    // A recording keeps whatever the command produced, so refuse the ones that would put
+    // a whole chip dump (serial numbers, MAC addresses) into a case or change the chip.
+    if let Command::Flash(FlashCommand::Backup { .. } | FlashCommand::Write(_)) = &cli.command {
+        let refused = args
+            .argv
+            .iter()
+            .take(2)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
+        return Err(Error::new(
+            Code::Usage,
+            format!(
+                "case record -- {refused}: expected a command that neither copies the chip nor writes it | received `{refused}`; run it outside the case"
+            ),
+        ));
+    }
     let command_name = crate::command_name(&cli.command);
     let quiet = ctx.out.quiet || cli.quiet;
     let reply = super::run(
@@ -529,7 +557,7 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
         kind,
         sha256: blob.sha256,
         length: blob.length,
-        command: args.argv.clone(),
+        command: public_command(&args.argv),
         bme_version: biosmod_core::VERSION.into(),
         catalogs: catalogs.clone(),
         inputs: inputs.clone(),
@@ -568,8 +596,7 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
     }
     let slug = command_name.replace(' ', "-");
     let output_id = format!("{first:03}-{slug}");
-    let mut document = success_document(command_name, &reply).into_bytes();
-    document.push(b'\n');
+    let document = public_document(command_name, &reply);
     let output_path = format!("{ARTIFACT_DIRECTORY}/{output_id}.json");
     write_new(&args.dir.join(&output_path), &document)?;
     artifacts.push(describe(
