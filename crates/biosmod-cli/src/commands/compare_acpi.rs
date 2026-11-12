@@ -187,6 +187,9 @@ pub fn disassemble_changed_methods(
     let io =
         |path: &Path, e: std::io::Error| Error::new(Code::Io, format!("{}: {e}", path.display()));
     let mut done = Disassembly::default();
+    // Every target is planned first so a clash aborts before anything is written.
+    let mut planned: Vec<(std::path::PathBuf, String)> = Vec::new();
+    let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
     let work = tempfile::tempdir().map_err(|e| io(Path::new("temporary directory"), e))?;
     for pair in report
         .pairs
@@ -210,6 +213,17 @@ pub fn disassemble_changed_methods(
                         format!("iasl: expected a runnable iasl on PATH (see `bme tools status`) | received {e}"),
                     )
                 })?;
+            if !finished.success() {
+                return Err(Error::new(
+                    Code::ToolFailed,
+                    format!(
+                        "iasl -d {}: expected exit status 0 | received {} ({})",
+                        aml.display(),
+                        finished.describe(),
+                        finished.tail(300)
+                    ),
+                ));
+            }
             let dsl = aml.with_extension("dsl");
             let text = std::fs::read_to_string(&dsl).map_err(|_| {
                 Error::new(
@@ -258,7 +272,16 @@ pub fn disassemble_changed_methods(
                 &format!("A {}", change.path),
                 &format!("B {}", change.path),
             );
-            let file = table_dir.join(format!("{}.diff", file_stem(&key)));
+            // Distinct paths can share a sanitized stem (`AB C` and `AB_C`); number the later ones.
+            // Names are compared case-insensitively so case-folding filesystems agree.
+            let stem = file_stem(&key);
+            let mut name = format!("{stem}.diff");
+            let mut copy = 1;
+            while !taken.insert(table_dir.join(&name).to_string_lossy().to_lowercase()) {
+                copy += 1;
+                name = format!("{stem}-{copy}.diff");
+            }
+            let file = table_dir.join(name);
             if file.exists() {
                 return Err(Error::new(
                     Code::OutputExists,
@@ -268,8 +291,7 @@ pub fn disassemble_changed_methods(
                     ),
                 ));
             }
-            std::fs::create_dir_all(&table_dir).map_err(|e| io(&table_dir, e))?;
-            crate::config::write_new(&file, diff.as_bytes())?;
+            planned.push((file.clone(), diff));
             done.written.push(MethodDiff {
                 table: tag(pair),
                 path: change.path.clone(),
@@ -277,6 +299,12 @@ pub fn disassemble_changed_methods(
                 file: display_path(&file).into_owned(),
             });
         }
+    }
+    for (file, diff) in planned {
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| io(parent, e))?;
+        }
+        crate::config::write_new(&file, diff.as_bytes())?;
     }
     Ok(done)
 }
@@ -311,6 +339,20 @@ mod tests {
             std::fs::write(aml.with_extension("dsl"), listing).unwrap();
             Ok(Finished {
                 status: Some(0),
+                ..Finished::default()
+            })
+        }
+    }
+
+    /// Named fake of an `iasl` that reports failure with exit status 2 after writing a listing.
+    struct FailingIasl;
+
+    impl Runner for FailingIasl {
+        fn run(&self, invocation: &Invocation) -> Result<Finished> {
+            let aml = std::path::PathBuf::from(&invocation.args[1]);
+            std::fs::write(aml.with_extension("dsl"), LISTING_A).unwrap();
+            Ok(Finished {
+                status: Some(2),
                 ..Finished::default()
             })
         }
@@ -430,6 +472,78 @@ mod tests {
         let error = disassemble_changed_methods(&fake, &report, &a, &b, dir.path())
             .expect_err("second run collides");
         assert_eq!(error.code, Code::OutputExists);
+    }
+
+    #[test]
+    fn nonzero_iasl_status_is_tool_failed_naming_the_status() {
+        let (a, b) = tables();
+        let report = compare_tables(&a, &b);
+        let dir = tempfile::tempdir().unwrap();
+        let error = disassemble_changed_methods(&FailingIasl, &report, &a, &b, dir.path())
+            .expect_err("iasl exited 2");
+        assert_eq!(error.code, Code::ToolFailed);
+        assert!(
+            error.message.contains("expected exit status 0") && error.message.contains('2'),
+            "{error}"
+        );
+        assert!(
+            std::fs::read_dir(dir.path()).unwrap().next().is_none(),
+            "nothing may be written after a failed iasl run"
+        );
+    }
+
+    /// The report of `tables()` with its one change listed twice, as two methods sharing a stem would be.
+    fn report_with_a_repeated_change(a: &[FoundTable], b: &[FoundTable]) -> AcpiComparison {
+        let mut report = compare_tables(a, b);
+        let again = report.pairs[0].changes[0].clone();
+        report.pairs[0].changes.push(again);
+        report
+    }
+
+    #[test]
+    fn diff_files_sharing_a_stem_are_numbered_not_overwritten() {
+        let (a, b) = tables();
+        let report = report_with_a_repeated_change(&a, &b);
+        let dir = tempfile::tempdir().unwrap();
+        let fake = FakeIasl {
+            listing_a: LISTING_A,
+            listing_b: LISTING_B,
+            calls: RefCell::new(Vec::new()),
+        };
+        let done = disassemble_changed_methods(&fake, &report, &a, &b, dir.path()).unwrap();
+        let files: Vec<&str> = done.written.iter().map(|w| w.file.as_str()).collect();
+        assert_eq!(files.len(), 2, "{files:?}");
+        assert!(
+            files[0].ends_with("_SB.SIO1.SIOS.diff") && files[1].ends_with("_SB.SIO1.SIOS-2.diff"),
+            "(diff names): expected the second to be numbered | received {files:?}"
+        );
+        assert!(files.iter().all(|f| std::path::Path::new(f).exists()));
+    }
+
+    #[test]
+    fn a_clash_on_a_later_target_writes_nothing() {
+        let (a, b) = tables();
+        let report = report_with_a_repeated_change(&a, &b);
+        let dir = tempfile::tempdir().unwrap();
+        let table_dir = dir.path().join("DSDT-TEST");
+        std::fs::create_dir_all(&table_dir).unwrap();
+        std::fs::write(table_dir.join("_SB.SIO1.SIOS-2.diff"), "mine").unwrap();
+        let fake = FakeIasl {
+            listing_a: LISTING_A,
+            listing_b: LISTING_B,
+            calls: RefCell::new(Vec::new()),
+        };
+        let error = disassemble_changed_methods(&fake, &report, &a, &b, dir.path())
+            .expect_err("the second target exists");
+        assert_eq!(error.code, Code::OutputExists);
+        assert!(
+            !table_dir.join("_SB.SIO1.SIOS.diff").exists(),
+            "the first diff must not be written when a later target clashes"
+        );
+        assert_eq!(
+            std::fs::read_to_string(table_dir.join("_SB.SIO1.SIOS-2.diff")).unwrap(),
+            "mine"
+        );
     }
 
     #[test]
