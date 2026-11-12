@@ -592,7 +592,11 @@ pub(crate) fn patch_state_indexed(
                     .flat_map(|v| &v.files)
                     .any(|f| f.guid == component.ffs_guid && f.opaque);
                 if hidden && in_opaque {
-                    opaque.push(component.name.as_str());
+                    opaque.push(format!(
+                        "{} ({})",
+                        component.name,
+                        image.opaque_sections_of(component.ffs_guid).join("; ")
+                    ));
                 }
                 missing.push(component.name.as_str());
             }

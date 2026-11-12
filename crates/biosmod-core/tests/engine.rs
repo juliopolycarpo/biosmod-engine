@@ -1248,3 +1248,27 @@ fn patching_a_module_inside_a_decode_only_encoding_is_refused_naming_it() {
         "{entry:?}"
     );
 }
+
+fn unknown_encapsulation(inner: &[u8]) -> Vec<u8> {
+    let unknown = biosmod_core::util::Guid::constant("01234567-89AB-CDEF-0123-456789ABCDEF");
+    synthetic::guid_defined_section(unknown, inner)
+}
+
+#[test]
+fn scan_names_the_unsupported_section_hiding_a_module() {
+    let case = Case::with(Fixture::with_driver_encoding(
+        0x07,
+        0x4000,
+        unknown_encapsulation,
+    ));
+    let image = case.image();
+    let report = analysis::scan(&image, &case.catalog, Some(synthetic::FIRMWARE));
+    let entry = report.patches.iter().find(|p| p.id == "DG").unwrap();
+    assert_eq!(entry.state, State::Unsupported, "{entry:?}");
+    assert!(
+        entry.detail.contains(
+            "GUID-defined section 01234567-89AB-CDEF-0123-456789ABCDEF at 0x1060: expected an LZMA"
+        ),
+        "{entry:?}"
+    );
+}

@@ -604,6 +604,44 @@ fn decode_only_encodings_are_inspected_extracted_and_never_rebuilt() {
 }
 
 #[test]
+fn opaque_sections_are_reported_with_guid_and_offset() {
+    use biosmod_core::synthetic::{DXE_GUID, ffs, guid_defined_section, volume};
+    let sandbox = Sandbox::new();
+    let unknown = biosmod_core::util::Guid::constant("01234567-89AB-CDEF-0123-456789ABCDEF");
+    let image = sandbox.path("opaque.bin");
+    let file = ffs(
+        DXE_GUID,
+        0x07,
+        &guid_defined_section(unknown, &[1, 2, 3, 4]),
+        0,
+    );
+    fs::write(&image, volume(&[file], 0x4000)).unwrap();
+    let reason = "GUID-defined section 01234567-89AB-CDEF-0123-456789ABCDEF at 0x60: expected an LZMA, LZMA F86, Brotli or CRC32 GUID | received an unsupported encoding";
+
+    let inspect = sandbox
+        .run(["inspect", s(&image), "--files", "--json"])
+        .json();
+    let row = &inspect["data"]["volumes"][0]["files"][0];
+    assert_eq!(row["opaque"], true, "{row}");
+    assert_eq!(row["opaque_sections"], serde_json::json!([reason]), "{row}");
+    let text = sandbox.run(["inspect", s(&image), "--files"]).stdout;
+    assert!(text.contains(reason), "expected the reason in {text}");
+
+    let extracted = sandbox.run([
+        "extract",
+        s(&image),
+        "--guid",
+        &DXE_GUID.to_string(),
+        "-o",
+        s(&sandbox.path("out.pe")),
+        "--json",
+    ]);
+    assert_eq!(extracted.error_code(), "FORMAT_UNSUPPORTED");
+    let message = extracted.json()["error"]["message"].to_string();
+    assert!(message.contains(reason), "{message}");
+}
+
+#[test]
 fn capabilities_list_decode_only_encodings() {
     let sandbox = Sandbox::new();
     let formats = sandbox.run(["capabilities", "--json"]).json()["data"]["formats"].clone();

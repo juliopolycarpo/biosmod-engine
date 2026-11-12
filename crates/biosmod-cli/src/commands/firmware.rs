@@ -72,7 +72,7 @@ pub fn inspect(args: &InspectArgs) -> Result<Reply> {
                 let compressed = image.leaves.get(&file.guid).is_some_and(|l| l.iter().any(|leaf| leaf.volume == v && leaf.file == f && leaf.compressed));
                 json!({
                     "offset": file.offset, "guid": file.guid, "type": file.kind, "attributes": file.attributes,
-                    "size": file.size, "name": image.ui_name(v, f), "compressed": compressed, "encodings": file.encodings().iter().map(|e| e.tag()).collect::<Vec<_>>(), "opaque": file.opaque,
+                    "size": file.size, "name": image.ui_name(v, f), "compressed": compressed, "encodings": file.encodings().iter().map(|e| e.tag()).collect::<Vec<_>>(), "opaque": file.opaque, "opaque_sections": file.opaque_sections(),
                 })
             })
             .collect();
@@ -111,6 +111,9 @@ pub fn inspect(args: &InspectArgs) -> Result<Reply> {
                     file.size,
                     row["name"].as_str().unwrap_or("")
                 );
+                for line in file.opaque_sections() {
+                    let _ = writeln!(text, "      opaque: {line}");
+                }
             }
         }
         volumes.push(json!({
@@ -1106,13 +1109,15 @@ fn find_leaf(image: &Image, guid: Guid, kind: LeafKind) -> Result<(firmware::Lea
         } else {
             Code::TargetNotFound
         };
-        return Err(Error::new(
-            code,
-            format!(
-                "GUID {guid}: expected one {kind:?} leaf | received {}",
-                hits.len()
-            ),
-        ));
+        let mut message = format!(
+            "GUID {guid}: expected one {kind:?} leaf | received {}",
+            hits.len()
+        );
+        // Say which encapsulation hides the module and where it sits.
+        for line in image.opaque_sections_of(guid) {
+            message.push_str(&format!(" | {line}"));
+        }
+        return Err(Error::new(code, message));
     }
     Ok(hits.into_iter().next().expect("one hit"))
 }

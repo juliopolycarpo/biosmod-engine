@@ -165,6 +165,8 @@ pub struct Section {
     pub place: String,
     /// GUID of a GUID-defined section.
     pub guid: Option<Guid>,
+    /// Why an encapsulation was left opaque, as `expected X | received Y`.
+    pub diagnostic: Option<String>,
     /// Payload start, relative to the section, for GUID-defined and compression sections.
     pub data_offset: usize,
     /// Set for every encapsulation this engine decodes.
@@ -197,6 +199,21 @@ impl Section {
     pub fn is_opaque(&self) -> bool {
         self.decoded.is_none()
             && (self.kind == SECTION_COMPRESSION || self.kind == SECTION_GUID_DEFINED)
+    }
+
+    /// One line naming an opaque section, its GUID, its place and why it is opaque.
+    ///
+    /// Example: `if let Some(line) = section.opaque_description() { eprintln!("{line}"); }`
+    pub fn opaque_description(&self) -> Option<String> {
+        if !self.is_opaque() {
+            return None;
+        }
+        let what = match self.guid {
+            Some(guid) => format!("GUID-defined section {guid}"),
+            None => "compression section".to_string(),
+        };
+        let why = self.diagnostic.as_deref().unwrap_or("not decoded");
+        Some(format!("{what} at {}: {why}", self.place))
     }
 }
 
@@ -233,6 +250,17 @@ impl FfsFile {
             }
         });
         found
+    }
+
+    /// Descriptions of the file's opaque sections (see [`Section::opaque_description`]).
+    ///
+    /// Example: `for line in file.opaque_sections() { println!("{line}"); }`
+    pub fn opaque_sections(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        visit(&self.sections, &[], &mut |section, _| {
+            lines.extend(section.opaque_description());
+        });
+        lines
     }
 
     /// Header bytes, given the containing buffer.
@@ -371,6 +399,18 @@ impl Image {
             sections = &section.decoded.as_ref()?.children;
         }
         None
+    }
+
+    /// Opaque-section descriptions of every file with `guid`.
+    ///
+    /// Example: `for line in image.opaque_sections_of(guid) { eprintln!("{line}"); }`
+    pub fn opaque_sections_of(&self, guid: Guid) -> Vec<String> {
+        self.volumes
+            .iter()
+            .flat_map(|volume| &volume.files)
+            .filter(|file| file.guid == guid)
+            .flat_map(FfsFile::opaque_sections)
+            .collect()
     }
 
     /// The leaf section's body.
@@ -733,6 +773,7 @@ fn parse_stream(
             header_size,
             place: origin.at(offset),
             guid: None,
+            diagnostic: None,
             data_offset: 0,
             decoded: None,
             encoding: None,
@@ -842,6 +883,10 @@ fn decode_compression_section(
     }
     let declared = le32(raw, h, "compression section decoded length")? as usize;
     if raw[h + 4] != 1 {
+        section.diagnostic = Some(format!(
+            "expected compression type 1 | received type {}",
+            raw[h + 4]
+        ));
         return Ok(Vec::new());
     }
     section.data_offset = h + 5;
@@ -899,7 +944,13 @@ fn decode_guid_defined_section(
         LZMA_F86_GUID => Encoding::LzmaX86,
         BROTLI_GUID => Encoding::Brotli,
         CRC32_GUID => Encoding::Crc32,
-        _ => return Ok(Vec::new()),
+        _ => {
+            section.diagnostic = Some(
+                "expected an LZMA, LZMA F86, Brotli or CRC32 GUID | received an unsupported encoding"
+                    .to_string(),
+            );
+            return Ok(Vec::new());
+        }
     };
     if data_offset < h + 20 || data_offset > raw.len() {
         return Err(Error::new(
@@ -1196,6 +1247,33 @@ mod encoding_tests {
         let unknown = Guid::constant("01234567-89AB-CDEF-0123-456789ABCDEF");
         let image = parse_one(&guid_defined_section(unknown, &[1, 2, 3, 4])).expect("parses");
         assert!(image.volumes[0].files[0].opaque);
+    }
+
+    #[test]
+    fn opaque_sections_report_their_guid_and_image_offset() {
+        let unknown = Guid::constant("01234567-89AB-CDEF-0123-456789ABCDEF");
+        let image = parse_one(&guid_defined_section(unknown, &[1, 2, 3, 4])).expect("parses");
+        assert_eq!(
+            image.volumes[0].files[0].opaque_sections(),
+            [
+                "GUID-defined section 01234567-89AB-CDEF-0123-456789ABCDEF at 0x60: expected an LZMA, LZMA F86, Brotli or CRC32 GUID | received an unsupported encoding"
+            ]
+        );
+    }
+
+    #[test]
+    fn opaque_compression_sections_report_their_type() {
+        let image = parse_one(&compression_section(2, 4, &[0; 8])).expect("parses");
+        assert_eq!(
+            image.volumes[0].files[0].opaque_sections(),
+            ["compression section at 0x60: expected compression type 1 | received type 2"]
+        );
+    }
+
+    #[test]
+    fn decoded_sections_are_not_reported_as_opaque() {
+        let image = parse_one(&lzma_section(&raw_stream())).expect("parses");
+        assert!(image.volumes[0].files[0].opaque_sections().is_empty());
     }
 
     #[test]
