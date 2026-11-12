@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "276fe0711166dfab762fac03e28e3456826f50c51445d46326545dd7c726ba28"
+      "sha256": "298030cb1ecafefcbb5adae108c97821ea5c2d1a0d29efaeaad4c144d4c25702"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -14,7 +14,7 @@
     {
       "source": "docs/architecture.md",
       "translation": "docs/pt-BR/architecture.md",
-      "sha256": "be38734564248fff7f1a5b4124fd18797d2824bf477bb60ebe48a2fea0c1cafb"
+      "sha256": "a716bd60631f70cd07fdd97fa18caab32fdd5da153131ed3cf71fbcfdac38317"
     },
     {
       "source": "docs/baseline.md",
@@ -24,7 +24,7 @@
     {
       "source": "docs/formats.md",
       "translation": "docs/pt-BR/formats.md",
-      "sha256": "9137389f9f8e047d0f584f66c813479ed54a799defd45630b8c22006e8eba397"
+      "sha256": "f50b6bb733b4b40ba0ffebdb958cdb9104fef07bdfa34a5394fc1032df3bc17e"
     },
     {
       "source": "docs/guide/agents.md",
@@ -80,6 +80,11 @@
       "source": "docs/linux-desktop-qualification.md",
       "translation": "docs/pt-BR/linux-desktop-qualification.md",
       "sha256": "3a7339d1c17ef092c003cf114080da499e3f33b024fe3c1df9d251eb621c4aa8"
+    },
+    {
+      "source": "docs/guide/ifr.md",
+      "translation": "docs/pt-BR/guide/ifr.md",
+      "sha256": "c29fbc4ffef14aad7bb5dd27ce6d3e2288bf1e493e2c589337af6773ac0d1e55"
     }
   ]
 }

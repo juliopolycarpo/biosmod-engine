@@ -11,6 +11,7 @@ English | [Brazilian Portuguese](pt-BR/formats.md)
 | LZMA | decode bounded to 64 MiB per section and 512 MiB per image; re-encoding reproduces the original properties and is checked by decoding |
 | ACPI | DSDT inside a raw section (`leaf: acpi-table`), table checksum maintained by the hunk itself |
 | PE32/PE32+ | section tables, image base, base relocations, direct branch fields (for signature masking) |
+| HII / IFR | package lists in PE, TE or raw bytes (`bme ifr`): string packages (SCSU, UCS-2) and form packages; read-only |
 | TE | executable-leaf matching and image-base checks; relocation coverage returns `FORMAT_UNSUPPORTED` |
 
 Limits: images up to 64 MiB, nesting depth 16, catalog files up to 8 MiB, 4096 files per catalog.

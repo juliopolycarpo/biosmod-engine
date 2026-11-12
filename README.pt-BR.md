@@ -82,6 +82,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 | Comando | Finalidade |
 |---|---|
 | `inspect` | regiões de descriptor, volumes e arquivos |
+| `ifr` | formulários do Setup: perguntas, offsets de varstore, opções, padrões e condições |
 | `scan` | versão detectada e cada estado de patch |
 | `patch`, `export`, `verify` | geração, receitas opcionais e verificação |
 | `extract`, `replace` | extrair um módulo e inserir o módulo editado |

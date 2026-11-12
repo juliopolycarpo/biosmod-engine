@@ -82,6 +82,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 | Command                                                            | Purpose                                                       |
 | ------------------------------------------------------------------ | ------------------------------------------------------------- |
 | `inspect`                                                          | descriptor regions, volumes and files                         |
+| `ifr`                                                              | Setup forms: questions, varstore offsets, options, defaults, conditions |
 | `scan`                                                             | detected build and every patch state                          |
 | `patch`, `export`, `verify`                                          | builds, optional recipes and verification                                 |
 | `extract`, `replace`                                               | one module out, an edited module back in                      |
@@ -99,6 +100,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 
 - [Architecture](docs/architecture.md): crates, data flow and safety checks
 - [Formats](docs/formats.md): supported firmware structures and limits
+- [Setup forms (IFR)](docs/guide/ifr.md): decode questions, offsets and defaults
 - [Protocol](docs/guide/agents.md), [trust](docs/guide/trust.md), [catalogs](docs/guide/catalogs.md), [recovery](docs/guide/recovery.md)
 - [Linux desktop qualification](docs/linux-desktop-qualification.md): tested environments and limits
 - [Desktop guide](docs/guide/gui.md): Linux setup and build workflow
