@@ -798,3 +798,58 @@ fn every_listed_stock_acpi_table_extracts_unchanged() {
         }
     }
 }
+
+/// The one EFI 1.1 compressed driver both stock dumps carry.
+const EFI_COMPRESSED_DRIVER: &str = "91B4D9C1-141C-4824-8D02-3C298E36EB3F";
+/// SHA-256 of its decoded PE32 image (211712 bytes), as extracted by `bme extract`.
+const EFI_COMPRESSED_DRIVER_SHA256: &str =
+    "1bd1e0bb5d85c706e2c266feae619a2de20a49688ca83ceb957b7eae65e0f0f4";
+
+#[test]
+fn stock_images_decode_their_efi_compressed_driver() {
+    for var in ["BME_ROM_MR9A", "BME_ROM_PR9"] {
+        let Some(input) = rom(var) else { continue };
+        let sandbox = Sandbox::new();
+        let inspect = sandbox
+            .run(["inspect", s(&input), "--files", "--json"])
+            .json();
+        let files: Vec<&serde_json::Value> = inspect["data"]["volumes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|v| v["files"].as_array().unwrap())
+            .collect();
+        let opaque = files.iter().filter(|f| f["opaque"] == true).count();
+        assert_eq!(
+            opaque, 0,
+            "({var} opaque files): expected 0 | received {opaque}"
+        );
+        let efi: Vec<&&serde_json::Value> = files
+            .iter()
+            .filter(|f| f["encodings"] == serde_json::json!(["efi"]))
+            .collect();
+        assert_eq!(
+            efi.len(),
+            1,
+            "({var} efi files): expected 1 | received {efi:?}"
+        );
+        assert_eq!(efi[0]["guid"], EFI_COMPRESSED_DRIVER);
+
+        let module = sandbox.path("driver.pe");
+        let extracted = sandbox
+            .run([
+                "extract",
+                s(&input),
+                "--guid",
+                EFI_COMPRESSED_DRIVER,
+                "-o",
+                s(&module),
+                "--json",
+            ])
+            .json();
+        assert_eq!(
+            extracted["data"]["sha256"], EFI_COMPRESSED_DRIVER_SHA256,
+            "{var}"
+        );
+    }
+}

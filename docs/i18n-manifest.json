@@ -14,7 +14,7 @@
     {
       "source": "docs/architecture.md",
       "translation": "docs/pt-BR/architecture.md",
-      "sha256": "963c80bf770894272e66794d43c7695a20420aa5106a8a2fbd88905fca75253c"
+      "sha256": "a1bf1e731bb6bc1f4a9f3d456a2628295916364d17465d80bc8a2a89ca2bc5c4"
     },
     {
       "source": "docs/baseline.md",
@@ -24,7 +24,7 @@
     {
       "source": "docs/formats.md",
       "translation": "docs/pt-BR/formats.md",
-      "sha256": "58a7fc9aa11df8bfe8c68b581101500659d4be3aa248797a049bef08cfd37a7b"
+      "sha256": "cbd67aa5f20781b9adafeea5a73d9e5719ca4cab876a3330d087f9c83457d855"
     },
     {
       "source": "docs/guide/agents.md",

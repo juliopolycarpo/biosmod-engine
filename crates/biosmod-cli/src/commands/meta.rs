@@ -125,12 +125,12 @@ pub fn capabilities() -> Reply {
         "documents": schema::NAMES.iter().map(|(name, id)| json!({"name": name, "schema": id})).collect::<Vec<_>>(),
         "formats": {
             "containers": ["Intel flash descriptor images", "bare BIOS regions", "EFI firmware volumes (FFS2/FFS3)"],
-            "sections": ["FV image", "GUID-defined LZMA (EE4E5898)", "GUID-defined CRC32 (FC1BCDB2)", "PE32", "TE", "raw", "UI"],
+            "sections": ["FV image", "GUID-defined LZMA (EE4E5898)", "GUID-defined CRC32 (FC1BCDB2)", "compression section type 01 (EFI 1.1 and Tiano, decode only)", "GUID-defined Brotli (3D532050, decode only)", "GUID-defined LZMA F86 (D42AE6BD, decode only)", "PE32", "TE", "raw", "UI"],
             "leaves": ["pe32", "acpi-table"],
             "variable_stores": ["AMI NVAR (records, chains, GUID table, StdDefaults/MfgDefaults)", "EDK II VSS/VSS2 and $VSS (plain and authenticated headers); read-only"],
             "acpi_inventory": "checksum-valid ACPI tables in PE32, TE and raw sections (stored set, not the runtime-published set)",
-            "rebuild": ["equal-size and appended hunks", "LZMA re-encoding byte-identical to liblzma", "free-space file reflow; XIP files never move"],
-            "unsupported": ["compression sections (type 01: EFI standard, Tiano)", "other GUID-defined encodings such as Brotli", "capsule and signed update formats", "moving execute-in-place files"]
+            "rebuild": ["equal-size and appended hunks", "LZMA re-encoding byte-identical to liblzma (the only encoding rebuilt)", "free-space file reflow; XIP files never move"],
+            "unsupported": ["rebuilding modules inside EFI 1.1, Tiano, Brotli or LZMA F86 sections (FORMAT_UNSUPPORTED)", "compression sections of other types", "other GUID-defined encodings", "Insyde and Phoenix vendor variants", "capsule and signed update formats", "moving execute-in-place files"]
         },
         "limits": {"image_bytes": crate::commands::MAX_IMAGE_BYTES, "catalog_file_bytes": biosmod_core::catalog::MAX_FILE_BYTES, "catalog_files": biosmod_core::catalog::MAX_FILES},
         "verification_required_checks": super::firmware::REQUIRED_VERIFICATION_CHECKS,

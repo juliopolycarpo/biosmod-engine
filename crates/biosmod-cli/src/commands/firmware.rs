@@ -72,7 +72,7 @@ pub fn inspect(args: &InspectArgs) -> Result<Reply> {
                 let compressed = image.leaves.get(&file.guid).is_some_and(|l| l.iter().any(|leaf| leaf.volume == v && leaf.file == f && leaf.compressed));
                 json!({
                     "offset": file.offset, "guid": file.guid, "type": file.kind, "attributes": file.attributes,
-                    "size": file.size, "name": image.ui_name(v, f), "compressed": compressed, "opaque": file.opaque,
+                    "size": file.size, "name": image.ui_name(v, f), "compressed": compressed, "encodings": file.encodings().iter().map(|e| e.tag()).collect::<Vec<_>>(), "opaque": file.opaque,
                 })
             })
             .collect();
@@ -92,14 +92,16 @@ pub fn inspect(args: &InspectArgs) -> Result<Reply> {
         );
         if args.files {
             for (file, row) in volume.files.iter().zip(&files) {
-                let flags = [
-                    (row["compressed"] == true, " lzma"),
-                    (file.opaque, " opaque"),
-                ]
-                .iter()
-                .filter(|(on, _)| *on)
-                .map(|(_, s)| *s)
-                .collect::<String>();
+                // One flag per compressed encoding, then `opaque`; CRC32 wrappers are not compression.
+                let mut flags: String = file
+                    .encodings()
+                    .iter()
+                    .filter(|e| e.is_compressed())
+                    .map(|e| format!(" {}", e.tag()))
+                    .collect();
+                if file.opaque {
+                    flags += " opaque";
+                }
                 let _ = writeln!(
                     text,
                     "  {:#09x} {} type {:#04x} size {:#8x} {}{flags}",
