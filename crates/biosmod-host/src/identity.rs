@@ -108,6 +108,21 @@ mod tests {
     }
 
     #[test]
+    fn read_dmi_fields_trims_values_and_returns_exactly_what_is_asked_for() {
+        let sysfs = FakeSysfs::mr9a()
+            .file("sys/class/dmi/id/bios_vendor", "  American Megatrends \n")
+            .file("sys/class/dmi/id/product_serial", "SECRET\n");
+        let files = sysfs.files();
+        let fields = read_dmi_fields(&files, &["bios_vendor"]);
+        assert_eq!(
+            fields.into_iter().collect::<Vec<_>>(),
+            [("bios_vendor", "American Megatrends".to_string())],
+            "(read_dmi_fields): expected one trimmed field and nothing unrequested"
+        );
+        assert!(read_dmi_fields(&files, &[]).is_empty());
+    }
+
+    #[test]
     fn a_missing_boot_id_names_the_file() {
         let sysfs = FakeSysfs::new().file("proc/sys/kernel/osrelease", "7.0\n");
         let error = HostIdentity::read(&sysfs.files()).unwrap_err();
