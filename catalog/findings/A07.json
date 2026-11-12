@@ -1,0 +1,35 @@
+{
+  "schema": "bme.finding/1",
+  "id": "A07",
+  "title": "SIO and PCI helpers run unowned after an ignored Acquire timeout",
+  "priority": "P2",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "DSDT SIO ENFG / PCI helpers",
+    "modules": [
+      {
+        "ui_name": "DSDT",
+        "ffs_guid": "7E374E25-8E01-4FEE-87F2-390C23C606CD"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "conditional"
+    }
+  },
+  "description": "ACPICA contention reproduces unowned I/O and releases after an ignored Acquire timeout. PCI readers also evaluate returned fields after Release.",
+  "not_established": "A physical trigger is unobserved.",
+  "remediation": "Separate per-board ownership-wait and read-order DSDT patch after an acyclic lock-graph review. C1 local, C2 OS/physical. Grows 11 bytes; namespace and handler assumptions are explicit.",
+  "patches": [
+    "A07"
+  ]
+}

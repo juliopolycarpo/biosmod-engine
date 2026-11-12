@@ -8,6 +8,9 @@
   "findings": [
     "S01"
   ],
+  "fixes": [
+    "S01"
+  ],
   "confidence": {
     "findings": {
       "S01": "C2"

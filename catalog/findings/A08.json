@@ -1,0 +1,30 @@
+{
+  "schema": "bme.finding/1",
+  "id": "A08",
+  "title": "DSDT copy and scan loops lack bounds",
+  "priority": "P3",
+  "status": "open",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "AcpiPlatform DSDT load/patch"
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "code"
+    },
+    "condition": {
+      "grade": "C1",
+      "note": "condition"
+    }
+  },
+  "description": "When a DSDT is already installed, its contents are copied over the newly read FV DSDT buffer using the installed table's length, with no destination bound. Both DSDT scan loops run while ptr <= table+Length and read up to 4 (token scan) or 7 (CPU-marker scan) bytes past the end, writing on a chance match.",
+  "not_established": "No trigger was observed.",
+  "remediation": "Bound the copy to the destination size and end the scans at Length-4 and Length-7. No candidate yet. The current A03 and A07 DSDTs keep both tables the same size and leave every patch token unchanged."
+}

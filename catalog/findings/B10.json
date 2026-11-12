@@ -1,0 +1,46 @@
+{
+  "schema": "bme.finding/1",
+  "id": "B10",
+  "title": "Sx exit handlers are registered, then called on entry with Phase 0",
+  "priority": "P2",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "PchSmiDispatcher Sx registration/comparison",
+    "modules": [
+      {
+        "ui_name": "PchSmiDispatcher",
+        "ffs_guid": "B0D6ED53-B844-43F5-BD2F-61095264E77E"
+      }
+    ],
+    "references": [
+      {
+        "module": "PchSmiDispatcher",
+        "location": "Type-only comparator at RVA 45AC"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0"
+    }
+  },
+  "description": "The dispatcher accepts exit handlers, then calls them during entry with Phase 0 because the comparison ignores Phase.",
+  "not_established": "No real exit client or physical failure is established.",
+  "remediation": "Separate 34-byte-difference PE candidates return EFI_UNSUPPORTED for exit requests and free the unused record. C1 local, C2 physical validation. Entry and power-button controls pass.",
+  "evidence": [
+    "mr9a-breadcrumbs-no-gpu-2026-11-08",
+    "mr9a-breadcrumbs-no-ram-2026-11-08",
+    "mr9a-breadcrumbs-rev2-2026-11-08",
+    "mr9a-stage2-2026-11-08"
+  ],
+  "patches": [
+    "B10"
+  ]
+}

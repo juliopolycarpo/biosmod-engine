@@ -1,0 +1,44 @@
+{
+  "schema": "bme.finding/1",
+  "id": "B05",
+  "title": "General-reset veto missing from the wake and S3 classifiers",
+  "priority": "P1",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "PlatformEarlyInit + SBPEI",
+    "modules": [
+      {
+        "ui_name": "PlatformEarlyInit",
+        "ffs_guid": "EE685731-CFF3-4EE7-9388-7E63FC5A59B0"
+      },
+      {
+        "ui_name": "SBPEI",
+        "ffs_guid": "C1FBD624-27EA-40D1-AA48-94C3DC5C7E0D"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C1"
+    }
+  },
+  "description": "The wake and S3 classifiers omit the documented general-reset veto, so a stale S3 status selects resume after a general reset.",
+  "not_established": "Earlier SEC behavior is outside the patch.",
+  "remediation": "Two-module per-board GEN_RST guard candidates. C2 for the hardware repair.",
+  "evidence": [
+    "mr9a-breadcrumbs-no-gpu-2026-11-08",
+    "mr9a-breadcrumbs-no-ram-2026-11-08",
+    "mr9a-breadcrumbs-rev2-2026-11-08",
+    "mr9a-stage2-2026-11-08"
+  ],
+  "patches": [
+    "B05"
+  ]
+}

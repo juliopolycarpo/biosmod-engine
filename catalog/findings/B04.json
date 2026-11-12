@@ -1,0 +1,34 @@
+{
+  "schema": "bme.finding/1",
+  "id": "B04",
+  "title": "Page-aware SPD accessor caches the page before it is selected",
+  "priority": "P1",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "UncoreInitPeim page-aware accessor",
+    "modules": [
+      {
+        "ui_name": "UncoreInitPeim",
+        "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0"
+    }
+  },
+  "description": "The accessor updates its page cache before the selection and ignores an unapplied command, so later successful reads return wrong-page bytes as success.",
+  "not_established": "Initial DIMM recognition stays original; latency, loader behavior and ROM fit are untested.",
+  "remediation": "Native B01+B04+B06+B08 batches with per-DIMM witnesses, manager lifetime, SSA status and PEIM failure gates. C1 local, C2 physical. 18 local tests (252 cases) and 7 full-PEIM tests (118 cases).",
+  "patches": [
+    "B01-B04-B06-B08"
+  ]
+}

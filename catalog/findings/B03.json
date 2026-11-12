@@ -1,0 +1,40 @@
+{
+  "schema": "bme.finding/1",
+  "id": "B03",
+  "title": "Auto mode can parse SPD page 1 as the header",
+  "priority": "P1",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "UncoreInitPeim DDR4 detection/policy",
+    "modules": [
+      {
+        "ui_name": "UncoreInitPeim",
+        "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0"
+    }
+  },
+  "description": "In Auto, with no retained DDR4 knowledge, page-1 bytes can be parsed as the SPD header.",
+  "remediation": "Establish page 0 before discovery, including Auto. Same page candidates as B02, C1. Failed page commands remain B04.",
+  "evidence": [
+    "mr9a-breadcrumbs-no-gpu-2026-11-08",
+    "mr9a-breadcrumbs-no-ram-2026-11-08",
+    "mr9a-breadcrumbs-rev2-2026-11-08",
+    "mr9a-stage1-2026-11-08",
+    "mr9a-stage2-2026-11-08"
+  ],
+  "patches": [
+    "B02-B03"
+  ]
+}

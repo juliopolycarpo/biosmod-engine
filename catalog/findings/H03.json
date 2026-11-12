@@ -1,0 +1,29 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H03",
+  "title": "IntelSetup sets memory frequency 2400 on DDR4-2133 RDIMMs",
+  "priority": "P3",
+  "status": "open",
+  "affects": {
+    "label": "MR9A",
+    "builds": [
+      "mnx99mr9apro-230322"
+    ]
+  },
+  "owner": {
+    "description": "IntelSetup memory policy"
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "config"
+    },
+    "condition": {
+      "grade": "C3",
+      "note": "cause"
+    }
+  },
+  "description": "Active IntelSetup Data records (NVAR 67/97) set Memory Frequency 1248=13 (2400); the defaults are Auto. Enforce POR 1294=2 (Disabled) is the shipped default, so MRC does not limit frequency to the DIMM rating. Live dmidecode shows four Micron 36ASF2G72PZ-2G1A2 DDR4-2133 RDIMMs configured at 2400 MT/s, a 12.5% memory overclock. This fits training that stops at b7, OS freezes from memory errors and outcomes that change with any DIMM or GPU change: a stuck PEI boot writes no NVRAM, so only the hardware differs between attempts. The setting is stored in NVRAM, and a CMOS clear does not reset it (D01: NVRAM resets only on store damage).",
+  "not_established": "PR9 setup was not checked. The setting does not by itself explain community reports on default settings.",
+  "remediation": "Not the root cause: forced 2133 and unrelated desktop UDIMMs fail the same way. Keep as an aggravating condition."
+}

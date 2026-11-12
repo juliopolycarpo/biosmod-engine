@@ -1,0 +1,33 @@
+{
+  "schema": "bme.finding/1",
+  "id": "S02",
+  "title": "S3 callback clears PME_B0_EN after OS wake setup",
+  "priority": "P2",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "PR9 only",
+    "builds": [
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "OEMSmi S3 callback",
+    "modules": [
+      {
+        "ui_name": "OEMSmi",
+        "ffs_guid": "221F1D4F-034C-4BEA-B2BB-B7A9672B66D7"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C1"
+    }
+  },
+  "description": "The callback clears PME_B0_EN after OS wake setup, which can defeat the internal-controller wake policy. The exact bit clear is C0.",
+  "not_established": "The board's actual decoder is untested.",
+  "remediation": "Selective S3-only PE and v3 ROM experiments keep the common preparation and the S4/S5 behavior. C1 local policy, C2 physical wake. The changed LZMA properties fit the original slot. The broad v2 bypass stays historical, C3.",
+  "patches": [
+    "S02"
+  ]
+}

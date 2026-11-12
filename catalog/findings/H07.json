@@ -1,0 +1,30 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H07",
+  "title": "Super I/O table writes a nonexistent LDN1 and a reserved bit",
+  "priority": "P3",
+  "status": "wont-fix",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "NCT5532DPeiInit table",
+    "modules": [
+      {
+        "ui_name": "NCT5532DPeiInit",
+        "ffs_guid": "9029F23E-E1EE-40D1-9382-36DD61A63EAA"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0"
+    }
+  },
+  "description": "PR9 programs CR30/60/61/70 of LDN1, which the NCT5532D does not have. Both boards' CR2F mask BD also clears reserved bit 6. The writes are zero or no-ops in the documented model.",
+  "remediation": "Cleanup only; no change justified."
+}

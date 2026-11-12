@@ -8,6 +8,9 @@
   "findings": [
     "A07"
   ],
+  "fixes": [
+    "A07"
+  ],
   "confidence": {
     "findings": {
       "A07": "C0 conditional"

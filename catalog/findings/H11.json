@@ -1,0 +1,50 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H11",
+  "title": "Unbounded PCU mailbox and UBOX semaphore waits",
+  "priority": "P1",
+  "status": "open",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "UncoreInitPeim PCU mailbox and UBOX semaphore waits",
+    "modules": [
+      {
+        "ui_name": "UncoreInitPeim",
+        "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3"
+      }
+    ],
+    "references": [
+      {
+        "module": "UncoreInitPeim",
+        "location": "PCU mailbox waits ffe0a5dc and ffe05737"
+      },
+      {
+        "module": "UncoreInitPeim",
+        "location": "system-semaphore acquire ffe60a25"
+      },
+      {
+        "module": "UncoreInitPeim",
+        "location": "VCU mailbox ffe05aed"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "code"
+    },
+    "condition": {
+      "grade": "C3",
+      "note": "condition"
+    }
+  },
+  "description": "The PCU BIOS mailbox wait on 0A014090 bit 31 has no bound (ffe0a5dc, ffe05737; callers include B1 ffe11961 and the B7.12 task ffe13a13). The system-semaphore acquire in ffe60a25 (080240A8/AC bit 1 plus owner) and the VCU mailbox in ffe05aed (13004040) are unbounded too. The PCU keeps state across warm reset, so a PCU wedged by an OS freeze would hang MRC with the display frozen.",
+  "not_established": "Training failure itself halts with b7 frozen; a self-cycling loop needs an outside reset. Whether the failure cycles by itself or holds b7 still needs confirming from camera captures.",
+  "remediation": "Bound the mailbox waits and report a fatal error. No candidate."
+}

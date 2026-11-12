@@ -1,0 +1,33 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H01",
+  "title": "MR9A sets Super I/O TEST_MODE1",
+  "priority": "P2",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "MR9A",
+    "builds": [
+      "mnx99mr9apro-230322"
+    ]
+  },
+  "owner": {
+    "description": "NCT5532DPeiInit CR2F",
+    "modules": [
+      {
+        "ui_name": "NCT5532DPeiInit",
+        "ffs_guid": "9029F23E-E1EE-40D1-9382-36DD61A63EAA"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C1"
+    }
+  },
+  "description": "MR9A sets the documented TEST_MODE1 bit; a live successful-boot snapshot had it set. PR9 clears it.",
+  "not_established": "The intent, or a board workaround, is unknown.",
+  "remediation": "Existing one-byte MR9A clear candidate, C2. Pin functions and a real boot need validation.",
+  "patches": [
+    "H01"
+  ]
+}

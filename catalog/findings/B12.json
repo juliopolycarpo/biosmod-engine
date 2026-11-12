@@ -1,0 +1,42 @@
+{
+  "schema": "bme.finding/1",
+  "id": "B12",
+  "title": "MRC restore boot mode chosen from SbWarmResetVar alone",
+  "priority": "P3",
+  "status": "open",
+  "affects": {
+    "label": "MR9A only",
+    "builds": [
+      "mnx99mr9apro-230322"
+    ]
+  },
+  "owner": {
+    "description": "UncoreInitPeim boot-mode setup (ffe74117) with PchReset/SBPEI",
+    "modules": [
+      {
+        "ui_name": "UncoreInitPeim",
+        "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3"
+      }
+    ],
+    "references": [
+      {
+        "build": "mnx99mr9apro-230322",
+        "module": "UncoreInitPeim",
+        "location": "boot-mode setup at ffe74117"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "code"
+    },
+    "condition": {
+      "grade": "C3",
+      "note": "trigger"
+    }
+  },
+  "description": "MRC sets restore boot mode +220CC=1 whenever the NVRAM variable SbWarmResetVar (GUID B8CAFA84-4593-4AA9-AEF7-8E686EB07320) exists, without SBPEI's value (RWsI) and capsule-PPI checks. On that path MRC loads MemoryConfig* and skips the cold-training tasks. PchReset creates the variable only on a warm ResetSystem while CapsuleUpdateData exists; SBDXE deletes it later. A capsule cycle interrupted before SBDXE runs would leave every boot on the restore path, even across AC drain and CMOS clear.",
+  "not_established": "The live board has neither variable and fwupd has no history. PR9's MRC lacks this read, so it does not explain the shared failure.",
+  "remediation": "Require SBPEI's value and the capsule checks before choosing restore mode. No candidate."
+}

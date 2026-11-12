@@ -786,6 +786,7 @@ fn committed_schemas_match_the_types_and_the_official_catalog() {
     for (dir, name) in [
         ("boards", "board"),
         ("patches", "patch"),
+        ("findings", "finding"),
         ("evidence", "evidence"),
     ] {
         let validator =
@@ -805,6 +806,48 @@ fn committed_schemas_match_the_types_and_the_official_catalog() {
     }
     let shown = sandbox.run(["catalog", "show", "--json"]).json();
     assert_eq!(shown["data"]["sources"][0]["manifest"]["id"], "official");
+}
+
+/// Reads catalog files straight from a directory.
+struct CatalogDirectory(std::path::PathBuf);
+
+impl biosmod_core::catalog::FileSource for CatalogDirectory {
+    fn read(&self, path: &str, _limit: u64) -> biosmod_core::Result<Vec<u8>> {
+        fs::read(self.0.join(path)).map_err(|e| {
+            biosmod_core::Error::new(biosmod_core::Code::CatalogInvalid, format!("{path}: {e}"))
+        })
+    }
+}
+
+/// The official findings render to the six-column audit register and parse back unchanged.
+#[test]
+fn official_findings_round_trip_through_the_register_table() {
+    use biosmod_core::catalog::{Catalog, Scope};
+    use biosmod_core::register;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../catalog");
+    let catalog = Catalog::load(&CatalogDirectory(root), Scope::All).unwrap();
+    let findings: Vec<_> = catalog.findings.values().collect();
+    assert_eq!(findings.len(), 35, "every register row has a document");
+    let table = register::render(&findings);
+    let header = table.lines().next().unwrap();
+    assert_eq!(
+        header,
+        "| ID | Priority | Confidence | Board / owning code | Finding and status | Patch strategy / fix confidence |"
+    );
+    let rows = register::parse(&table).unwrap();
+    let expected: Vec<_> = findings.iter().map(|f| register::row(f)).collect();
+    assert_eq!(
+        rows, expected,
+        "(register): expected rows equal to the documents"
+    );
+    for finding in findings {
+        let cells = register::cells(finding);
+        assert!(
+            cells.iter().all(|c| !c.trim().is_empty()),
+            "finding {}: expected six non-empty register cells | received {cells:?}",
+            finding.id
+        );
+    }
 }
 
 #[cfg(target_os = "linux")]
