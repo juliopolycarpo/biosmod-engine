@@ -47,6 +47,11 @@ pub const GUIDES: &[(&str, &str, &str)] = &[
         include_str!("../../../../docs/guide/breadcrumbs.md"),
     ),
     (
+        "ifr",
+        "decoding Setup forms: question offsets, options, defaults, conditions",
+        include_str!("../../../../docs/guide/ifr.md"),
+    ),
+    (
         "ghidra",
         "installing and running the analysis toolchain",
         include_str!("../../../../docs/guide/ghidra.md"),
@@ -71,6 +76,7 @@ pub fn version() -> Reply {
 fn commands() -> Value {
     json!([
         {"name": "inspect", "writes": [], "network": false, "summary": "volumes, files, descriptor regions"},
+        {"name": "ifr", "writes": [], "network": false, "summary": "decode Setup forms (UEFI IFR): questions, varstore offsets, options, defaults, conditions"},
         {"name": "scan", "writes": [], "network": false, "summary": "firmware detection and patch states"},
         {"name": "plan", "writes": ["plan file"], "network": false, "summary": "compatibility command for saving a plan"},
         {"name": "export", "writes": ["patch recipe"], "network": false, "summary": "save an exact recipe for patch IDs or recommendations"},

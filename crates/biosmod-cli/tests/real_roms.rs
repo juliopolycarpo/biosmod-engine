@@ -123,3 +123,161 @@ fn stock_images_scan_as_their_builds() {
         );
     }
 }
+
+const SETUP_GUID: &str = "899407D7-99FE-43D8-9A21-79EC328CAC21";
+const SETUP_VARSTORE_GUID: &str = "EC87D643-EBA4-4BB5-A1E5-3F3E36B20DA9";
+
+/// Every statement of the Setup PE in the ROM named by `var`, decoded by `bme ifr --guid`.
+fn setup_statements(var: &str) -> Option<Vec<serde_json::Value>> {
+    let input = rom(var)?;
+    let run = Sandbox::new().run(["ifr", s(&input), "--guid", SETUP_GUID, "--json"]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    let doc = run.json();
+    let modules = doc["data"]["modules"].as_array().unwrap();
+    assert_eq!(modules.len(), 1, "({var} ifr): expected one module | {doc}");
+    let statements = modules[0]["package_lists"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|list| list["form_sets"].as_array().unwrap())
+        .flat_map(|set| set["forms"].as_array().unwrap())
+        .flat_map(|form| form["statements"].as_array().unwrap().clone())
+        .collect();
+    Some(statements)
+}
+
+/// The only statement with `prompt` and `kind`, panicking with the match count otherwise.
+fn only<'a>(
+    statements: &'a [serde_json::Value],
+    prompt: &str,
+    kind: &str,
+) -> &'a serde_json::Value {
+    let hits: Vec<_> = statements
+        .iter()
+        .filter(|s| s["prompt"] == prompt && s["kind"] == kind)
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "(ifr {kind} {prompt:?}): expected one statement | received {}",
+        hits.len()
+    );
+    hits[0]
+}
+
+fn option_values(question: &serde_json::Value) -> Vec<u64> {
+    question["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["value"].as_u64().unwrap())
+        .collect()
+}
+
+#[test]
+fn pr9_setup_sleep_state_offers_only_suspend_disabled() {
+    let Some(statements) = setup_statements("BME_ROM_PR9") else {
+        return;
+    };
+    let sleep = only(&statements, "ACPI Sleep State", "one_of");
+    assert_eq!(sleep["varstore"]["name"], "Setup");
+    assert_eq!(sleep["varstore"]["guid"], SETUP_VARSTORE_GUID);
+    assert_eq!(sleep["var_offset"], 0x0A);
+    assert_eq!(sleep["width"], 2);
+    assert_eq!(option_values(sleep), [0]);
+    let option = &sleep["options"][0];
+    assert_eq!(option["label"], "Suspend Disabled");
+    assert_eq!(option["standard_default"], true);
+    assert_eq!(option["manufacturing_default"], true);
+    let conditions: Vec<(&str, &str)> = sleep["conditions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| {
+            (
+                c["kind"].as_str().unwrap(),
+                c["expression"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        conditions,
+        [
+            ("suppress_if", "ideqval 0x17 == 1"),
+            ("gray_out_if", "ideqval 0xd3 == 1")
+        ]
+    );
+}
+
+#[test]
+fn mr9a_setup_sleep_state_offers_suspend_s1_and_s3() {
+    let Some(statements) = setup_statements("BME_ROM_MR9A") else {
+        return;
+    };
+    let sleep = only(&statements, "ACPI Sleep State", "one_of");
+    assert_eq!(sleep["varstore"]["name"], "Setup");
+    assert_eq!(sleep["var_offset"], 0x2A);
+    assert_eq!(sleep["width"], 2);
+    assert_eq!(option_values(sleep), [0, 1, 2]);
+    assert_eq!(sleep["options"][2]["standard_default"], true);
+    assert_eq!(sleep["options"][2]["manufacturing_default"], true);
+}
+
+#[test]
+fn setup_hibernation_checkbox_keeps_its_explicit_default_opcodes() {
+    for (var, offset) in [("BME_ROM_PR9", 0x0D), ("BME_ROM_MR9A", 0x2D)] {
+        let Some(statements) = setup_statements(var) else {
+            continue;
+        };
+        let hibernation = only(&statements, "Enable Hibernation", "check_box");
+        assert_eq!(hibernation["var_offset"], offset, "({var})");
+        assert_eq!(hibernation["width"], 1, "({var})");
+        let defaults: Vec<(u64, u64)> = hibernation["defaults"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| {
+                (
+                    d["default_id"].as_u64().unwrap(),
+                    d["value"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(defaults, [(0, 1), (1, 1)], "({var})");
+    }
+}
+
+#[test]
+fn mr9a_setup_smart_fan_pwm_accepts_zero() {
+    let Some(statements) = setup_statements("BME_ROM_MR9A") else {
+        return;
+    };
+    let pwm = statements
+        .iter()
+        .find(|s| s["prompt"] == "Smart Fan PWM 1" && s["kind"] == "numeric")
+        .expect("(ifr): expected a Smart Fan PWM 1 question | received none");
+    assert_eq!(pwm["varstore"]["name"], "NCT5532D_SMF");
+    assert_eq!(pwm["var_offset"], 6);
+    assert_eq!(
+        (pwm["min"].as_u64(), pwm["max"].as_u64()),
+        (Some(0), Some(255))
+    );
+}
+
+#[test]
+fn stock_images_decode_every_setup_module_with_ifr() {
+    for var in ["BME_ROM_PR9", "BME_ROM_MR9A"] {
+        let Some(input) = rom(var) else { continue };
+        let doc = Sandbox::new().run(["ifr", s(&input), "--json"]).json();
+        let guids: Vec<&str> = doc["data"]["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["guid"].as_str().unwrap())
+            .collect();
+        assert!(
+            guids.contains(&SETUP_GUID),
+            "({var} ifr): expected {SETUP_GUID} in {guids:?}"
+        );
+    }
+}

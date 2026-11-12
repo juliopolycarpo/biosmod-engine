@@ -3,6 +3,7 @@
 mod catalog;
 mod diag;
 mod firmware;
+mod ifr;
 mod meta;
 
 use crate::config::{Config, Paths, io_error};
@@ -66,6 +67,7 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Schema { name } => meta::schema(name.as_deref()),
         Command::Guide { topic } => meta::guide(topic.as_deref()),
         Command::Inspect(args) => firmware::inspect(&args),
+        Command::Ifr(args) => ifr::run(&args),
         Command::Scan(args) => firmware::scan(&ctx, &args),
         Command::Plan(args) => firmware::plan(&ctx, &args),
         Command::Export(args) => firmware::export(&ctx, &args),
