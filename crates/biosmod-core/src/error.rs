@@ -38,12 +38,13 @@ pub enum Code {
     FlashRefused,
     FlashFailed,
     HostRefused,
+    HostFailed,
     Internal,
 }
 
 impl Code {
     /// Every code, in documentation order.
-    pub const ALL: [Code; 30] = [
+    pub const ALL: [Code; 31] = [
         Code::Usage,
         Code::Io,
         Code::CatalogInvalid,
@@ -73,6 +74,7 @@ impl Code {
         Code::FlashRefused,
         Code::FlashFailed,
         Code::HostRefused,
+        Code::HostFailed,
         Code::Internal,
     ];
 
@@ -108,6 +110,7 @@ impl Code {
             Code::FlashRefused => "FLASH_REFUSED",
             Code::FlashFailed => "FLASH_FAILED",
             Code::HostRefused => "HOST_REFUSED",
+            Code::HostFailed => "HOST_FAILED",
             Code::Internal => "INTERNAL",
         }
     }
@@ -167,6 +170,9 @@ impl Code {
             }
             Code::HostRefused => {
                 "a host diagnostic refused to run: the user, chip, board or request is outside what its safety rules cover; no configuration was changed (at most probe selectors were written)"
+            }
+            Code::HostFailed => {
+                "a host diagnostic ran and failed; its evidence bundle was still saved and the details name what the kernel or hardware reported"
             }
             Code::Internal => "an internal invariant failed; please report it",
         }
@@ -262,5 +268,6 @@ mod tests {
             refused.contains("no configuration was changed") && refused.contains("probe selectors"),
             "(HOST_REFUSED meaning): expected no configuration was changed and only probe selectors written | received {refused:?}"
         );
+        assert_eq!(Code::HostFailed.as_str(), "HOST_FAILED");
     }
 }
