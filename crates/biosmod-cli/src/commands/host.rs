@@ -178,7 +178,7 @@ mod tests {
         let out = tempfile::tempdir().unwrap();
         let target = out.path().join("capture");
         let error = capture(&sysfs(), &FakePrivilege::user(1000), &target).unwrap_err();
-        assert_eq!(error.code, Code::Io, "{error}");
+        assert_eq!(error.code, Code::HostRefused, "{error}");
         assert!(!target.exists());
     }
 }

@@ -27,7 +27,7 @@ const MAX_DEPTH: usize = 4;
 pub fn capture(host: &HostSurfaces) -> Result<Bundle> {
     if !host.privilege.is_root() {
         return Err(Error::new(
-            Code::Io,
+            Code::HostRefused,
             format!(
                 "diag acpi capture: expected effective user root | received {} (the tables are root-only; run as root)",
                 host.privilege
@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn refuses_non_root_before_reading_and_names_the_user() {
         let error = run(&host_with_tables(), &FakePrivilege::user(1000)).unwrap_err();
-        assert_eq!(error.code, Code::Io);
+        assert_eq!(error.code, Code::HostRefused);
         assert!(
             error
                 .message
