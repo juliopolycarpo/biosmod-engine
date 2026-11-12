@@ -60,7 +60,12 @@ pub fn evidence(spec: RecordSpec) -> Evidence {
         name: name.clone(),
         sha256: *sha256,
     }));
-    let mut runtime = BTreeMap::from([("python".to_string(), spec.versions.python.clone())]);
+    // The embedded package decides what the emulation does, so its digest is part of the record.
+    let mut runtime = BTreeMap::from([
+        ("python".to_string(), spec.versions.python.clone()),
+        ("bme".to_string(), biosmod_core::VERSION.to_string()),
+        ("bme_replay".to_string(), toolchain::replay_package_digest()),
+    ]);
     for (name, version) in &spec.versions.packages {
         if let Some(version) = version {
             runtime.insert(name.clone(), version.clone());

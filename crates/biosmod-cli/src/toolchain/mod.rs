@@ -14,6 +14,7 @@ mod status;
 mod tests;
 
 pub use archive::{Limits, extract_zip};
+pub use replay::package::digest as replay_package_digest;
 pub use replay::script::{ScriptOutput, ScriptRun};
 pub use replay::{ReplaySetupArgs, Versions};
 pub use runner::{Finished, Invocation, Runner, System};

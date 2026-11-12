@@ -56,12 +56,17 @@ fn the_record_lists_the_harness_then_the_modules_and_the_output_digest() {
 }
 
 #[test]
-fn runtime_lists_python_and_only_the_packages_that_have_a_version() {
+fn runtime_lists_python_bme_the_package_digest_and_only_the_packages_that_have_a_version() {
     let versions = versions();
     let replay = evidence(spec(&versions, "")).replay.unwrap();
     assert_eq!(
         replay.runtime,
         BTreeMap::from([
+            ("bme".to_string(), biosmod_core::VERSION.to_string()),
+            (
+                "bme_replay".to_string(),
+                crate::toolchain::replay_package_digest()
+            ),
             ("python".to_string(), "3.14.4".to_string()),
             ("unicorn".to_string(), "2.1.4".to_string()),
         ])
