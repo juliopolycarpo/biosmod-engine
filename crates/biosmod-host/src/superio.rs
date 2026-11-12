@@ -16,6 +16,11 @@
 //! 4. in the hardware monitor, the index register, and the bank register (restored
 //!    afterwards).
 //!
+//! `SIGINT`, `SIGTERM` and `SIGHUP` are held pending from the first entry key until the
+//! selectors are back (see [`crate::signals`]). `SIGKILL` cannot be blocked, and a release
+//! build aborts on panic without running destructors, so those two can still strand the
+//! chip; the fix is the exit key (`0xAA` to the index port) or a reboot.
+//!
 //! No fan, sensor or NVRAM register is ever written. The chip ID is read before
 //! anything but the index and the entry key has been written, so probing an address
 //! where no chip answers changes nothing beyond the entry key.
@@ -437,6 +442,9 @@ fn read_banks(
 ///
 /// Example: `read(&mut DevPort::open(...)?, builtin())?.chip_id == "0xc562"` on the MR9A.
 pub fn read(ports: &mut dyn PortIo, chips: &[ChipMap]) -> Result<SuperIoReading> {
+    // From the first entry key until the selectors are back, a stop signal would
+    // strand the chip in configuration mode or on another monitor bank.
+    let _held = crate::signals::SignalBlock::new();
     let mut tried: Vec<(u16, &ChipMap)> = Vec::new();
     for chip in chips {
         for port in &chip.config_ports {
@@ -789,6 +797,66 @@ mod tests {
             );
             assert_restored(&ports);
         }
+    }
+
+    /// Forwards to a fake and records every access made while a stop signal is not blocked.
+    #[cfg(unix)]
+    struct SignalSpy<P> {
+        inner: P,
+        unblocked_accesses: Vec<PortOp>,
+    }
+
+    #[cfg(unix)]
+    impl<P: PortIo> SignalSpy<P> {
+        fn check(&mut self, op: PortOp) {
+            if !crate::signals::is_blocked(libc::SIGINT)
+                || !crate::signals::is_blocked(libc::SIGTERM)
+            {
+                self.unblocked_accesses.push(op);
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    impl<P: PortIo> PortIo for SignalSpy<P> {
+        fn read(&mut self, port: u16) -> Result<u8> {
+            self.check(PortOp::Read(port));
+            self.inner.read(port)
+        }
+
+        fn write(&mut self, port: u16, value: u8) -> Result<()> {
+            self.check(PortOp::Write(port, value));
+            self.inner.write(port, value)
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_signals_are_held_for_every_port_access_and_released_afterwards() {
+        let mut spy = SignalSpy {
+            inner: FakeSuperIoPorts::mr9a_nct5532d(),
+            unblocked_accesses: Vec::new(),
+        };
+        read(&mut spy, builtin()).unwrap();
+        assert!(
+            spy.unblocked_accesses.is_empty(),
+            "(port accesses outside the signal block): expected none | received {:?}",
+            spy.unblocked_accesses
+        );
+        assert!(
+            !crate::signals::is_blocked(libc::SIGINT),
+            "(SIGINT): expected released after read"
+        );
+        // A failed read releases them too.
+        let mut failing = SignalSpy {
+            inner: FakeSuperIoPorts::mr9a_nct5532d().failing_hwm_read(3),
+            unblocked_accesses: Vec::new(),
+        };
+        read(&mut failing, builtin()).unwrap_err();
+        assert!(
+            !crate::signals::is_blocked(libc::SIGTERM),
+            "(SIGTERM): expected released after a failed read"
+        );
     }
 
     #[test]
