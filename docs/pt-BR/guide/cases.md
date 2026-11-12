@@ -12,7 +12,7 @@ drafts/firmware.json    versão de firmware não revisada, textos de identifica�
 findings/<id>.json      achados do caso (bme.finding/1); edite ou adicione os seus
 ```
 
-Os dumps são listados por nome de arquivo, SHA-256 e tamanho, e nunca são copiados para o caso. Nada em um caso nomeia um caminho da sua máquina.
+Os dumps são listados por nome de arquivo, SHA-256 e tamanho, e nunca são copiados para o caso. Nada em um caso nomeia um caminho da sua máquina: comandos e resultados registrados guardam só nomes-base (veja abaixo). Um caso é um diretório comum; o `bme` recusa um caso cujo `case.json`, `artifacts/`, `drafts/` ou `findings/` seja um link simbólico.
 
 ## Começar a partir de um dump
 
@@ -42,9 +42,17 @@ O `record` executa o comando dentro do `bme` e guarda:
 - o documento `--json` dele como `artifacts/NNN-<comando>.json`;
 - cada arquivo que ele cria, encontrado por `-o`/`--output` ou indicado com `--artifact CAMINHO` (repetível), como `artifacts/NNN-<nome do arquivo>`;
 - cada diretório que ele cria do mesmo modo, copiado inteiro como `artifacts/NNN-<nome do diretório>/`, com o SHA-256 e o tamanho de cada arquivo listados em `case.json`. Os nomes internos usam `A-Z a-z 0-9 . _ -` e não começam com ponto; links simbólicos são recusados;
-- em `case.json`, para cada artefato: o SHA-256 e o tamanho, os argumentos exatos, a versão do `bme`, o snapshot do catálogo, os digests de cada arquivo existente citado nos argumentos e o horário.
+- em `case.json`, para cada artefato: o SHA-256 e o tamanho, os argumentos, a versão do `bme`, o snapshot do catálogo, os digests de cada arquivo existente citado nos argumentos e o horário.
 
-Um comando que falha não registra nada. As saídas não podem existir antes de o comando rodar. O `case record` não se aninha. O mecanismo aceita qualquer subcomando do `bme`; comandos adicionados depois são registrados sem mudanças em `case`.
+O que um caso guarda não traz nenhum caminho da sua máquina. Toda palavra dos argumentos com separador de caminho, e o valor de toda palavra `--opção=valor`, é reduzida ao nome-base (`extract /home/eu/dump.bin -o saida/m.pe` vira `extract dump.bin -o m.pe`). No JSON guardado, caminhos absolutos dentro de textos encolhem para nomes-base do mesmo modo. Um caminho com espaços é cortado no primeiro espaço; por isso, evite espaços nos nomes dos dumps se os nomes dos diretórios importarem.
+
+As saídas não podem existir antes de o comando rodar. O `case record` não se aninha. O mecanismo aceita qualquer subcomando do `bme`; comandos adicionados depois são registrados sem mudanças em `case`.
+
+Um registro é tudo ou nada. Ele monta cada item em `artifacts/.stage`, move todos juntos logo antes de reescrever o `case.json` e os remove de novo se algo falhar. Um arquivo de trava, `.record.lock` no diretório do caso, impede dois registros do mesmo caso ao mesmo tempo; se uma execução morreu e o deixou, apague-o. Os artefatos novos são numerados acima da maior entrada de `artifacts/`, listada ou não.
+
+Um comando que falha não registra nada, com uma exceção: um comando `diag` que falha guarda o envelope de falha como artefato, junto com os arquivos de saída que já tinha escrito, e depois ainda falha com o próprio código de erro. Um diagnóstico que chega ao hardware e depois falha continua sendo evidência.
+
+Dois comandos são recusados dentro de um registro. O `flash backup` copiaria um dump inteiro do chip, com números de série e endereços MAC, para dentro do caso, e o `flash write` altera o chip. Execute-os fora do caso. Os demais comandos que tocam o hardware, como `diag breadcrumbs read`, se comportam como fora de um caso; o caso registra o que eles imprimiram.
 
 ## Verificar um caso
 
@@ -60,9 +68,10 @@ O `status` recalcula o hash de cada artefato e de cada entrada e informa:
 | `changed` | o arquivo existe com outros bytes; em um diretório, um arquivo difere ou foi acrescentado |
 | `missing` | o arquivo não existe |
 | `stale` | um artefato veio de outra versão do `bme` ou de outro snapshot de catálogo que o atual, ou de uma entrada diferente da do caso |
+| `unlisted` | uma entrada em `artifacts/` que o caso não lista: um arquivo solto, um `.stage` que sobrou |
 | achados | os documentos de achado em `findings/` e o status deles |
 
-`changed` ou `missing` encerra o comando com código de saída `1` e código de erro `CASE_DRIFT`; `error.details` traz o relatório completo, até os arquivos alterados, ausentes ou acrescentados de um artefato de diretório. Resultados `stale` não reprovam a verificação: registre-os de novo.
+`changed`, `missing` ou `unlisted` encerra o comando com código de saída `1` e código de erro `CASE_DRIFT`; `error.details` traz o relatório completo, até os arquivos alterados, ausentes ou acrescentados de um artefato de diretório. Resultados `stale` não reprovam a verificação: registre-os de novo.
 
 As entradas são encontradas pelo nome. `--input` aceita um arquivo, um diretório com os dumps ou `NOME=CAMINHO`. Um arquivo com nome diferente corresponde pelo digest. Sem `--input`, o `status` procura cada nome no diretório de trabalho e ao lado do diretório do caso. Use `--catalog` (e `--allow-unsigned-local`) para avaliar a obsolescência em relação a outro catálogo que não o oficial.
 
