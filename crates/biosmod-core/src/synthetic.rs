@@ -104,6 +104,116 @@ pub fn acpi(body: &[u8]) -> Vec<u8> {
     out
 }
 
+/// A checksum-valid ACPI table with a deterministic `payload_len`-byte payload.
+///
+/// OEM ID is `SYNTH`, creator is `BME`; `oem_table_id` is padded with NULs to 8 bytes.
+///
+/// Example: `let table = acpi_table(*b"SSDT", "InPe", 2, 40); assert_eq!(table.len(), 76);`
+pub fn acpi_table(
+    signature: [u8; 4],
+    oem_table_id: &str,
+    revision: u8,
+    payload_len: usize,
+) -> Vec<u8> {
+    let mut out = signature.to_vec();
+    out.extend_from_slice(&((36 + payload_len) as u32).to_le_bytes());
+    out.extend_from_slice(&[revision, 0]);
+    out.extend_from_slice(b"SYNTH\0");
+    let mut id = oem_table_id.as_bytes().to_vec();
+    id.resize(8, 0);
+    out.extend_from_slice(&id);
+    out.extend_from_slice(&7u32.to_le_bytes());
+    out.extend_from_slice(b"BME\0");
+    out.extend_from_slice(&1u32.to_le_bytes());
+    out.extend(module(signature[0] as usize, payload_len));
+    let sum = out.iter().fold(0u8, |acc, b| acc.wrapping_add(*b));
+    out[9] = sum.wrapping_neg();
+    out
+}
+
+/// Synthetic image whose files store ACPI tables in several places.
+///
+/// * `pe_guid` (UI name `PeHost`): a PE32 section with `pe_table` at `pe_offset`.
+/// * `raw_guid`: a raw section with `raw_table`, then a raw section with a bad-checksum decoy.
+/// * `mixed_guid`: one raw section holding `raw_table` and `pe_table` back to back.
+///
+/// Sections are 4-byte aligned, so each table length is a multiple of 4.
+///
+/// Example: `let fixture = AcpiInventoryFixture::new(); let image = fixture.image;`
+#[derive(Debug, Clone)]
+pub struct AcpiInventoryFixture {
+    pub image: Vec<u8>,
+    pub pe_table: Vec<u8>,
+    pub raw_table: Vec<u8>,
+    pub decoy: Vec<u8>,
+    pub pe_offset: usize,
+    pub pe_guid: Guid,
+    pub raw_guid: Guid,
+    pub mixed_guid: Guid,
+}
+
+impl AcpiInventoryFixture {
+    /// Build the image and keep the expected table bytes next to it.
+    ///
+    /// Example: `let fixture = AcpiInventoryFixture::new(); assert!(fixture.pe_offset > 0);`
+    pub fn new() -> AcpiInventoryFixture {
+        let pe_guid = PEIM_GUID;
+        let raw_guid = TABLE_GUID;
+        let mixed_guid = NEXT_GUID;
+        let pe_table = acpi_table(*b"SSDT", "InPe", 2, 60);
+        let raw_table = acpi_table(*b"SSDT", "InRaw", 1, 88);
+        let mut decoy = acpi_table(*b"SSDT", "Decoy", 1, 50);
+        let last = decoy.len() - 1;
+        decoy[last] ^= 0x01;
+        let pe_offset = 0x24;
+        let mut pe_body = module(5, pe_offset);
+        pe_body.extend(&pe_table);
+        pe_body.extend(module(6, 20));
+        let ui: Vec<u8> = "PeHost\0"
+            .encode_utf16()
+            .flat_map(|unit| unit.to_le_bytes())
+            .collect();
+        let files = [
+            ffs(
+                pe_guid,
+                0x07,
+                &[section(0x10, &pe_body), section(0x15, &ui)].concat(),
+                0,
+            ),
+            ffs(
+                raw_guid,
+                0x02,
+                &[section(0x19, &raw_table), section(0x19, &decoy)].concat(),
+                0,
+            ),
+            ffs(
+                mixed_guid,
+                0x02,
+                &section(0x19, &[&raw_table[..], &pe_table[..]].concat()),
+                0,
+            ),
+        ];
+        let mut image = vec![0xFF; 0x1000];
+        image.extend(volume(&files, 0x4000));
+        AcpiInventoryFixture {
+            image,
+            pe_table,
+            raw_table,
+            decoy,
+            pe_offset,
+            pe_guid,
+            raw_guid,
+            mixed_guid,
+        }
+    }
+}
+
+impl Default for AcpiInventoryFixture {
+    fn default() -> Self {
+        AcpiInventoryFixture::new()
+    }
+}
+
 /// A replace hunk with 16 bytes of context on each side.
 pub fn hunk(data: &[u8], offset: usize, after: &[u8]) -> Hunk {
     let end = offset + after.len();
