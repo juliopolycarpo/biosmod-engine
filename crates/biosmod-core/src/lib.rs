@@ -23,6 +23,7 @@ pub mod nvram;
 pub mod patch;
 pub mod plan;
 pub mod register;
+pub mod scenario;
 pub mod schema;
 pub mod smbios;
 pub mod synthetic;
