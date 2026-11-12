@@ -679,6 +679,9 @@ pub struct Evidence {
     /// What the running machine reported, for records made by `bme diag`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<HostObservation>,
+    /// The harness, runtime and digests of an emulated run (`bme replay`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay: Option<ReplayRun>,
 }
 
 /// Where and how a `bme diag` command observed the running machine.
@@ -696,6 +699,37 @@ pub struct HostObservation {
     pub kernel_release: String,
     /// SHA-256 of each artifact the record describes, by name.
     pub digests: BTreeMap<String, Digest256>,
+}
+
+/// How an emulated run produced an evidence record: enough to repeat it and to notice that
+/// an input or the runtime changed.
+///
+/// Example: a record from `bme replay script fan.py --module SioDxeInit.pe` lists `fan.py`
+/// and `SioDxeInit.pe` under `inputs` and the Unicorn version under `runtime`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReplayRun {
+    /// Harness script or scenario file name.
+    pub harness: String,
+    /// Scenario id when a `bme.scenario/1` document drove the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scenario: Option<String>,
+    /// Interpreter and package versions that ran it, by name.
+    pub runtime: BTreeMap<String, String>,
+    /// Every file the run read.
+    pub inputs: Vec<ReplayInput>,
+    /// SHA-256 of the JSON documents the run emitted, one per line.
+    pub output_sha256: Digest256,
+}
+
+/// One input file of a replay: its role, name and digest.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReplayInput {
+    /// `harness`, `scenario` or `module`.
+    pub role: String,
+    pub name: String,
+    pub sha256: Digest256,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

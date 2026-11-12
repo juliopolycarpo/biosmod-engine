@@ -744,6 +744,9 @@ fn evidence_record(
             evidence.board
         )));
     }
+    if let Some(run) = &evidence.replay {
+        replay_run(&at, run)?;
+    }
     for item in &evidence.patches {
         if let Some(patch) = catalog.patches.get(&item.id) {
             if patch.version < item.version {
@@ -762,9 +765,115 @@ fn evidence_record(
     Ok(())
 }
 
+/// The replay block of an evidence record: roles are known and something ran on something.
+///
+/// Example: an input with role `"sample"` fails with `expected harness | scenario | module`.
+fn replay_run(at: &str, run: &ReplayRun) -> Result<()> {
+    if run.harness.is_empty() {
+        return Err(invalid(format!(
+            "{at}: replay harness: expected a file name | received none"
+        )));
+    }
+    if run.runtime.is_empty() {
+        return Err(invalid(format!(
+            "{at}: replay runtime: expected versions | received none"
+        )));
+    }
+    if run.inputs.is_empty() {
+        return Err(invalid(format!(
+            "{at}: replay inputs: expected at least the harness | received none"
+        )));
+    }
+    for input in &run.inputs {
+        if !["harness", "scenario", "module"].contains(&input.role.as_str()) {
+            return Err(invalid(format!(
+                "{at}: replay input {}: role: expected harness | scenario | module | received {}",
+                input.name, input.role
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::Digest256;
+    use std::collections::BTreeMap;
+
+    fn run() -> ReplayRun {
+        ReplayRun {
+            harness: "fan.py".into(),
+            scenario: None,
+            runtime: BTreeMap::from([("unicorn".to_string(), "2.1.4".to_string())]),
+            inputs: vec![ReplayInput {
+                role: "harness".into(),
+                name: "fan.py".into(),
+                sha256: Digest256::of(b"fan"),
+            }],
+            output_sha256: Digest256::of(b""),
+        }
+    }
+
+    #[test]
+    fn a_complete_replay_block_is_accepted() {
+        replay_run("evidence x", &run()).expect("complete block");
+    }
+
+    #[test]
+    fn a_replay_block_without_inputs_names_the_gap() {
+        let mut broken = run();
+        broken.inputs.clear();
+        let error = replay_run("evidence x", &broken).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("replay inputs: expected at least the harness | received none"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_replay_block_without_runtime_versions_names_the_gap() {
+        let mut broken = run();
+        broken.runtime.clear();
+        let error = replay_run("evidence x", &broken).unwrap_err();
+        assert!(
+            error.message.contains("replay runtime: expected versions"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_input_role_names_the_role() {
+        let mut broken = run();
+        broken.inputs[0].role = "sample".into();
+        let error = replay_run("evidence x", &broken).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("role: expected harness | scenario | module | received sample"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn an_evidence_record_with_a_replay_block_round_trips_strictly() {
+        let text = serde_json::json!({
+            "schema": EVIDENCE_SCHEMA, "id": "replay-fan", "kind": "offline-validation",
+            "date": "2026-11-12", "title": "t", "board": "unscoped", "firmware": "unscoped",
+            "patches": [], "observations": [], "limits": "emulated",
+            "replay": run(),
+        });
+        let parsed: Evidence = serde_json::from_value(text).expect("record parses");
+        assert_eq!(parsed.replay.expect("replay block").harness, "fan.py");
+        let extra = serde_json::json!({
+            "schema": EVIDENCE_SCHEMA, "id": "x", "kind": "offline-validation", "date": "2026-11-12",
+            "title": "t", "board": "b", "firmware": "f", "patches": [], "observations": [],
+            "limits": "l", "replay": {"harness": "h", "mystery": 1},
+        });
+        assert!(serde_json::from_value::<Evidence>(extra).is_err());
+    }
 
     #[test]
     fn paths_reject_escapes_and_hidden_components() {
