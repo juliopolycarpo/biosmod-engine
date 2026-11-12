@@ -476,6 +476,8 @@ pub struct ScanReport {
     pub patches: Vec<PatchReport>,
     /// Open findings recorded for the detected build, most urgent first.
     pub findings: Vec<FindingReport>,
+    /// Defect-class detector results on this image, whatever the build.
+    pub detectors: Vec<crate::detect::DetectorReport>,
     /// Plannable tier-recommended corrections.
     pub recommended: Vec<String>,
 }
@@ -857,6 +859,7 @@ pub fn scan(image: &Image, catalog: &Catalog, firmware: Option<&str>) -> ScanRep
         detection,
         patches,
         findings,
+        detectors: crate::detect::run_all(image, catalog),
         recommended,
     }
 }

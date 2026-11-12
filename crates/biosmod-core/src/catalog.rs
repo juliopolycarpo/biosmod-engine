@@ -530,6 +530,90 @@ pub struct Owner {
     pub references: Vec<CodeReference>,
 }
 
+/// The kind of firmware module a detector searches, by FFS file type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModuleKind {
+    /// PEI core and PEIMs.
+    Peim,
+    /// DXE core and DXE drivers.
+    Dxe,
+    /// SMM drivers and the SMM core.
+    Smm,
+}
+
+/// Where a detector looks: the module bytes its signatures run over.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "in", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum Anchor {
+    /// The PE32 or TE image of every module, optionally limited to one kind or one FFS GUID.
+    Pe32 {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        module_kind: Option<ModuleKind>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ffs_guid: Option<Guid>,
+    },
+    /// The DSDT held in a RAW section of any file.
+    Dsdt,
+}
+
+/// A byte pattern with wildcards for addresses and displacements.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Pattern {
+    pub bytes: HexBytes,
+    /// Indices into `bytes` that match any value.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wild: Vec<usize>,
+}
+
+/// One code shape of a defect, with the shape its correction leaves behind.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Signature {
+    pub label: String,
+    /// The defective code.
+    pub defect: Pattern,
+    /// The corrected code, when the catalog has a patch that produces it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed: Option<Pattern>,
+}
+
+/// How many defect sites one module is expected to hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Expect {
+    #[serde(default = "one")]
+    pub min_per_module: u32,
+    #[serde(default = "one")]
+    pub max_per_module: u32,
+}
+
+fn one() -> u32 {
+    1
+}
+
+impl Default for Expect {
+    fn default() -> Self {
+        Expect {
+            min_per_module: 1,
+            max_per_module: 1,
+        }
+    }
+}
+
+/// A defect-class detector: signatures that find a finding's code in any build.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Detector {
+    pub id: String,
+    pub title: String,
+    pub anchor: Anchor,
+    pub signatures: Vec<Signature>,
+    #[serde(default)]
+    pub expect: Expect,
+}
+
 /// A defect or observation found in firmware, independent of any patch.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -555,6 +639,9 @@ pub struct Finding {
     /// Patches that fix it; the same patches list this id in `fixes`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub patches: Vec<String>,
+    /// Signatures that find the defect in builds with no recorded variant.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub detectors: Vec<Detector>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

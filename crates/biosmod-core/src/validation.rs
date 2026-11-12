@@ -328,6 +328,73 @@ fn finding_record(
             }
         }
     }
+    unique(
+        finding.detectors.iter().map(|d| d.id.as_str()),
+        &format!("{at} detectors"),
+    )?;
+    for detector in &finding.detectors {
+        detector_record(detector, &format!("{at} detector {}", detector.id))?;
+    }
+    Ok(())
+}
+
+/// Check one detector: identifier, signatures, wildcard indices and match counts.
+fn detector_record(detector: &Detector, at: &str) -> Result<()> {
+    identifier(&detector.id, &format!("{at} id"))?;
+    if detector.title.trim().is_empty() {
+        return Err(invalid(format!("{at}: title must not be empty")));
+    }
+    if detector.signatures.is_empty() {
+        return Err(invalid(format!(
+            "{at}: signatures expects at least one signature | received none"
+        )));
+    }
+    let expect = detector.expect;
+    if expect.max_per_module == 0 || expect.min_per_module > expect.max_per_module {
+        return Err(invalid(format!(
+            "{at}: expect expects 1 <= max_per_module and min_per_module <= max_per_module | received min {} max {}",
+            expect.min_per_module, expect.max_per_module
+        )));
+    }
+    unique(
+        detector.signatures.iter().map(|s| s.label.as_str()),
+        &format!("{at} signature labels"),
+    )?;
+    for signature in &detector.signatures {
+        let at = format!("{at} signature {:?}", signature.label);
+        identifier(&signature.label, &format!("{at} label"))?;
+        pattern_record(&signature.defect, &format!("{at} defect"))?;
+        if let Some(fixed) = &signature.fixed {
+            pattern_record(fixed, &format!("{at} fixed"))?;
+            if fixed.bytes.0 == signature.defect.bytes.0 && fixed.wild == signature.defect.wild {
+                return Err(invalid(format!(
+                    "{at}: fixed expects a pattern different from defect | received an identical pattern"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A pattern needs bytes, and every wildcard index must fall inside them once.
+fn pattern_record(pattern: &Pattern, at: &str) -> Result<()> {
+    let length = pattern.bytes.0.len();
+    if length == 0 {
+        return Err(invalid(format!("{at}: bytes must not be empty")));
+    }
+    let mut seen = BTreeSet::new();
+    for index in &pattern.wild {
+        if *index >= length || !seen.insert(*index) {
+            return Err(invalid(format!(
+                "{at}: wild index expected unique and below {length} | received {index}"
+            )));
+        }
+    }
+    if seen.len() == length {
+        return Err(invalid(format!(
+            "{at}: wild expects at least one fixed byte | received all {length} bytes wild"
+        )));
+    }
     Ok(())
 }
 

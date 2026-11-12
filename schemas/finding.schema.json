@@ -22,6 +22,59 @@
       ],
       "type": "object"
     },
+    "Anchor": {
+      "description": "Where a detector looks: the module bytes its signatures run over.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The PE32 or TE image of every module, optionally limited to one kind or one FFS GUID.",
+          "properties": {
+            "ffs_guid": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Guid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "in": {
+              "const": "pe32",
+              "type": "string"
+            },
+            "module_kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ModuleKind"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "in"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The DSDT held in a RAW section of any file.",
+          "properties": {
+            "in": {
+              "const": "dsdt",
+              "type": "string"
+            }
+          },
+          "required": [
+            "in"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "CodeReference": {
       "additionalProperties": false,
       "description": "A function or offset inside an owning module.",
@@ -45,6 +98,60 @@
         "module",
         "location"
       ],
+      "type": "object"
+    },
+    "Detector": {
+      "additionalProperties": false,
+      "description": "A defect-class detector: signatures that find a finding's code in any build.",
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/Anchor"
+        },
+        "expect": {
+          "$ref": "#/$defs/Expect",
+          "default": {
+            "max_per_module": 1,
+            "min_per_module": 1
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "signatures": {
+          "items": {
+            "$ref": "#/$defs/Signature"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "anchor",
+        "signatures"
+      ],
+      "type": "object"
+    },
+    "Expect": {
+      "additionalProperties": false,
+      "description": "How many defect sites one module is expected to hold.",
+      "properties": {
+        "max_per_module": {
+          "default": 1,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_per_module": {
+          "default": 1,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
       "type": "object"
     },
     "FindingConfidence": {
@@ -122,6 +229,31 @@
       "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
       "type": "string"
     },
+    "HexBytes": {
+      "description": "Bytes as hexadecimal",
+      "pattern": "^([0-9a-fA-F]{2})*$",
+      "type": "string"
+    },
+    "ModuleKind": {
+      "description": "The kind of firmware module a detector searches, by FFS file type.",
+      "oneOf": [
+        {
+          "const": "peim",
+          "description": "PEI core and PEIMs.",
+          "type": "string"
+        },
+        {
+          "const": "dxe",
+          "description": "DXE core and DXE drivers.",
+          "type": "string"
+        },
+        {
+          "const": "smm",
+          "description": "SMM drivers and the SMM core.",
+          "type": "string"
+        }
+      ]
+    },
     "ModuleRef": {
       "additionalProperties": false,
       "description": "A module that owns the defective code, named as the firmware names it.",
@@ -172,6 +304,28 @@
       ],
       "type": "object"
     },
+    "Pattern": {
+      "additionalProperties": false,
+      "description": "A byte pattern with wildcards for addresses and displacements.",
+      "properties": {
+        "bytes": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "wild": {
+          "description": "Indices into `bytes` that match any value.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "bytes"
+      ],
+      "type": "object"
+    },
     "Priority": {
       "description": "Audit priority of a finding.",
       "enum": [
@@ -180,6 +334,35 @@
         "P3"
       ],
       "type": "string"
+    },
+    "Signature": {
+      "additionalProperties": false,
+      "description": "One code shape of a defect, with the shape its correction leaves behind.",
+      "properties": {
+        "defect": {
+          "$ref": "#/$defs/Pattern",
+          "description": "The defective code."
+        },
+        "fixed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Pattern"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The corrected code, when the catalog has a patch that produces it."
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "defect"
+      ],
+      "type": "object"
     }
   },
   "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/bme.finding-1.schema.json",
@@ -196,6 +379,13 @@
     "description": {
       "description": "The defect and its status.",
       "type": "string"
+    },
+    "detectors": {
+      "description": "Signatures that find the defect in builds with no recorded variant.",
+      "items": {
+        "$ref": "#/$defs/Detector"
+      },
+      "type": "array"
     },
     "evidence": {
       "description": "Evidence record ids that support or weaken the finding.",

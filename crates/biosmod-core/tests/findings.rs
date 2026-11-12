@@ -270,3 +270,90 @@ fn open_findings_sort_by_priority_then_id() {
         .collect();
     assert_eq!(order, ["Z", "OPEN1", "A", "B"]);
 }
+
+/// Edit the first detector of OPEN1 and expect the catalog to be refused with `expected`.
+fn rejects_detector(edit: impl FnOnce(&mut Value), expected: &str) {
+    rejects(
+        load_edited("findings/OPEN1.json", Scope::All, |doc| {
+            edit(&mut doc["detectors"][0])
+        }),
+        expected,
+    );
+}
+
+#[test]
+fn detector_with_wildcard_outside_its_bytes_is_refused() {
+    rejects_detector(
+        |d| d["signatures"][0]["defect"]["wild"] = json!([8]),
+        "wild index expected unique and below 8 | received 8",
+    );
+}
+
+#[test]
+fn detector_with_duplicate_wildcard_index_is_refused() {
+    rejects_detector(
+        |d| d["signatures"][0]["defect"]["wild"] = json!([3, 3]),
+        "received 3",
+    );
+}
+
+#[test]
+fn detector_pattern_of_only_wildcards_is_refused() {
+    rejects_detector(
+        |d| d["signatures"][0]["defect"]["wild"] = json!([0, 1, 2, 3, 4, 5, 6, 7]),
+        "wild expects at least one fixed byte | received all 8 bytes wild",
+    );
+}
+
+#[test]
+fn detector_without_signatures_or_with_empty_bytes_is_refused() {
+    rejects_detector(
+        |d| d["signatures"] = json!([]),
+        "signatures expects at least one signature",
+    );
+    rejects_detector(
+        |d| d["signatures"][0]["defect"] = json!({"bytes": ""}),
+        "bytes must not be empty",
+    );
+}
+
+#[test]
+fn detector_expect_range_must_be_ordered_and_positive() {
+    rejects_detector(
+        |d| d["expect"] = json!({"min_per_module": 3, "max_per_module": 2}),
+        "received min 3 max 2",
+    );
+    rejects_detector(
+        |d| d["expect"] = json!({"min_per_module": 0, "max_per_module": 0}),
+        "received min 0 max 0",
+    );
+}
+
+#[test]
+fn detector_fixed_pattern_identical_to_its_defect_is_refused() {
+    rejects_detector(
+        |d| {
+            let defect = d["signatures"][0]["defect"].clone();
+            d["signatures"][0]["fixed"] = defect;
+        },
+        "fixed expects a pattern different from defect",
+    );
+}
+
+#[test]
+fn detector_ids_and_signature_labels_must_be_unique_identifiers() {
+    rejects_detector(|d| d["id"] = json!("bad id"), "id");
+    rejects_detector(
+        |d| {
+            let signature = d["signatures"][0].clone();
+            d["signatures"] = json!([signature.clone(), signature]);
+        },
+        "duplicate \"site\"",
+    );
+}
+
+#[test]
+fn detector_with_unknown_field_or_anchor_is_refused_at_parse() {
+    rejects_detector(|d| d["surprise"] = json!(1), "surprise");
+    rejects_detector(|d| d["anchor"] = json!({"in": "heap"}), "heap");
+}

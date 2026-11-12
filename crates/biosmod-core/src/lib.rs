@@ -11,6 +11,7 @@ pub mod breadcrumbs;
 pub mod catalog;
 pub mod codec;
 pub mod compare;
+pub mod detect;
 pub mod error;
 pub mod firmware;
 pub mod ifr;
