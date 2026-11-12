@@ -8,7 +8,7 @@
 use super::{Ctx, firmware, load_sources, read_image};
 use crate::config::{io_error, write_atomic, write_new};
 use crate::flash::host::Host;
-use crate::output::{Out, Reply, display_path, success_document};
+use crate::output::{Out, Reply, display_path, failure_document, success_document};
 use crate::publish::{check_outputs, create_new_directory, remove_failed_directory};
 use crate::sources::Loaded;
 use crate::{
@@ -277,9 +277,12 @@ fn source_arguments(args: &SourceArgs) -> Vec<String> {
 /// envelope with every absolute path in its strings reduced to a base name.
 ///
 /// Example: a scan of `/home/me/dump.bin` stores `"dump.bin"` where the path was.
-fn public_document(command: &str, reply: &Reply) -> Vec<u8> {
-    let document: Value = serde_json::from_str(&success_document(command, reply))
-        .expect("a success document is JSON");
+fn public_document(command: &str, outcome: &std::result::Result<Reply, Error>) -> Vec<u8> {
+    let text = match outcome {
+        Ok(reply) => success_document(command, reply),
+        Err(error) => failure_document(command, error),
+    };
+    let document: Value = serde_json::from_str(&text).expect("an envelope is JSON");
     let mut bytes = serde_json::to_vec_pretty(&public_value(&document)).expect("JSON serializes");
     bytes.push(b'\n');
     bytes
@@ -364,7 +367,7 @@ fn init(ctx: &Ctx, args: &CaseInitArgs, environment: &Environment) -> Result<Rep
     let recorded = utc_timestamp(environment.clock.unix_seconds());
     let mut command = vec!["scan".to_string(), name];
     command.extend(source_arguments(&args.source));
-    let scan_bytes = public_document("scan", &scan);
+    let scan_bytes = public_document("scan", &Ok(scan));
     let blob = Blob::of(&scan_bytes);
     let case = Case {
         schema: CASE_SCHEMA.into(),
@@ -771,11 +774,19 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
         },
         &[],
     )?);
-    let reply = super::run(
+    // A diagnostic can fail after reaching the hardware or writing part of its output, and
+    // that attempt is evidence too: keep its failure envelope and whatever files exist.
+    let keeps_failures = matches!(cli.command, Command::Diag(_));
+    let outcome = super::run(
         cli.command,
         Out { json: true, quiet },
         ctx.offline || cli.offline,
-    )?;
+    );
+    if let Err(error) = &outcome
+        && !keeps_failures
+    {
+        return Err(error.clone());
+    }
     let recorded = utc_timestamp(environment.clock.unix_seconds());
     let first = case
         .next_artifact_number()
@@ -826,7 +837,7 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
     let staging = Staging::create(&args.dir)?;
     let slug = command_name.replace(' ', "-");
     let output_id = format!("{first:03}-{slug}");
-    let document = public_document(command_name, &reply);
+    let document = public_document(command_name, &outcome);
     write_new(
         &staging.directory.join(format!("{output_id}.json")),
         &document,
@@ -867,6 +878,12 @@ fn record(ctx: &Ctx, args: &CaseRecordArgs, environment: &Environment) -> Result
         remove_entries(&placed);
         return Err(error);
     }
+    let reply = match outcome {
+        Ok(reply) => reply,
+        Err(error) => {
+            return Err(error.context(format!("failure recorded as {}", artifacts[0].path)));
+        }
+    };
     let mut text = reply.text.clone();
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');

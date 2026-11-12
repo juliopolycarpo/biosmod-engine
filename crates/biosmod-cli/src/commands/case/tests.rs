@@ -1336,3 +1336,44 @@ fn unlisted_in_reads_the_artifact_directory_and_tolerates_its_absence() {
     fs::remove_dir_all(workspace.path("case/artifacts")).unwrap();
     assert!(unlisted_in(&case, &workspace.path("case")).is_empty());
 }
+
+#[test]
+fn a_failed_diag_command_is_recorded_as_a_failure_envelope_and_still_fails() {
+    let workspace = Workspace::new();
+    workspace.init();
+    let error = workspace
+        .record(&["diag", "breadcrumbs", "decode", "zz"], &[])
+        .unwrap_err();
+    assert_eq!(error.code, Code::Usage, "{error}");
+    assert!(
+        error
+            .message
+            .contains("artifacts/002-diag-breadcrumbs.json"),
+        "(message): expected the recorded failure named | received {error}"
+    );
+    let case = workspace.case();
+    assert_eq!(case.artifacts.len(), 2);
+    let stored: Value = serde_json::from_slice(
+        &fs::read(workspace.path("case/artifacts/002-diag-breadcrumbs.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(stored["ok"], false, "{stored}");
+    assert_eq!(stored["error"]["code"], "USAGE", "{stored}");
+    assert_eq!(stored["command"], "diag breadcrumbs");
+    assert!(
+        workspace.status().is_ok(),
+        "(case): expected clean after the failure record"
+    );
+}
+
+#[test]
+fn a_failed_command_that_is_not_a_diagnostic_still_records_nothing() {
+    let workspace = Workspace::new();
+    workspace.init();
+    let missing = workspace.path("missing.bin");
+    workspace
+        .record(&["inspect", missing.to_str().unwrap()], &[])
+        .unwrap_err();
+    assert_eq!(workspace.case().artifacts.len(), 1);
+    assert_eq!(artifact_entries(&workspace), ["001-scan.json"]);
+}

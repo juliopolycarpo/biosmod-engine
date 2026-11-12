@@ -89,16 +89,23 @@ impl Out {
     /// Print a failure and return its exit code.
     pub fn failure(&self, command: &str, error: &Error) -> i32 {
         if self.json {
-            let mut body = json!({"code": error.code, "message": error.message});
-            if let Some(details) = &error.details {
-                body["details"] = details.clone();
-            }
-            println!("{}", envelope(command, json!({"ok": false, "error": body})));
+            println!("{}", failure_document(command, error));
         } else {
             eprintln!("bme: {}", error);
         }
         code_for(error.code)
     }
+}
+
+/// The exact text `--json` prints for a failure: one `bme/1` document with the error.
+///
+/// Example: `failure_document("scan", &error)` has `"ok": false` and the error code.
+pub fn failure_document(command: &str, error: &Error) -> String {
+    let mut body = json!({"code": error.code, "message": error.message});
+    if let Some(details) = &error.details {
+        body["details"] = details.clone();
+    }
+    envelope(command, json!({"ok": false, "error": body}))
 }
 
 /// The exact text `--json` prints for a success: one `bme/1` document.
@@ -164,5 +171,37 @@ mod path_tests {
         use std::os::unix::ffi::OsStrExt;
         let path = Path::new(std::ffi::OsStr::from_bytes(b"out-\xff.bin"));
         assert_eq!(display_path(path), "out-\u{fffd}.bin");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failure_document_carries_the_code_message_and_details() {
+        let error = Error::new(Code::CaseDrift, "case x: input dump.bin: changed")
+            .with_details(json!({"clean": false}));
+        let document: Value =
+            serde_json::from_str(&failure_document("case status", &error)).unwrap();
+        assert_eq!(document["ok"], false, "{document}");
+        assert_eq!(document["command"], "case status");
+        assert_eq!(document["error"]["code"], "CASE_DRIFT");
+        assert_eq!(
+            document["error"]["message"],
+            "case x: input dump.bin: changed"
+        );
+        assert_eq!(document["error"]["details"]["clean"], false);
+        let plain = failure_document("scan", &Error::new(Code::Io, "x: unreadable"));
+        assert!(!plain.contains("details"), "{plain}");
+    }
+
+    #[test]
+    fn success_document_wraps_the_data_in_the_protocol_envelope() {
+        let reply = Reply::new(json!({"n": 1}), "text");
+        let document: Value = serde_json::from_str(&success_document("scan", &reply)).unwrap();
+        assert_eq!(document["ok"], true, "{document}");
+        assert_eq!(document["protocol"], PROTOCOL);
+        assert_eq!(document["data"]["n"], 1);
     }
 }
