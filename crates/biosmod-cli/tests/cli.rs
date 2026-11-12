@@ -2012,3 +2012,70 @@ fn extract_table_selectors_require_the_acpi_leaf() {
     ]);
     assert_ne!(bad_hash.code, 0, "(--sha256 XYZ): expected a rejection");
 }
+
+#[test]
+fn extract_json_shape_is_the_same_with_and_without_a_table_selector() {
+    let sandbox = Sandbox::new();
+    // Without a selector: the DSDT leaf of the synthetic image.
+    let (syn_image, _) = sandbox.synthetic();
+    let plain = sandbox
+        .run([
+            "extract",
+            s(&syn_image),
+            "--guid",
+            &biosmod_core::synthetic::TABLE_GUID.to_string(),
+            "--leaf",
+            "acpi-table",
+            "-o",
+            s(&sandbox.path("dsdt.aml")),
+            "--json",
+        ])
+        .json();
+    // With a selector: a PE-embedded table of the ACPI fixture.
+    let (image, fixture) = acpi_fixture(&sandbox);
+    let guid = fixture.pe_guid.to_string();
+    let picked = sandbox
+        .run([
+            "extract",
+            s(&image),
+            "--guid",
+            &guid,
+            "--leaf",
+            "acpi-table",
+            "--oem-table-id",
+            "InPe",
+            "-o",
+            s(&sandbox.path("pe.aml")),
+            "--json",
+        ])
+        .json();
+    for (name, doc) in [("no selector", &plain), ("selector", &picked)] {
+        for key in ["output", "length", "sha256", "compressed", "file_offset"] {
+            assert!(
+                doc["data"].get(key).is_some(),
+                "({name} extract data.{key}): expected present | received {doc}"
+            );
+        }
+    }
+    assert!(
+        plain["data"].get("table").is_none(),
+        "(no selector extract data.table): expected absent | received {plain}"
+    );
+    assert_eq!(picked["data"]["table"]["oem_table_id"], "InPe");
+    assert_eq!(picked["data"]["compressed"], false);
+    // file_offset is the owning file's offset within its volume, as `inspect --files` reports.
+    let listed = sandbox
+        .run(["inspect", s(&image), "--files", "--json"])
+        .json();
+    let expected = listed["data"]["volumes"][0]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["guid"] == guid.as_str())
+        .map(|f| f["offset"].clone())
+        .unwrap();
+    assert_eq!(
+        picked["data"]["file_offset"], expected,
+        "(selector extract data.file_offset): expected the file offset from inspect"
+    );
+}

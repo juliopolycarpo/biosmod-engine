@@ -1149,7 +1149,11 @@ pub fn extract(args: &ExtractArgs) -> Result<Reply> {
         (data, record)
     } else {
         let (table, data) = acpi::select_table(&image, guid, &selector)?;
-        (data, json!({"table": table}))
+        // Same keys as the selector-less form, taken from the first copy; `table` is extra.
+        let at = &table.locations[0];
+        let record =
+            json!({"compressed": at.compressed, "file_offset": at.file_offset, "table": table});
+        (data, record)
     };
     crate::config::write_new(&args.output, &data)?;
     let digest = sha256_hex(&data);
