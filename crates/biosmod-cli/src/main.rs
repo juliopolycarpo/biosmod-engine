@@ -515,6 +515,8 @@ pub enum SetupCommand {
 pub enum ReplayCommand {
     /// Run a Python harness against firmware modules and record the run as evidence.
     Script(ReplayScriptArgs),
+    /// Replay a bme.scenario/1 file against a module and report each expectation.
+    Run(ReplayRunArgs),
 }
 
 #[derive(Args)]
@@ -539,6 +541,27 @@ pub struct ReplayScriptArgs {
     /// Arguments for the harness, after `--`.
     #[arg(last = true)]
     pub args: Vec<String>,
+}
+
+#[derive(Args)]
+pub struct ReplayRunArgs {
+    /// The scenario file (bme.scenario/1).
+    pub scenario: PathBuf,
+    /// The module the scenario names by SHA-256.
+    #[arg(long, value_name = "PE")]
+    pub module: PathBuf,
+    /// New directory for `evidence.json` and `result.jsonl`.
+    #[arg(short, long, value_name = "DIR")]
+    pub output: Option<PathBuf>,
+    /// Board id for the evidence record (default: unscoped).
+    #[arg(long, default_value = commands::UNSCOPED)]
+    pub board: String,
+    /// Firmware build id for the evidence record (default: unscoped).
+    #[arg(long, default_value = commands::UNSCOPED)]
+    pub firmware: String,
+    /// Seconds the scenario may run.
+    #[arg(long, default_value_t = 600)]
+    pub timeout: u64,
 }
 
 #[derive(Subcommand)]
@@ -766,6 +789,7 @@ fn command_name(command: &Command) -> &'static str {
             ToolsCommand::Paths => "tools paths",
         },
         Command::Replay(ReplayCommand::Script(_)) => "replay script",
+        Command::Replay(ReplayCommand::Run(_)) => "replay run",
         Command::Diag(DiagCommand::Breadcrumbs(_)) => "diag breadcrumbs",
         Command::Diag(DiagCommand::Acpi(AcpiCommand::Capture { .. })) => "diag acpi capture",
         Command::Diag(DiagCommand::Superio(SuperioCommand::Read { .. })) => "diag superio read",

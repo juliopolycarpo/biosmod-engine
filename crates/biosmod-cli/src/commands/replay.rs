@@ -1,11 +1,14 @@
 //! `bme replay`: run emulated firmware checks and record them as evidence.
 
+mod outcome;
+
 use super::{Ctx, MAX_IMAGE_BYTES, read_bounded};
-use crate::ReplayScriptArgs;
 use crate::config::{io_error, write_new};
 use crate::output::Reply;
-use crate::toolchain::{self, ScriptOutput, ScriptRun, Versions};
+use crate::toolchain::{self, ScenarioRun, ScriptOutput, ScriptRun, Versions};
+use crate::{ReplayRunArgs, ReplayScriptArgs};
 use biosmod_core::catalog::{EVIDENCE_SCHEMA, Evidence, EvidenceKind, ReplayInput, ReplayRun};
+use biosmod_core::scenario;
 use biosmod_core::util::Digest256;
 use biosmod_core::{Code, Error, Result};
 use serde_json::json;
@@ -14,6 +17,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+/// Largest scenario file accepted.
+const MAX_SCENARIO_BYTES: u64 = 1 << 20;
 /// Largest harness script accepted.
 const MAX_HARNESS_BYTES: u64 = 4 << 20;
 /// Evidence file written into `--output`.
@@ -229,6 +234,85 @@ pub fn script(ctx: &Ctx, args: &ReplayScriptArgs) -> Result<Reply> {
         &output,
         Vec::new(),
     )
+}
+
+/// `bme replay run`: replay a scenario, report each expectation and record the run.
+///
+/// The record is written whether the scenario passes or not; a failed scenario then ends the
+/// command with `TOOL_FAILED` and the verdicts in `details`.
+pub fn run(ctx: &Ctx, args: &ReplayRunArgs) -> Result<Reply> {
+    if let Some(dir) = &args.output
+        && dir.is_dir()
+    {
+        check_output_free(dir)?;
+    }
+    let scenario_bytes = read_bounded(&args.scenario, MAX_SCENARIO_BYTES)?;
+    let scenario = scenario::parse(&scenario_bytes, &args.scenario.display().to_string())?;
+    let module = read_bounded(&args.module, MAX_IMAGE_BYTES)?;
+    let digest = Digest256::of(&module);
+    if digest != scenario.module.sha256 {
+        return Err(Error::new(
+            Code::PatchSourceMismatch,
+            format!(
+                "{}: expected module sha256 {} | received {digest}",
+                args.module.display(),
+                scenario.module.sha256
+            ),
+        ));
+    }
+    ctx.out.note(format!(
+        "replaying {} on {}",
+        scenario.id,
+        args.module.display()
+    ));
+    let output = toolchain::run_replay_scenario(
+        ctx,
+        &ScenarioRun {
+            scenario: &args.scenario,
+            module: &args.module,
+            timeout: Duration::from_secs(args.timeout),
+        },
+    )?;
+    let outcome = outcome::outcome(&scenario, &output.documents)?;
+    let mut reply = finish(
+        args.output.as_deref(),
+        RecordInputs {
+            harness_name: file_name(&args.scenario),
+            harness_role: "scenario",
+            harness_sha256: Digest256::of(&scenario_bytes),
+            scenario: Some(scenario.id.clone()),
+            modules: vec![(file_name(&args.module), digest)],
+            board: &args.board,
+            firmware: &args.firmware,
+        },
+        &output,
+        vec![format!("{}: {}", scenario.id, outcome.summary())],
+    )?;
+    reply.data["passed"] = json!(outcome.passed);
+    reply.data["expectations"] = json!(outcome.verdicts);
+    reply.text = format!(
+        "{}: {}\n{}{}",
+        scenario.id,
+        if outcome.passed { "passed" } else { "FAILED" },
+        outcome.lines(),
+        reply.text
+    );
+    if outcome.passed {
+        return Ok(reply);
+    }
+    Err(Error::new(
+        Code::ToolFailed,
+        format!(
+            "scenario {}: expected every expectation to pass | received {}{}",
+            scenario.id,
+            outcome.summary(),
+            match outcome.failures().as_str() {
+                "" => String::new(),
+                failures => format!(" ({failures})"),
+            }
+        ),
+    )
+    .with_details(reply.data))
 }
 
 /// The identity of what ran, shared by `script` and `run`.

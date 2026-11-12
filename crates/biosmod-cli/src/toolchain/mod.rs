@@ -15,7 +15,7 @@ mod tests;
 
 pub use archive::{Limits, extract_zip};
 pub use replay::package::digest as replay_package_digest;
-pub use replay::script::{ScriptOutput, ScriptRun};
+pub use replay::script::{ScenarioRun, ScriptOutput, ScriptRun};
 pub use replay::{ReplaySetupArgs, Versions};
 pub use runner::{Finished, Invocation, Runner, System};
 pub use status::{Locatable, TOOL_IDS, run_status, set, unset};
@@ -398,6 +398,15 @@ fn env<'a>(ctx: &Ctx, runner: &'a dyn Runner, transport: &'a dyn Transport) -> E
 pub fn run_replay_script(ctx: &Ctx, run: &ScriptRun) -> Result<ScriptOutput> {
     let env = env(ctx, &System, &Offline);
     replay::script::run_script(&env, &replay_home_now(ctx), run)
+}
+
+/// Replay a scenario file in the resolved replay runtime.
+///
+/// Example: `run_replay_scenario(ctx, &ScenarioRun { scenario, module, timeout })` fails with
+/// `ToolUnavailable` and the setup command when the runtime is not installed.
+pub fn run_replay_scenario(ctx: &Ctx, run: &ScenarioRun) -> Result<ScriptOutput> {
+    let env = env(ctx, &System, &Offline);
+    replay::script::run_scenario(&env, &replay_home_now(ctx), run)
 }
 
 /// Tools `tools doctor` can be limited to.

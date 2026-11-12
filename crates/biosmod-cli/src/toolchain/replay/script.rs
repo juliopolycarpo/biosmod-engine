@@ -39,6 +39,13 @@ pub struct ScriptRun<'a> {
     pub timeout: Duration,
 }
 
+/// A scenario file and the module it replays.
+pub struct ScenarioRun<'a> {
+    pub scenario: &'a Path,
+    pub module: &'a Path,
+    pub timeout: Duration,
+}
+
 /// What a finished harness left behind.
 #[derive(Debug)]
 pub struct ScriptOutput {
@@ -99,6 +106,23 @@ pub fn run_script(env: &Env, home: &ReplayHome, run: &ScriptRun) -> Result<Scrip
         args.extend(run.args.iter().map(OsString::from));
     }
     run_main(env, home, run.timeout, args, versions, run.harness)
+}
+
+/// Replay a `bme.scenario/1` file and return the documents it emitted.
+///
+/// Example: `run_scenario(&env, &home, &ScenarioRun { scenario, module, timeout })` yields one
+/// document per expectation and a closing summary.
+pub fn run_scenario(env: &Env, home: &ReplayHome, run: &ScenarioRun) -> Result<ScriptOutput> {
+    let versions = ready(env, home)?;
+    let package_dir = package::ensure(&env.data)?;
+    let args: Vec<OsString> = vec![
+        package_dir.into_os_string(),
+        "--scenario".into(),
+        run.scenario.into(),
+        "--module".into(),
+        run.module.into(),
+    ];
+    run_main(env, home, run.timeout, args, versions, run.scenario)
 }
 
 /// Start the launcher with `main_args` and read the result file back.
