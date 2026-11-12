@@ -73,6 +73,27 @@ A finding records a defect or observation independent of any patch, so one with 
 
 The six columns of the audit register (ID, Priority, Confidence, Board / owning code, Finding and status, Patch strategy / fix confidence) map to `id`, `priority`, `confidence`, `affects.label` with `owner.description`, `description` with `not_established`, and `remediation`. `biosmod_core::register` renders findings as that table and parses it back without loss.
 
+### Detectors
+
+A finding can carry `detectors` that find its code in builds the catalog has no variant for. A patch variant matches one build exactly; a detector describes the defective code with masks over addresses and displacements, so one record covers every build that compiles the same routine. A hit never makes a patch applicable: it reports the defect as `likely-present` for the module that holds it, next to the patch states, and `bme scan` prints it for any image.
+
+```json
+{
+  "id": "byte-counter-scan",
+  "title": "8-bit index over a native-width count",
+  "anchor": {"in": "pe32", "module_kind": "dxe"},
+  "signatures": [
+    {"label": "bl-rdx", "defect": {"bytes": "fec30fb6c3483bc272d9"}, "fixed": {"bytes": "48ffc39090483bda72d9"}}
+  ],
+  "expect": {"min_per_module": 1, "max_per_module": 1}
+}
+```
+
+- `anchor` selects the bytes searched: `{"in": "pe32"}` for the PE32 or TE image of each module, optionally limited by `module_kind` (`peim`, `dxe`, `smm`, by FFS file type) or `ffs_guid`, and `{"in": "dsdt"}` for the DSDT table.
+- A signature has a `defect` pattern and, when a catalog patch produces it, a `fixed` pattern. `wild` lists byte indices that match any value. Derive both from patch hunks rather than copying vendor bytes from elsewhere.
+- `expect` bounds the defect sites per module (default exactly one). A module outside that range is `unexpected-count`, which needs review instead of a claim.
+- Per-module states are `likely-present`, `unexpected-count` and `fixed-pattern` (only the corrected shape occurs, so the defect is absent from the shape the pattern covers). A detector as a whole is also `unsupported` when a module it could cover sits in an encapsulation this engine cannot read, and `absent` when nothing matches. `absent` does not prove a defect missing from code the pattern does not cover.
+
 ## Evidence
 
 An evidence record is one observation: board, firmware build, configuration, the exact patch versions, the `image_sha256` that was flashed, what was seen, and its limits. It is attached to those patch versions only. A record never claims a fix works in general.

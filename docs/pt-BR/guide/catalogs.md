@@ -73,6 +73,27 @@ Um achado registra um defeito ou uma observação independente de qualquer patch
 
 As seis colunas do registro da auditoria (ID, Priority, Confidence, Board / owning code, Finding and status, Patch strategy / fix confidence) correspondem a `id`, `priority`, `confidence`, `affects.label` com `owner.description`, `description` com `not_established`, e `remediation`. `biosmod_core::register` renderiza os achados nessa tabela e a lê de volta sem perdas.
 
+### Detectores
+
+Um achado pode carregar `detectors` que localizam seu código em versões sem variante no catálogo. A variante de um patch casa exatamente uma versão; um detector descreve o código defeituoso com máscaras sobre endereços e deslocamentos, e um registro cobre toda versão que compila a mesma rotina. Um acerto nunca torna um patch aplicável: ele informa o defeito como `likely-present` no módulo que o contém, ao lado dos estados dos patches, e `bme scan` o mostra para qualquer imagem.
+
+```json
+{
+  "id": "byte-counter-scan",
+  "title": "8-bit index over a native-width count",
+  "anchor": {"in": "pe32", "module_kind": "dxe"},
+  "signatures": [
+    {"label": "bl-rdx", "defect": {"bytes": "fec30fb6c3483bc272d9"}, "fixed": {"bytes": "48ffc39090483bda72d9"}}
+  ],
+  "expect": {"min_per_module": 1, "max_per_module": 1}
+}
+```
+
+- `anchor` escolhe os bytes pesquisados: `{"in": "pe32"}` para a imagem PE32 ou TE de cada módulo, com limite opcional por `module_kind` (`peim`, `dxe`, `smm`, pelo tipo de arquivo FFS) ou `ffs_guid`, e `{"in": "dsdt"}` para a tabela DSDT.
+- Uma assinatura tem um padrão `defect` e, quando um patch do catálogo o produz, um padrão `fixed`. `wild` lista os índices de bytes que casam com qualquer valor. Derive ambos dos hunks dos patches em vez de copiar bytes do fabricante de outro lugar.
+- `expect` limita os pontos de defeito por módulo (padrão: exatamente um). Um módulo fora dessa faixa fica `unexpected-count`, que pede revisão em vez de uma afirmação.
+- Os estados por módulo são `likely-present`, `unexpected-count` e `fixed-pattern` (só o formato corrigido ocorre, então o defeito não está no formato que o padrão cobre). O detector como um todo também pode ser `unsupported`, quando um módulo que ele poderia cobrir está numa encapsulação que este motor não lê, e `absent`, quando nada casa. `absent` não prova a ausência do defeito em código que o padrão não cobre.
+
 ## Evidências
 
 Um registro de evidência é uma observação: placa, versão do firmware, configuração, versões exatas dos patches, `image_sha256` gravado, o que foi observado e seus limites. Ele está associado somente a essas versões dos patches. Um registro nunca afirma que uma correção funciona em geral.

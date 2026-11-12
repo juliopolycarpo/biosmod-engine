@@ -39,7 +39,7 @@
     {
       "source": "docs/guide/catalogs.md",
       "translation": "docs/pt-BR/guide/catalogs.md",
-      "sha256": "158c039fb6b89608cdf6aa5bceadce504d21f78e713b6d87f16a5257c9446a0f"
+      "sha256": "74a115cf96b7e53fe02f2c4aac5fa5db56426f74739e76c15d25f0473c607cfb"
     },
     {
       "source": "docs/guide/diagnostics.md",
@@ -64,7 +64,7 @@
     {
       "source": "docs/guide/porting.md",
       "translation": "docs/pt-BR/guide/porting.md",
-      "sha256": "31c61e9220acf63730da8b223d364163b837b94489858414a11326eb00a69db8"
+      "sha256": "e7087d6a131d59a32ab52c2f42d23545a5a5415dcf0857cf738b9cf7b39c1e50"
     },
     {
       "source": "docs/guide/recovery.md",
@@ -79,7 +79,7 @@
     {
       "source": "docs/guide/workflow.md",
       "translation": "docs/pt-BR/guide/workflow.md",
-      "sha256": "d445e8e80662b29e9456efad7f83fcb22d371039c9225a129929c730c0592321"
+      "sha256": "00b982f1e45adb987593c69f986fbc0f4f7806e47d857484bb64618add2a1288"
     },
     {
       "source": "docs/linux-desktop-qualification.md",
