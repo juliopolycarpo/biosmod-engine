@@ -10,6 +10,7 @@ pub mod catalog;
 pub mod codec;
 pub mod error;
 pub mod firmware;
+pub mod ifr;
 pub mod json;
 pub mod legacy;
 pub mod patch;
