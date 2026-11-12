@@ -371,3 +371,58 @@ fn sites_stop_one_past_the_expected_maximum_and_flag_the_truncation() {
     );
     assert!(!untruncated.modules[0].truncated);
 }
+
+#[test]
+fn dsdt_anchor_ignores_unreadable_files_once_a_table_was_read() {
+    let fixture = Fixture::new(7);
+    let site = 36 + 20;
+    let detector = Detector {
+        id: "table-site".into(),
+        title: "synthetic table bytes".into(),
+        anchor: Anchor::Dsdt,
+        signatures: vec![biosmod_core::catalog::Signature {
+            label: "table".into(),
+            defect: Pattern {
+                bytes: HexBytes(fixture.table[site..site + 6].to_vec()),
+                wild: vec![],
+            },
+            fixed: Some(Pattern {
+                bytes: HexBytes(vec![0xEE; 6]),
+                wild: vec![],
+            }),
+        }],
+        expect: Expect::default(),
+    };
+    let mut table = fixture.table.clone();
+    table[site..site + 6].copy_from_slice(&[0xEE; 6]);
+    let section = synthetic::section(0x19, &table);
+    let mut bytes = vec![0xFF; 0x1000];
+    bytes.extend(synthetic::volume(
+        &[
+            synthetic::ffs(synthetic::TABLE_GUID, 0x02, &section, 0),
+            unreadable_file(synthetic::NEXT_GUID),
+        ],
+        0x4000,
+    ));
+    let report = detect::run(
+        &Image::parse(bytes).unwrap(),
+        &finding_with(detector.clone()),
+        &detector,
+    );
+    assert_eq!(report.state, DetectorState::FixedPattern);
+    assert!(report.unsupported.is_empty());
+
+    // With no readable table at all, the unreadable file is the only place one could be.
+    let mut bytes = vec![0xFF; 0x1000];
+    bytes.extend(synthetic::volume(
+        &[unreadable_file(synthetic::NEXT_GUID)],
+        0x4000,
+    ));
+    let report = detect::run(
+        &Image::parse(bytes).unwrap(),
+        &finding_with(detector.clone()),
+        &detector,
+    );
+    assert_eq!(report.state, DetectorState::Unsupported);
+    assert_eq!(report.unsupported, [synthetic::NEXT_GUID]);
+}

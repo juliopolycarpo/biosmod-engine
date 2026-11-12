@@ -191,7 +191,9 @@ fn sites(data: &[u8], signature: &str, pattern: &Pattern, cap: usize) -> (Vec<Si
 /// Example: `let report = detect::run(&image, &finding, &finding.detectors[0]);`
 pub fn run(image: &Image, finding: &Finding, detector: &Detector) -> DetectorReport {
     let mut modules: Vec<ModuleHits> = Vec::new();
-    for candidate in candidates(image, &detector.anchor) {
+    let readable = candidates(image, &detector.anchor);
+    let read_any = !readable.is_empty();
+    for candidate in readable {
         let mut defect = Vec::new();
         let mut fixed = Vec::new();
         let mut truncated = false;
@@ -230,7 +232,13 @@ pub fn run(image: &Image, finding: &Finding, detector: &Detector) -> DetectorRep
             truncated,
         });
     }
-    let unsupported = opaque_candidates(image, &detector.anchor);
+    // A build has one DSDT: once a table was read, an unreadable file cannot be a
+    // second one, so it casts no doubt on the result.
+    let unsupported = if matches!(detector.anchor, Anchor::Dsdt) && read_any {
+        Vec::new()
+    } else {
+        opaque_candidates(image, &detector.anchor)
+    };
     let any = |state| modules.iter().any(|m| m.state == state);
     // A module with an out-of-range count needs review, so it outranks clean hits
     // elsewhere. "Only the corrected shape occurs" is a claim about every candidate,
