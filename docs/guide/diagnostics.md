@@ -24,7 +24,7 @@ Creates the directory and fills it with:
 
 | Path | Content |
 |---|---|
-| `acpi/tables/` | every file under `/sys/firmware/acpi/tables`, with its sysfs name: `DSDT`, `SSDT1`, `dynamic/SSDT3`, `data/BERT`. Symlinks and anything that is not a regular file are listed as skipped |
+| `acpi/tables/` | every file under `/sys/firmware/acpi/tables`, with its sysfs name: `DSDT`, `SSDT1`, `dynamic/SSDT3`, `data/BERT`. Symlinks, anything that is not a regular file, and the per-unit licence tables `MSDM` and `SLIC` are listed as skipped |
 | `power/mem_sleep`, `power/state` | the sleep modes the kernel offers and the one selected |
 | `kernel/sleep.log` | the kernel messages about suspend, resume and sleep states, as `dmesg` formats them |
 | `identity/` | `boot_id`, `osrelease` and `version` |

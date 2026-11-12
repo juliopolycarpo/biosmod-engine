@@ -128,6 +128,14 @@ pub fn capture(host: &HostSurfaces) -> Result<Bundle> {
     ))
 }
 
+/// Tables that hold a per-unit Windows licence key (MSDM) or OEM licence (SLIC):
+/// identifying data a shared capture must not carry.
+///
+/// Example: `is_per_unit_table("MSDM")` is `true`; `is_per_unit_table("DSDT")` is `false`.
+fn is_per_unit_table(name: &str) -> bool {
+    matches!(name, "MSDM" | "SLIC")
+}
+
 /// Copy every regular file below `dir`, depth-first in name order, under `prefix`.
 /// Symlinks and other entries are recorded as skipped.
 fn copy_tree(
@@ -150,6 +158,9 @@ fn copy_tree(
         let path = format!("{dir}/{}", entry.name);
         let target = format!("{prefix}/{}", entry.name);
         match entry.kind {
+            EntryKind::File if is_per_unit_table(&entry.name) => {
+                builder.skip(&path, "per-unit licence data");
+            }
             EntryKind::File => {
                 let bytes = files
                     .read(&path)
@@ -269,6 +280,53 @@ mod tests {
         assert_eq!(
             evidence["host"]["digests"][MANIFEST_FILE],
             Digest256::of(bundle.get(MANIFEST_FILE).unwrap()).to_string()
+        );
+    }
+
+    #[test]
+    fn per_unit_licence_tables_are_skipped_with_a_reason() {
+        let sysfs = host_with_tables()
+            .file("sys/firmware/acpi/tables/MSDM", b"WINDOWS-PRODUCT-KEY")
+            .file("sys/firmware/acpi/tables/SLIC", b"OEM-LICENCE")
+            .file(
+                "sys/firmware/acpi/tables/dynamic/MSDM",
+                b"WINDOWS-PRODUCT-KEY",
+            );
+        let bundle = run(&sysfs, &FakePrivilege::root()).unwrap();
+        for table in ["MSDM", "SLIC", "dynamic/MSDM"] {
+            assert_eq!(bundle.get(&format!("acpi/tables/{table}")), None, "{table}");
+        }
+        for file in &bundle.files {
+            let text = String::from_utf8_lossy(&file.bytes);
+            assert!(!text.contains("WINDOWS-PRODUCT-KEY"), "{}", file.path);
+            assert!(!text.contains("OEM-LICENCE"), "{}", file.path);
+        }
+        let manifest = manifest_of(&bundle);
+        let skipped: Vec<(&str, &str)> = manifest["skipped"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| (s["path"].as_str().unwrap(), s["reason"].as_str().unwrap()))
+            .collect();
+        for path in [
+            "/sys/firmware/acpi/tables/MSDM",
+            "/sys/firmware/acpi/tables/SLIC",
+            "/sys/firmware/acpi/tables/dynamic/MSDM",
+        ] {
+            assert!(
+                skipped.contains(&(path, "per-unit licence data")),
+                "(skipped): expected {path} | received {skipped:?}"
+            );
+        }
+        // The other tables are untouched.
+        assert_eq!(bundle.get("acpi/tables/DSDT"), Some(&b"DSDT-bytes"[..]));
+    }
+
+    #[test]
+    fn licence_table_names_are_matched_exactly() {
+        assert!(is_per_unit_table("MSDM") && is_per_unit_table("SLIC"));
+        assert!(
+            !is_per_unit_table("SLIT") && !is_per_unit_table("MSDM1") && !is_per_unit_table("msdm")
         );
     }
 

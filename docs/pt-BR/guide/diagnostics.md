@@ -24,7 +24,7 @@ Cria o diretório e o preenche com:
 
 | Caminho | Conteúdo |
 |---|---|
-| `acpi/tables/` | todo arquivo sob `/sys/firmware/acpi/tables`, com o nome do sysfs: `DSDT`, `SSDT1`, `dynamic/SSDT3`, `data/BERT`. Links simbólicos e o que não for arquivo regular são listados como ignorados |
+| `acpi/tables/` | todo arquivo sob `/sys/firmware/acpi/tables`, com o nome do sysfs: `DSDT`, `SSDT1`, `dynamic/SSDT3`, `data/BERT`. Links simbólicos, o que não for arquivo regular e as tabelas de licença por unidade `MSDM` e `SLIC` são listados como ignorados |
 | `power/mem_sleep`, `power/state` | os modos de suspensão que o kernel oferece e o selecionado |
 | `kernel/sleep.log` | as mensagens do kernel sobre suspensão, retomada e estados de sono, no formato do `dmesg` |
 | `identity/` | `boot_id`, `osrelease` e `version` |
