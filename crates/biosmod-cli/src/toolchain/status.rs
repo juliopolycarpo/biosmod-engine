@@ -103,6 +103,7 @@ impl Locatable {
 enum Package {
     Flashrom,
     Nasm,
+    Iasl,
     Git,
     Jdk(u32),
 }
@@ -132,6 +133,7 @@ fn package_command(os_release: &str, package: Package) -> Option<String> {
             match package {
                 Package::Flashrom => "flashrom".to_string(),
                 Package::Nasm => "nasm".to_string(),
+                Package::Iasl => "acpica-tools".to_string(),
                 Package::Git => "git".to_string(),
                 Package::Jdk(n) => format!("openjdk-{n}-jdk"),
             },
@@ -142,6 +144,7 @@ fn package_command(os_release: &str, package: Package) -> Option<String> {
             match package {
                 Package::Flashrom => "flashrom".to_string(),
                 Package::Nasm => "nasm".to_string(),
+                Package::Iasl => "acpica-tools".to_string(),
                 Package::Git => "git".to_string(),
                 Package::Jdk(n) => format!("java-{n}-openjdk-devel"),
             },
@@ -152,6 +155,7 @@ fn package_command(os_release: &str, package: Package) -> Option<String> {
             match package {
                 Package::Flashrom => "flashrom".to_string(),
                 Package::Nasm => "nasm".to_string(),
+                Package::Iasl => "acpica".to_string(),
                 Package::Git => "git".to_string(),
                 Package::Jdk(n) => format!("jdk{n}-openjdk"),
             },
@@ -208,6 +212,7 @@ pub fn status(probe: &Probe) -> Vec<ToolRow> {
     rows.push(git);
     rows.push(flashrom_row(probe));
     rows.push(nasm_row(probe));
+    rows.push(iasl_row(probe));
     rows
 }
 
@@ -612,6 +617,52 @@ fn nasm_row(probe: &Probe) -> ToolRow {
         origin: "PATH",
         detail,
         install: system_install(probe, Package::Nasm),
+        custom_location: false,
+        optional: true,
+    }
+}
+
+/// `iasl` disassembles ACPI tables for `compare --acpi --disassemble`. It is optional: the
+/// comparison itself never needs it, so a missing `iasl` never counts against `ready`.
+fn iasl_row(probe: &Probe) -> ToolRow {
+    let finished = probe.env.runner.run(
+        &Invocation::new("iasl")
+            .arg("-v")
+            .timeout(STATUS_PROBE_TIMEOUT),
+    );
+    let (health, version, detail) = match finished {
+        Ok(f) if f.success() => {
+            // The banner ends with `... version 20250404`; take the line that carries it.
+            let line = f
+                .stdout
+                .lines()
+                .find(|l| l.contains(" version "))
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let version = line
+                .rsplit_once(" version ")
+                .and_then(|(_, rest)| rest.split_whitespace().next())
+                .map(str::to_string);
+            (Health::Ready, version, line)
+        }
+        Ok(f) => (Health::Missing, None, format!("iasl: {}", f.describe())),
+        Err(_) => (
+            Health::Missing,
+            None,
+            "not found in PATH; only needed for `compare --acpi --disassemble`".into(),
+        ),
+    };
+    ToolRow {
+        id: "iasl",
+        name: "iasl",
+        purpose: "disassembles ACPI tables for method diffs (optional)",
+        health,
+        version,
+        path: first_on_path(probe.get, "iasl").map(|p| lossy(&p)),
+        origin: "PATH",
+        detail,
+        install: system_install(probe, Package::Iasl),
         custom_location: false,
         optional: true,
     }

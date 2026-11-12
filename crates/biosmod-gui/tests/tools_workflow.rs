@@ -66,7 +66,8 @@ fn session_lists_tools_then_chooses_and_resets_a_flashrom() {
             "jdk",
             "git",
             "flashrom",
-            "nasm"
+            "nasm",
+            "iasl"
         ]
     );
 
