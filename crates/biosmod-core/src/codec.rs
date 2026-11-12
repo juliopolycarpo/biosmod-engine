@@ -181,14 +181,11 @@ pub fn efi_decompress(payload: &[u8], limit: usize) -> Result<(Vec<u8>, tiano::V
     tiano::decompress(payload, limit.min(MAX_DECODED))
 }
 
-/// Every EFI compression variant that decodes `payload`, Tiano first (see [`tiano::decompress_candidates`]).
+/// Decode an EFI compression section payload as one specific variant, capped at `limit` bytes.
 ///
-/// Example: `let candidates = efi_decompress_candidates(&payload, 1 << 20)?;`
-pub fn efi_decompress_candidates(
-    payload: &[u8],
-    limit: usize,
-) -> Result<Vec<(Vec<u8>, tiano::Variant)>> {
-    tiano::decompress_candidates(payload, limit.min(MAX_DECODED))
+/// Example: `let plain = efi_decompress_as(&payload, tiano::Variant::Tiano, 1 << 20)?;`
+pub fn efi_decompress_as(payload: &[u8], variant: tiano::Variant, limit: usize) -> Result<Vec<u8>> {
+    tiano::decompress_as(payload, variant, limit.min(MAX_DECODED))
 }
 
 /// Size of the EDK II Brotli section header: decoded size and scratch size, both `u64`.

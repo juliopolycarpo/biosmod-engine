@@ -55,41 +55,29 @@ const MAX_ZERO_FILL: usize = 8;
 /// Decode a stream with the first variant that succeeds, trying Tiano and then EFI 1.1.
 ///
 /// The bitstream has no checksum, so a stream of one variant can decode to
-/// garbage as the other; use [`decompress_candidates`] when the caller can
-/// validate the output. `limit` caps the declared original size. The sizes in
-/// the stream header are checked against the input and `limit` before any
-/// output is reserved.
+/// garbage as the other; callers that can validate the output should try each
+/// variant through [`decompress_as`]. `limit` caps the declared original size.
+/// The sizes in the stream header are checked against the input and `limit`
+/// before any output is reserved.
 ///
 /// Example: `let (plain, variant) = decompress(&payload, 64 << 20)?;`
 pub fn decompress(stream: &[u8], limit: usize) -> Result<(Vec<u8>, Variant)> {
-    Ok(decompress_candidates(stream, limit)?.remove(0))
-}
-
-/// Every variant that decodes the stream without error, Tiano first.
-///
-/// Fails when none does, naming each variant's error. The result is never empty.
-///
-/// Example: `for (plain, variant) in decompress_candidates(&payload, 1 << 20)? { /* validate */ }`
-pub fn decompress_candidates(stream: &[u8], limit: usize) -> Result<Vec<(Vec<u8>, Variant)>> {
-    let (data, original) = split_header(stream, limit)?;
-    let mut decoded = Vec::new();
     let mut errors = Vec::new();
     for variant in [Variant::Tiano, Variant::Efi] {
-        match Decoder::new(data, variant).run(original) {
-            Ok(plain) => decoded.push((plain, variant)),
+        match decompress_as(stream, variant, limit) {
+            Ok(plain) => return Ok((plain, variant)),
+            // A size above `limit` is the same for both variants.
+            Err(error) if error.code != Code::FormatInvalid => return Err(error),
             Err(error) => errors.push(format!("{}: {}", variant.label(), error.message)),
         }
     }
-    if decoded.is_empty() {
-        return Err(Error::new(
-            Code::FormatInvalid,
-            format!(
-                "EFI compression: neither variant decodes | {}",
-                errors.join(" | ")
-            ),
-        ));
-    }
-    Ok(decoded)
+    Err(Error::new(
+        Code::FormatInvalid,
+        format!(
+            "EFI compression: neither variant decodes | {}",
+            errors.join(" | ")
+        ),
+    ))
 }
 
 /// Decode a stream as one specific variant.
@@ -620,28 +608,21 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn candidates_include_the_true_variant_exactly_once() {
+    fn decompress_picks_the_variant_that_decodes() {
+        // Tiano rejects the EFI fixture's header, so the fallback reaches EFI 1.1.
         let small = fixture_text(300, 1);
         for (stream, variant) in [(SMALL_EFI, Variant::Efi), (SMALL_TIANO, Variant::Tiano)] {
-            let candidates = decompress_candidates(stream, 1 << 20).unwrap();
-            assert!(
-                candidates.iter().any(|(p, v)| *v == variant && *p == small),
-                "expected {variant:?} among the candidates"
-            );
-            assert_eq!(
-                candidates.iter().filter(|(p, _)| *p == small).count(),
-                1,
-                "exactly one candidate reproduces the text"
-            );
+            let (plain, found) = decompress(stream, 1 << 20).unwrap();
+            assert_eq!((plain == small, found), (true, variant));
         }
     }
 
     #[test]
-    fn candidates_error_names_both_variants() {
+    fn decompress_error_names_both_variants() {
         // Cut the data and make the header agree, so both variants run out of bits.
         let mut cut = SMALL_TIANO[..60].to_vec();
         cut[0..4].copy_from_slice(&52u32.to_le_bytes());
-        let error = decompress_candidates(&cut, 1 << 20).unwrap_err();
+        let error = decompress(&cut, 1 << 20).unwrap_err();
         assert!(
             error
                 .message

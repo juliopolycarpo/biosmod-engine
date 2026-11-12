@@ -787,8 +787,11 @@ fn parse_stream(
     Ok(result)
 }
 
-/// A decoded section payload and the encoding that produced it.
-type Candidate = (Vec<u8>, Encoding);
+/// An encapsulation that decoded: how it is stored and what it holds.
+struct Found {
+    encoding: Encoding,
+    decoded: Decoded,
+}
 
 fn decode_section(
     section: &mut Section,
@@ -808,49 +811,41 @@ fn decode_section(
         )?);
         return Ok(());
     }
-    let candidates = match section.kind {
-        SECTION_COMPRESSION => decode_compression_section(section, raw, budget)?,
-        SECTION_GUID_DEFINED => decode_guid_defined_section(section, raw, budget)?,
-        _ => Vec::new(),
-    };
-    // Usually one candidate. An EFI compression stream carries no checksum, so
-    // a stream of one variant can decode to garbage as the other: take the first
-    // candidate whose content parses as a section stream.
-    let spent = budget.decoded;
-    let mut first_error = None;
-    for (bytes, encoding) in candidates {
-        budget.decoded = spent;
-        if encoding.is_compressed() {
-            budget.charge(bytes.len())?;
-        }
-        let inner = Origin::Decoded {
-            parent: section.place.clone(),
-            base: 0,
-        };
-        match parse_stream(&bytes, depth + 1, budget, &inner) {
-            Ok(children) => {
-                section.encoding = Some(encoding);
-                section.decoded = Some(Decoded { bytes, children });
-                return Ok(());
-            }
-            Err(error) => {
-                first_error.get_or_insert(error);
-            }
-        }
+    let found = match section.kind {
+        SECTION_COMPRESSION => decode_compression_section(section, raw, depth, budget),
+        SECTION_GUID_DEFINED => decode_guid_defined_section(section, raw, depth, budget),
+        _ => return Ok(()),
+    }?;
+    if let Some(Found { encoding, decoded }) = found {
+        section.encoding = Some(encoding);
+        section.decoded = Some(decoded);
     }
-    budget.decoded = spent;
-    first_error.map_or(Ok(()), Err)
+    Ok(())
+}
+
+/// Parse the stream decoded from the section at `place`.
+fn parse_decoded(
+    bytes: &[u8],
+    place: &str,
+    depth: usize,
+    budget: &mut Budget,
+) -> Result<Vec<Section>> {
+    let origin = Origin::Decoded {
+        parent: place.to_string(),
+        base: 0,
+    };
+    parse_stream(bytes, depth + 1, budget, &origin)
 }
 
 /// Run `decode` with the largest size this image's budget still allows.
 ///
-/// Failures name `label` and the section offset.
+/// Failures name `label` and the section place.
 fn decode_within_budget(
     place: &str,
     label: &str,
     budget: &Budget,
-    decode: impl FnOnce(usize) -> Result<Vec<Candidate>>,
-) -> Result<Vec<Candidate>> {
+    decode: impl FnOnce(usize) -> Result<Vec<u8>>,
+) -> Result<Vec<u8>> {
     let limit = budget.section_limit();
     decode(limit).map_err(|error| {
         let error = error.context(format!("{label} section at {place}"));
@@ -865,21 +860,28 @@ fn decode_within_budget(
 }
 
 /// Compression section (type 01): only compression type 1 (EFI 1.1 or Tiano) is decoded.
+///
+/// The stream has no checksum, so the wrong variant can decode to garbage. Each
+/// variant is decoded in turn (Tiano first) and the first whose output parses as a
+/// section stream wins. Every decoded byte counts against the image budget, kept or
+/// not. The second variant is only decoded when the first one fails.
 fn decode_compression_section(
     section: &mut Section,
     raw: &[u8],
-    budget: &Budget,
-) -> Result<Vec<Candidate>> {
+    depth: usize,
+    budget: &mut Budget,
+) -> Result<Option<Found>> {
     let h = section.header_size;
     if raw.len() < h + 5 {
-        return Err(Error::new(
+        let error = Error::new(
             Code::FormatInvalid,
             format!(
                 "compression section at {}: shorter than its {}-byte header",
                 section.place,
                 h + 5
             ),
-        ));
+        );
+        return Err(error);
     }
     let declared = le32(raw, h, "compression section decoded length")? as usize;
     if raw[h + 4] != 1 {
@@ -887,44 +889,88 @@ fn decode_compression_section(
             "expected compression type 1 | received type {}",
             raw[h + 4]
         ));
-        return Ok(Vec::new());
+        return Ok(None);
     }
     section.data_offset = h + 5;
     let payload = &raw[h + 5..];
     let place = section.place.clone();
-    let candidates = decode_within_budget(&place, "EFI compression", budget, |limit| {
-        Ok(codec::efi_decompress_candidates(payload, limit)?
-            .into_iter()
-            .map(|(plain, variant)| {
-                let encoding = match variant {
-                    codec::tiano::Variant::Efi => Encoding::EfiCompression,
-                    codec::tiano::Variant::Tiano => Encoding::TianoCompression,
-                };
-                (plain, encoding)
-            })
-            .collect())
-    })?;
-    // Every candidate has the length the stream header declares.
-    let (plain, encoding) = &candidates[0];
-    if plain.len() != declared {
-        return Err(Error::new(
+    decode_efi_variants(payload, declared, &place, depth, budget).map(Some)
+}
+
+/// Try the Tiano then EFI 1.1 decoders on `payload`; see [`decode_compression_section`].
+fn decode_efi_variants(
+    payload: &[u8],
+    declared: usize,
+    place: &str,
+    depth: usize,
+    budget: &mut Budget,
+) -> Result<Found> {
+    use codec::tiano::Variant;
+    // Both variants read the same header; check it once, before any decoding.
+    if payload.len() >= 8 {
+        let original = le32(payload, 4, "EFI compression original size")? as usize;
+        if original != declared {
+            return Err(Error::new(
+                Code::FormatInvalid,
+                format!(
+                    "EFI compression section at {place}: expected decoded length {declared:#x} from the section header | received {original:#x}"
+                ),
+            ));
+        }
+    }
+    let mut failures = Vec::new();
+    for variant in [Variant::Tiano, Variant::Efi] {
+        let (encoding, label) = match variant {
+            Variant::Tiano => (Encoding::TianoCompression, "Tiano"),
+            Variant::Efi => (Encoding::EfiCompression, "EFI 1.1"),
+        };
+        let plain = match decode_within_budget(place, "EFI compression", budget, |limit| {
+            codec::efi_decompress_as(payload, variant, limit)
+        }) {
+            Ok(plain) => plain,
+            // A header error is the same for both variants; a size limit aborts.
+            Err(error) if error.code == Code::FormatInvalid && payload.len() >= 8 => {
+                failures.push(format!("{label}: {}", error.message));
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        budget.charge(plain.len())?;
+        // A wrong variant's garbage fails to parse: that rejects it, whatever the error.
+        let children = match parse_decoded(&plain, place, depth, budget) {
+            Ok(children) => children,
+            Err(error) => {
+                failures.push(format!("{label}: {}", error.message));
+                continue;
+            }
+        };
+        return Ok(Found {
+            encoding,
+            decoded: Decoded {
+                bytes: plain,
+                children,
+            },
+        });
+    }
+    Err({
+        Error::new(
             Code::FormatInvalid,
             format!(
-                "{} section at {place}: expected decoded length {declared:#x} from the section header | received {:#x}",
-                encoding.label(),
-                plain.len()
+                "EFI compression section at {place}: expected a variant that yields a section stream | received {}",
+                failures.join(" | ")
             ),
-        ));
-    }
-    Ok(candidates)
+        )
+    })
 }
 
 /// GUID-defined section: LZMA, LZMA F86, Brotli and CRC32 are decoded.
+///
 fn decode_guid_defined_section(
     section: &mut Section,
     raw: &[u8],
-    budget: &Budget,
-) -> Result<Vec<Candidate>> {
+    depth: usize,
+    budget: &mut Budget,
+) -> Result<Option<Found>> {
     let h = section.header_size;
     if raw.len() < h + 20 {
         return Err(Error::new(
@@ -949,9 +995,22 @@ fn decode_guid_defined_section(
                 "expected an LZMA, LZMA F86, Brotli or CRC32 GUID | received an unsupported encoding"
                     .to_string(),
             );
-            return Ok(Vec::new());
+            return Ok(None);
         }
     };
+    decode_guid_content(section, raw, encoding, depth, budget).map(Some)
+}
+
+/// Decode the payload of a recognised GUID-defined section.
+fn decode_guid_content(
+    section: &mut Section,
+    raw: &[u8],
+    encoding: Encoding,
+    depth: usize,
+    budget: &mut Budget,
+) -> Result<Found> {
+    let h = section.header_size;
+    let data_offset = section.data_offset;
     if data_offset < h + 20 || data_offset > raw.len() {
         return Err(Error::new(
             Code::FormatInvalid,
@@ -964,7 +1023,7 @@ fn decode_guid_defined_section(
         ));
     }
     let payload = &raw[data_offset..];
-    if encoding == Encoding::Crc32 {
+    let plain = if encoding == Encoding::Crc32 {
         if data_offset < h + 24 {
             return Err(Error::new(
                 Code::FormatInvalid,
@@ -986,15 +1045,29 @@ fn decode_guid_defined_section(
             ));
         }
         section.crc_valid = Some(true);
-        return Ok(vec![(payload.to_vec(), encoding)]);
-    }
-    decode_within_budget(&section.place, encoding.label(), budget, |limit| {
-        let plain = match encoding {
-            Encoding::Lzma => codec::decompress_within(payload, limit)?,
-            Encoding::LzmaX86 => codec::lzma_x86_decompress(payload, limit)?,
-            _ => codec::brotli_decompress(payload, limit)?,
-        };
-        Ok(vec![(plain, encoding)])
+        payload.to_vec()
+    } else {
+        let plain =
+            decode_within_budget(
+                &section.place,
+                encoding.label(),
+                budget,
+                |limit| match encoding {
+                    Encoding::Lzma => codec::decompress_within(payload, limit),
+                    Encoding::LzmaX86 => codec::lzma_x86_decompress(payload, limit),
+                    _ => codec::brotli_decompress(payload, limit),
+                },
+            )?;
+        budget.charge(plain.len())?;
+        plain
+    };
+    let children = parse_decoded(&plain, &section.place, depth, budget)?;
+    Ok(Found {
+        encoding,
+        decoded: Decoded {
+            bytes: plain,
+            children,
+        },
     })
 }
 
@@ -1183,23 +1256,33 @@ mod encoding_tests {
     #[test]
     fn a_variant_that_decodes_to_garbage_does_not_hide_the_valid_one() {
         let real = section(SECTION_RAW, &[1; 39]);
-        let candidates = codec::efi_decompress_candidates(AMBIGUOUS_EFI, 1 << 20).unwrap();
-        assert_eq!(
-            candidates.iter().map(|(_, v)| *v).collect::<Vec<_>>(),
-            [codec::tiano::Variant::Tiano, codec::tiano::Variant::Efi],
-            "expected both variants to decode this stream"
-        );
-        assert!(candidates[0].0 != real, "expected Tiano to decode garbage");
-        assert!(
-            candidates[1].0 == real,
-            "expected EFI 1.1 to decode the real stream"
-        );
+        let tiano = codec::efi_decompress_as(AMBIGUOUS_EFI, codec::tiano::Variant::Tiano, 1 << 20)
+            .expect("expected Tiano to decode this stream, to garbage");
+        let efi = codec::efi_decompress_as(AMBIGUOUS_EFI, codec::tiano::Variant::Efi, 1 << 20)
+            .expect("expected EFI 1.1 to decode this stream");
+        assert!(tiano != real, "expected Tiano to decode garbage");
+        assert!(efi == real, "expected EFI 1.1 to decode the real stream");
 
         let image = parse_one(&compression_section(1, 43, AMBIGUOUS_EFI)).expect("parses");
         let section = &image.volumes[0].files[0].sections[0];
         assert_eq!(section.encoding, Some(Encoding::EfiCompression));
         assert_eq!(section.decoded.as_ref().unwrap().bytes, real);
         assert_eq!(image.leaf_body(&image.leaves[&DXE_GUID][0]), [1u8; 39]);
+    }
+
+    #[test]
+    fn a_rejected_variant_still_spends_the_image_budget() {
+        // Tiano decodes 43 bytes of garbage that fail to parse, then EFI 1.1 decodes
+        // the real 43 bytes: both count, so ambiguous nesting cannot dodge the cap.
+        let stream = compression_section(1, 43, AMBIGUOUS_EFI);
+        let mut budget = Budget { decoded: 0 };
+        let sections = parse_stream(&stream, 1, &mut budget, &Origin::Image(0)).unwrap();
+        assert_eq!(sections[0].encoding, Some(Encoding::EfiCompression));
+        assert_eq!(
+            budget.decoded, 86,
+            "(image budget) expected 43 bytes per decoded variant | received {}",
+            budget.decoded
+        );
     }
 
     #[test]
@@ -1282,7 +1365,7 @@ mod encoding_tests {
         assert_eq!(error.code, Code::FormatInvalid);
         assert!(
             error.message.contains(
-                "Tiano compression section at 0x60: expected decoded length 0x12f from the section header | received 0x130"
+                "EFI compression section at 0x60: expected decoded length 0x12f from the section header | received 0x130"
             ),
             "{error}"
         );
