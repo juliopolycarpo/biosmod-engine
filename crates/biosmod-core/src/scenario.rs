@@ -282,7 +282,13 @@ pub enum Expectation {
 }
 
 fn invalid(message: String) -> Error {
-    Error::new(Code::CatalogInvalid, message)
+    Error::new(Code::ScenarioInvalid, message)
+}
+
+/// Re-code an error from the shared JSON and identifier checks, which report catalog documents.
+fn scenario_error(mut error: Error) -> Error {
+    error.code = Code::ScenarioInvalid;
+    error
 }
 
 /// Parse and validate a scenario file.
@@ -290,7 +296,7 @@ fn invalid(message: String) -> Error {
 /// Example: a document with an unknown field fails naming it; one that parses but refers to
 /// an undeclared device fails with `expectation 0: device "hwm": expected a declared ...`.
 pub fn parse(bytes: &[u8], what: &str) -> Result<Scenario> {
-    let scenario: Scenario = crate::json::parse_strict(bytes, what)?;
+    let scenario: Scenario = crate::json::parse_strict(bytes, what).map_err(scenario_error)?;
     validate(&scenario).map_err(|e| e.context(what))?;
     Ok(scenario)
 }
@@ -305,7 +311,7 @@ pub fn validate(scenario: &Scenario) -> Result<()> {
             scenario.schema
         )));
     }
-    crate::validation::identifier(&scenario.id, "scenario id")?;
+    crate::validation::identifier(&scenario.id, "scenario id").map_err(scenario_error)?;
     if ![32, 64].contains(&scenario.module.bitness) {
         return Err(invalid(format!(
             "module bitness: expected 32 | 64 | received {}",
@@ -361,7 +367,7 @@ fn symbols_of(scenario: &Scenario) -> Vec<&'static str> {
 fn devices(scenario: &Scenario) -> Result<()> {
     let mut seen = BTreeSet::new();
     for device in &scenario.hardware {
-        crate::validation::identifier(&device.name, "hardware name")?;
+        crate::validation::identifier(&device.name, "hardware name").map_err(scenario_error)?;
         if !seen.insert(device.name.as_str()) {
             return Err(invalid(format!(
                 "hardware {:?}: expected a unique name | received a duplicate",

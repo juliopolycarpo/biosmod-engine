@@ -12,6 +12,7 @@ pub enum Code {
     Usage,
     Io,
     CatalogInvalid,
+    ScenarioInvalid,
     SourceUntrusted,
     SourceUnavailable,
     SourceUpdateRejected,
@@ -35,6 +36,7 @@ pub enum Code {
     ToolUnavailable,
     ToolSetupFailed,
     ToolFailed,
+    ReplayFailed,
     PlatformUnsupported,
     FlashRefused,
     FlashFailed,
@@ -45,10 +47,11 @@ pub enum Code {
 
 impl Code {
     /// Every code, in documentation order.
-    pub const ALL: [Code; 32] = [
+    pub const ALL: [Code; 34] = [
         Code::Usage,
         Code::Io,
         Code::CatalogInvalid,
+        Code::ScenarioInvalid,
         Code::SourceUntrusted,
         Code::SourceUnavailable,
         Code::SourceUpdateRejected,
@@ -72,6 +75,7 @@ impl Code {
         Code::ToolUnavailable,
         Code::ToolSetupFailed,
         Code::ToolFailed,
+        Code::ReplayFailed,
         Code::PlatformUnsupported,
         Code::FlashRefused,
         Code::FlashFailed,
@@ -86,6 +90,7 @@ impl Code {
             Code::Usage => "USAGE",
             Code::Io => "IO",
             Code::CatalogInvalid => "CATALOG_INVALID",
+            Code::ScenarioInvalid => "SCENARIO_INVALID",
             Code::SourceUntrusted => "SOURCE_UNTRUSTED",
             Code::SourceUnavailable => "SOURCE_UNAVAILABLE",
             Code::SourceUpdateRejected => "SOURCE_UPDATE_REJECTED",
@@ -109,6 +114,7 @@ impl Code {
             Code::ToolUnavailable => "TOOL_UNAVAILABLE",
             Code::ToolSetupFailed => "TOOL_SETUP_FAILED",
             Code::ToolFailed => "TOOL_FAILED",
+            Code::ReplayFailed => "REPLAY_FAILED",
             Code::PlatformUnsupported => "PLATFORM_UNSUPPORTED",
             Code::FlashRefused => "FLASH_REFUSED",
             Code::FlashFailed => "FLASH_FAILED",
@@ -124,6 +130,7 @@ impl Code {
             Code::Usage => "invalid command-line arguments",
             Code::Io => "a file or directory could not be read or written",
             Code::CatalogInvalid => "a catalog, board profile or patch record failed validation",
+            Code::ScenarioInvalid => "a replay scenario file is malformed or inconsistent",
             Code::SourceUntrusted => "a catalog source is not trusted by local policy",
             Code::SourceUnavailable => {
                 "a source or validated snapshot is not available (offline miss)"
@@ -169,6 +176,9 @@ impl Code {
                 "tool installation failed; the previous installation is unchanged"
             }
             Code::ToolFailed => "an external tool ran but failed or timed out",
+            Code::ReplayFailed => {
+                "a replay ran and the firmware did not meet an expectation, or faulted"
+            }
             Code::PlatformUnsupported => "the operation is not implemented on this platform",
             Code::FlashRefused => "a flash chip safety check failed; nothing was written",
             Code::FlashFailed => {

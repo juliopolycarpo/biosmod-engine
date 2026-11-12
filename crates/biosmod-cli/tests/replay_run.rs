@@ -161,7 +161,7 @@ fn a_failed_expectation_fails_the_command_but_the_record_is_still_written() {
         ],
         &[("BME_REPLAY_PYTHON", &python)],
     );
-    assert_eq!(run.error_code(), "TOOL_FAILED", "{}", run.stdout);
+    assert_eq!(run.error_code(), "REPLAY_FAILED", "{}", run.stdout);
     let error = run.json()["error"].clone();
     assert!(
         error["message"]
@@ -224,7 +224,7 @@ fn a_scenario_with_an_unknown_field_is_refused_naming_it() {
         s(&module),
         "--json",
     ]);
-    assert_eq!(run.error_code(), "CATALOG_INVALID", "{}", run.stdout);
+    assert_eq!(run.error_code(), "SCENARIO_INVALID", "{}", run.stdout);
     assert!(run.stdout.contains("budgett"), "{}", run.stdout);
 }
 

@@ -75,6 +75,37 @@ fn an_unknown_field_is_rejected() {
 }
 
 #[test]
+fn every_rejection_carries_the_scenario_invalid_code() {
+    let mut unknown_field = document();
+    unknown_field["colour"] = json!("red");
+    let mut bad_id = document();
+    bad_id["id"] = json!("not valid!");
+    let mut bad_bitness = document();
+    bad_bitness["module"]["bitness"] = json!(16);
+    let mut bad_symbol = document();
+    bad_symbol["services"]["bind"][0]["to"] = json!("nowhere");
+    let duplicate_key = br#"{"schema":"bme.scenario/1","schema":"bme.scenario/1"}"#.to_vec();
+    let mut cases = vec![
+        ("unknown field", serde_json::to_vec(&unknown_field).unwrap()),
+        ("identifier", serde_json::to_vec(&bad_id).unwrap()),
+        ("validate()", serde_json::to_vec(&bad_bitness).unwrap()),
+        ("symbol", serde_json::to_vec(&bad_symbol).unwrap()),
+        ("duplicate key", duplicate_key),
+    ];
+    cases.push(("not JSON", b"nope".to_vec()));
+    for (what, bytes) in cases {
+        let error = parse(&bytes, "scenario.json").unwrap_err();
+        assert_eq!(
+            error.code,
+            Code::ScenarioInvalid,
+            "({what}): expected SCENARIO_INVALID | received {} ({})",
+            error.code,
+            error.message
+        );
+    }
+}
+
+#[test]
 fn an_unknown_field_inside_an_expectation_is_rejected() {
     let mut value = document();
     value["expect"][1]["counts"] = json!(2);
