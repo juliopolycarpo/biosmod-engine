@@ -106,6 +106,40 @@ fn every_rejection_carries_the_scenario_invalid_code() {
 }
 
 #[test]
+fn a_service_name_must_belong_to_the_services_kind() {
+    let mut misspelt = document();
+    misspelt["expect"][1]["service"] = json!("GetVariabel");
+    let message = rejected(misspelt);
+    assert!(
+        message.contains("GetVariabel")
+            && message.contains("Dxe")
+            && message.contains("GetVariable"),
+        "(misspelt service): expected the name, the kind and the valid names | received {message}"
+    );
+    let mut wrong_kind = document();
+    wrong_kind["services"]["kind"] = json!("pei");
+    wrong_kind["services"]["bind"] = json!([]);
+    let message = rejected(wrong_kind);
+    assert!(
+        message.contains("GetVariable") && message.contains("Pei"),
+        "(DXE service under pei): expected the name and the kind | received {message}"
+    );
+}
+
+#[test]
+fn every_services_kind_lists_names_and_the_slots_the_runtime_uses_are_among_them() {
+    for kind in [ServicesKind::Dxe, ServicesKind::Smm, ServicesKind::Pei] {
+        assert!(
+            !service_names(kind).is_empty(),
+            "(service names of {kind:?})"
+        );
+    }
+    assert!(service_names(ServicesKind::Dxe).contains(&"GetVariable".to_string()));
+    assert!(service_names(ServicesKind::Smm).contains(&"SmmAllocatePool".to_string()));
+    assert!(service_names(ServicesKind::Pei).contains(&"LocatePpi".to_string()));
+}
+
+#[test]
 fn an_unknown_field_inside_an_expectation_is_rejected() {
     let mut value = document();
     value["expect"][1]["counts"] = json!(2);

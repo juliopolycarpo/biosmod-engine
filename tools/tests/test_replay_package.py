@@ -568,6 +568,39 @@ class ScenarioTest(unittest.TestCase):
         summary, documents = self.run_scenario(document, data)
         self.assertTrue(summary["passed"], documents)
 
+    def test_service_calls_fails_when_the_count_differs(self):
+        document, data = scenario_for(
+            RETURN_7,
+            [{"kind": "service-calls", "service": "GetVariable", "count": 1}],
+            services={"kind": "dxe"},
+        )
+        summary, documents = self.run_scenario(document, data)
+        self.assertFalse(summary["passed"], documents)
+        self.assertEqual((documents[0]["expected"], documents[0]["received"]), (1, 0))
+
+    def test_service_calls_on_an_unknown_name_is_an_error_not_a_zero_count(self):
+        document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": 7}], services={"kind": "dxe"})
+        setup = scenario.Setup(document, data)
+        with self.assertRaisesRegex(replay.ReplayError, "GetVariabel"):
+            setup.service_calls("GetVariabel")
+
+    def test_the_service_names_file_matches_the_service_tables(self):
+        with open(os.path.join(os.path.dirname(__file__), "..", "replay", "service-names.json")) as handle:
+            names = json.load(handle)
+        machine = replay.Machine(64)
+        dxe = services.DxeServices(machine)
+        smm = services.SmmServices(machine)
+        pei = services.PeiServices(replay.Machine(32))
+        self.assertEqual(
+            names,
+            {
+                "dxe": sorted((set(dxe.boot.layout) | set(dxe.runtime.layout)) - {"Reserved"}),
+                "smm": sorted(smm.table_.layout),
+                "pei": sorted(pei.table_.layout),
+            },
+            "(service-names.json): expected the slots of services.py | received a difference",
+        )
+
     def test_a_binding_points_an_image_field_at_a_service_table(self):
         code = RETURN_7 + bytes(10)
         document, data = scenario_for(

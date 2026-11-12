@@ -29,6 +29,27 @@ pub const SYMBOLS: [&str; 6] = [
     "pei-services",
 ];
 
+/// Service slot names per services kind. The runtime's tables (`services.py`) and a Python
+/// test check the same file, so the two lists cannot drift apart.
+const SERVICE_NAMES: &str = include_str!("../../../tools/replay/service-names.json");
+
+/// Names of the service slots a module can call for `kind`, as `service-calls` may count them.
+///
+/// Example: `service_names(ServicesKind::Dxe)` contains `GetVariable`; `Pei` contains `LocatePpi`.
+pub fn service_names(kind: ServicesKind) -> Vec<String> {
+    static ALL: std::sync::OnceLock<std::collections::BTreeMap<String, Vec<String>>> =
+        std::sync::OnceLock::new();
+    let all = ALL.get_or_init(|| {
+        serde_json::from_str(SERVICE_NAMES).expect("service-names.json is a map of name lists")
+    });
+    let key = match kind {
+        ServicesKind::Dxe => "dxe",
+        ServicesKind::Smm => "smm",
+        ServicesKind::Pei => "pei",
+    };
+    all[key].clone()
+}
+
 /// Device kinds the runtime's library models.
 pub const DEVICE_KINDS: [&str; 3] = ["port-registers", "indexed-registers", "mmio-registers"];
 
@@ -406,11 +427,18 @@ fn expectation_refs(scenario: &Scenario, expectation: &Expectation) -> Result<()
         // A module may create the variable with SetVariable, so it needs no declaration.
         Expectation::Variable { .. } => return Ok(()),
         Expectation::ServiceCalls { service, .. } => {
-            return if scenario.services.is_some() {
+            let Some(services) = &scenario.services else {
+                return Err(invalid(format!(
+                    "service {service:?}: expected a services block | received none"
+                )));
+            };
+            let names = service_names(services.kind);
+            return if names.contains(service) {
                 Ok(())
             } else {
                 Err(invalid(format!(
-                    "service {service:?}: expected a services block | received none"
+                    "service {service:?}: expected one of the {:?} services {names:?} | received {service:?}",
+                    services.kind
                 )))
             };
         }

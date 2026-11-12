@@ -119,9 +119,15 @@ class Setup:
 
     def service_calls(self, name):
         """Argument lists of every call to service `name`, across the service tables."""
-        found = []
+        found, known = [], False
         for table in _tables(self.services):
-            found.extend(table.called(name))
+            if name in table.layout:
+                known = True
+                found.extend(table.called(name))
+        if not known:
+            raise ReplayError(
+                "service %r: expected a slot of the scenario's service tables | received none" % (name,)
+            )
         return found
 
 
