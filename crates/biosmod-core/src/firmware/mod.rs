@@ -863,8 +863,11 @@ fn decode_within_budget(
 ///
 /// The stream has no checksum, so the wrong variant can decode to garbage. Each
 /// variant is decoded in turn (Tiano first) and the first whose output parses as a
-/// section stream wins. Every decoded byte counts against the image budget, kept or
-/// not. The second variant is only decoded when the first one fails.
+/// section stream wins. The second is still tried after a first success: when both
+/// parse to different content the section is ambiguous and stays opaque. Every
+/// decoded byte counts against the image budget, kept or not. The second variant is
+/// only decoded after the first one's result is complete, so a first failure frees
+/// its bytes before the next decode.
 fn decode_compression_section(
     section: &mut Section,
     raw: &[u8],
@@ -894,16 +897,18 @@ fn decode_compression_section(
     section.data_offset = h + 5;
     let payload = &raw[h + 5..];
     let place = section.place.clone();
-    decode_efi_variants(payload, declared, &place, depth, budget).map(Some)
+    let decode = |variant, limit| codec::efi_decompress_as(payload, variant, limit);
+    decode_efi_variants(payload, declared, &place, depth, budget, decode).map(Some)
 }
 
-/// Try the Tiano then EFI 1.1 decoders on `payload`; see [`decode_compression_section`].
+/// Try the Tiano then EFI 1.1 decoders (`decode`) on `payload`; see [`decode_compression_section`].
 fn decode_efi_variants(
     payload: &[u8],
     declared: usize,
     place: &str,
     depth: usize,
     budget: &mut Budget,
+    decode: impl Fn(codec::tiano::Variant, usize) -> Result<Vec<u8>>,
 ) -> Result<Found> {
     use codec::tiano::Variant;
     // Both variants read the same header; check it once, before any decoding.
@@ -918,14 +923,16 @@ fn decode_efi_variants(
             ));
         }
     }
+    let mut accepted: Option<Found> = None;
     let mut failures = Vec::new();
     for variant in [Variant::Tiano, Variant::Efi] {
-        let (encoding, label) = match variant {
-            Variant::Tiano => (Encoding::TianoCompression, "Tiano"),
-            Variant::Efi => (Encoding::EfiCompression, "EFI 1.1"),
+        let encoding = match variant {
+            Variant::Tiano => Encoding::TianoCompression,
+            Variant::Efi => Encoding::EfiCompression,
         };
+        let label = encoding.label();
         let plain = match decode_within_budget(place, "EFI compression", budget, |limit| {
-            codec::efi_decompress_as(payload, variant, limit)
+            decode(variant, limit)
         }) {
             Ok(plain) => plain,
             // A header error is the same for both variants; a size limit aborts.
@@ -944,15 +951,29 @@ fn decode_efi_variants(
                 continue;
             }
         };
-        return Ok(Found {
-            encoding,
-            decoded: Decoded {
-                bytes: plain,
-                children,
-            },
-        });
+        match &accepted {
+            None => {
+                accepted = Some(Found {
+                    encoding,
+                    decoded: Decoded {
+                        bytes: plain,
+                        children,
+                    },
+                })
+            }
+            Some(first) if first.decoded.bytes == plain => {}
+            Some(first) => {
+                return Err(Error::new(
+                    Code::FormatInvalid,
+                    format!(
+                        "EFI compression section at {place}: expected one variant to parse | received {} and {label} with different content",
+                        first.encoding.label()
+                    ),
+                ));
+            }
+        }
     }
-    Err({
+    accepted.ok_or_else(|| {
         Error::new(
             Code::FormatInvalid,
             format!(
@@ -1268,6 +1289,74 @@ mod encoding_tests {
         assert_eq!(section.encoding, Some(Encoding::EfiCompression));
         assert_eq!(section.decoded.as_ref().unwrap().bytes, real);
         assert_eq!(image.leaf_body(&image.leaves[&DXE_GUID][0]), [1u8; 39]);
+    }
+
+    /// A payload whose 8-byte header declares `declared` decoded bytes.
+    fn header_only_payload(declared: usize) -> Vec<u8> {
+        let mut payload = vec![0u8; 4];
+        payload.extend((declared as u32).to_le_bytes());
+        payload
+    }
+
+    /// Named fake for the two EFI decoders: Tiano and EFI 1.1 return fixed bytes.
+    fn fake_variants(
+        tiano: Vec<u8>,
+        efi: Vec<u8>,
+    ) -> impl Fn(codec::tiano::Variant, usize) -> Result<Vec<u8>> {
+        move |variant, _limit| {
+            Ok(match variant {
+                codec::tiano::Variant::Tiano => tiano.clone(),
+                codec::tiano::Variant::Efi => efi.clone(),
+            })
+        }
+    }
+
+    #[test]
+    fn two_variants_that_parse_to_different_content_are_ambiguous() {
+        let tiano = section(SECTION_RAW, &[1; 8]);
+        let efi = section(SECTION_RAW, &[2; 8]);
+        let payload = header_only_payload(tiano.len());
+        let mut budget = Budget { decoded: 0 };
+        let decode = fake_variants(tiano.clone(), efi);
+        let error = decode_efi_variants(&payload, tiano.len(), "0x60", 0, &mut budget, decode)
+            .map(|found| found.encoding)
+            .unwrap_err();
+        assert_eq!(error.code, Code::FormatInvalid);
+        assert!(
+            error.message.contains(
+                "EFI compression section at 0x60: expected one variant to parse | received Tiano compression and EFI 1.1 compression with different content"
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn two_variants_that_parse_to_the_same_content_are_not_ambiguous() {
+        let content = section(SECTION_RAW, &[1; 8]);
+        let payload = header_only_payload(content.len());
+        let mut budget = Budget { decoded: 0 };
+        let decode = fake_variants(content.clone(), content.clone());
+        let found =
+            decode_efi_variants(&payload, content.len(), "0x60", 0, &mut budget, decode).unwrap();
+        assert_eq!(found.encoding, Encoding::TianoCompression);
+        assert_eq!(found.decoded.bytes, content);
+    }
+
+    #[test]
+    fn a_variant_that_fails_to_parse_does_not_make_the_other_ambiguous() {
+        let content = section(SECTION_RAW, &[1; 8]);
+        let garbage = vec![0x55; content.len()];
+        let payload = header_only_payload(content.len());
+        let mut budget = Budget { decoded: 0 };
+        let decode = fake_variants(content.clone(), garbage);
+        let found =
+            decode_efi_variants(&payload, content.len(), "0x60", 0, &mut budget, decode).unwrap();
+        assert_eq!(found.encoding, Encoding::TianoCompression);
+        assert_eq!(
+            budget.decoded,
+            2 * content.len(),
+            "both variants decode and are charged"
+        );
     }
 
     #[test]
