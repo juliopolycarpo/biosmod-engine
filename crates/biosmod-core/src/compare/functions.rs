@@ -278,15 +278,32 @@ pub fn parse_export(json: &[u8], what: &str) -> Result<FunctionExport> {
             )
         })?;
         let mut parsed = Vec::with_capacity(instructions.len());
-        for ins in instructions {
+        let mut last_rva = 0u64;
+        for mut ins in instructions {
+            let at = parse_hex(&ins.rva, &format!("{what} instruction rva"))?;
+            // Lowercase so the exact hash does not depend on how a tool cased its hex.
+            ins.bytes.make_ascii_lowercase();
+            if ins.bytes.len() % 2 != 0 || !ins.bytes.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(Error::new(
+                    Code::FormatInvalid,
+                    format!(
+                        "{what} instruction at {at:#x}: expected even-length hex bytes | received {:?}",
+                        ins.bytes
+                    ),
+                ));
+            }
             let length = ins.bytes.len() as u64 / 2;
-            parsed.push((
-                parse_hex(&ins.rva, &format!("{what} instruction rva"))?,
-                length,
-                ins,
-            ));
+            let end = at.checked_add(length).ok_or_else(|| {
+                Error::new(
+                    Code::FormatInvalid,
+                    format!(
+                        "{what} instruction at {at:#x}: expected rva + {length} bytes to fit in 64 bits | received an overflow"
+                    ),
+                )
+            })?;
+            last_rva = last_rva.max(end);
+            parsed.push((at, length, ins));
         }
-        let last_rva = parsed.iter().map(|p| p.0 + p.1).max().unwrap_or(0);
         let mut callees = Vec::with_capacity(function.calls.len());
         for call in &function.calls {
             callees.push(parse_hex(&call.rva, &format!("{what} call rva"))?);
@@ -572,7 +589,8 @@ fn changed_instruction_ranges(
             count,
             rva_start: ins.get(first).map(|i| i.rva),
             rva_end: if count > 0 {
-                ins.get(first + count - 1).map(|i| i.rva + i.length)
+                ins.get(first + count - 1)
+                    .map(|i| i.rva.saturating_add(i.length))
             } else {
                 ins.get(first).map(|i| i.rva)
             },
@@ -1170,5 +1188,48 @@ mod tests {
         assert!((similarity(&[1, 2, 3], &[1, 9, 3]) - 2.0 / 3.0).abs() < 1e-9);
         assert_eq!(similarity(&[], &[]), 1.0);
         assert_eq!(similarity(&[1], &[2]), 0.0);
+    }
+
+    fn parse_error(instructions: Vec<serde_json::Value>) -> String {
+        let json = export("m", 0x40_0000, vec![function("f", 0x10, &[], instructions)]);
+        parse_export(&json, "fixture.json")
+            .expect_err("expected the export to be rejected")
+            .to_string()
+    }
+
+    #[test]
+    fn instruction_rva_overflow_names_the_rva() {
+        let message = parse_error(vec![ins(0xffff_ffff_ffff_ffff, "5555", "PUSH EBP")]);
+        assert!(
+            message.contains("0xffffffffffffffff") && message.contains("fit in 64 bits"),
+            "(parse_export): expected an rva overflow error naming the rva | received {message}"
+        );
+    }
+
+    #[test]
+    fn odd_or_non_hex_instruction_bytes_name_rva_and_value() {
+        for bad in ["5", "zz", "55 c3"] {
+            let message = parse_error(vec![ins(0x10, bad, "PUSH EBP")]);
+            assert!(
+                message.contains("0x10") && message.contains(&format!("{bad:?}")),
+                "(parse_export {bad:?}): expected an error naming rva and bytes | received {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn hex_case_does_not_change_the_exact_hash() {
+        let body = |bytes: &str| vec![ins(0x10, bytes, "MOV EAX,0xAB")];
+        let build = |bytes: &str| {
+            parse(&export(
+                "m",
+                0x40_0000,
+                vec![function("f", 0x10, &[], body(bytes))],
+            ))
+        };
+        assert_eq!(
+            build("B8AB000000").functions[0].exact_hash,
+            build("b8ab000000").functions[0].exact_hash
+        );
     }
 }
