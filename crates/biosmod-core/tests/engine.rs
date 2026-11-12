@@ -1233,7 +1233,7 @@ fn patching_a_module_inside_a_decode_only_encoding_is_refused_naming_it() {
     assert_eq!(error.code, Code::FormatUnsupported, "{error}");
     assert!(
         error.message.contains(
-            "Brotli section at 0x0: rebuild expected an LZMA or CRC32 encapsulation | received a decode-only Brotli section"
+            "Brotli section at 0x1060: rebuild expected an LZMA or CRC32 encapsulation | received a decode-only Brotli section"
         ),
         "{error}"
     );
@@ -1244,7 +1244,7 @@ fn patching_a_module_inside_a_decode_only_encoding_is_refused_naming_it() {
     assert!(
         entry
             .detail
-            .contains("Driver sits inside a decode-only Brotli section at 0x0"),
+            .contains("Driver sits inside a decode-only Brotli section at 0x1060"),
         "{entry:?}"
     );
 }

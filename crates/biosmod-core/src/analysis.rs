@@ -568,11 +568,11 @@ pub(crate) fn patch_state_indexed(
         }
         match match_component(image, catalog, firmware, component) {
             Some(m) => {
-                if let Some((encoding, offset)) = image.decode_only_encapsulation(&m.leaf) {
+                if let Some((encoding, place)) = image.decode_only_encapsulation(&m.leaf) {
                     return (
                         State::Unsupported,
                         format!(
-                            "{} sits inside a decode-only {} section at {offset:#x}; rebuild supports LZMA only",
+                            "{} sits inside a decode-only {} section at {place}; rebuild supports LZMA only",
                             component.name,
                             encoding.label()
                         ),

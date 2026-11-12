@@ -598,7 +598,7 @@ fn decode_only_encodings_are_inspected_extracted_and_never_rebuilt() {
     assert_eq!(replaced.error_code(), "FORMAT_UNSUPPORTED");
     let message = replaced.json()["error"]["message"].to_string();
     assert!(
-        message.contains("Brotli section at 0x0: rebuild expected an LZMA or CRC32 encapsulation"),
+        message.contains("Brotli section at 0x60: rebuild expected an LZMA or CRC32 encapsulation"),
         "{message}"
     );
 }

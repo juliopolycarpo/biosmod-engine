@@ -109,6 +109,42 @@ impl Encoding {
     }
 }
 
+/// Where a buffer being parsed lives, for error messages and [`Section::place`].
+///
+/// A buffer cut from the image has a fixed image offset. Decoded content has
+/// none, so its offsets are relative and name the section they were decoded from.
+#[derive(Debug, Clone)]
+enum Origin {
+    /// `buffer[0]` sits at this image offset.
+    Image(usize),
+    /// The buffer holds content decoded from the section at `parent`; `base` is
+    /// the offset of `buffer[0]` inside that content.
+    Decoded { parent: String, base: usize },
+}
+
+impl Origin {
+    /// Describe `offset` within the buffer: absolute, or relative with its parent.
+    fn at(&self, offset: usize) -> String {
+        match self {
+            Origin::Image(base) => format!("{:#x}", base + offset),
+            Origin::Decoded { parent, base } => {
+                format!("{:#x} in the stream decoded from {parent}", base + offset)
+            }
+        }
+    }
+
+    /// Origin of a sub-buffer that starts at `offset` of this one.
+    fn child(&self, offset: usize) -> Origin {
+        match self {
+            Origin::Image(base) => Origin::Image(base + offset),
+            Origin::Decoded { parent, base } => Origin::Decoded {
+                parent: parent.clone(),
+                base: base + offset,
+            },
+        }
+    }
+}
+
 /// A decoded encapsulation: its plain stream and the sections inside it.
 #[derive(Debug, Clone)]
 pub struct Decoded {
@@ -123,6 +159,10 @@ pub struct Section {
     pub size: usize,
     pub kind: u8,
     pub header_size: usize,
+    /// Where the section is: its image offset (hex) when it lies in the image
+    /// bytes, otherwise its offset in decoded content plus the section that content
+    /// came from. Error messages use this text.
+    pub place: String,
     /// GUID of a GUID-defined section.
     pub guid: Option<Guid>,
     /// Payload start, relative to the section, for GUID-defined and compression sections.
@@ -272,7 +312,7 @@ impl Image {
     /// Parse an image, validating every volume header and FFS checksum.
     pub fn parse(bytes: Vec<u8>) -> Result<Image> {
         let mut budget = Budget { decoded: 0 };
-        let volumes = find_volumes(&bytes, false, 0, &mut budget)?;
+        let volumes = find_volumes(&bytes, false, 0, &mut budget, &Origin::Image(0))?;
         if volumes.is_empty() {
             return Err(Error::new(
                 Code::FormatUnsupported,
@@ -315,18 +355,18 @@ impl Image {
         locate(&file.sections, file.body(&self.bytes), &leaf.path)
     }
 
-    /// The first decode-only encapsulation (and its section offset) a leaf sits inside.
+    /// The first decode-only encapsulation (and its [`Section::place`]) a leaf sits inside.
     ///
     /// Rebuild refuses such leaves; callers can report that before planning.
-    /// Example: `if let Some((encoding, offset)) = image.decode_only_encapsulation(&leaf) { /* refuse */ }`
-    pub fn decode_only_encapsulation(&self, leaf: &LeafRef) -> Option<(Encoding, usize)> {
+    /// Example: `if let Some((encoding, place)) = image.decode_only_encapsulation(&leaf) { /* refuse */ }`
+    pub fn decode_only_encapsulation(&self, leaf: &LeafRef) -> Option<(Encoding, String)> {
         let file = self.file(leaf);
         let mut sections = &file.sections[..];
         for index in &leaf.path[..leaf.path.len() - 1] {
             let section = &sections[*index];
             let encoding = section.encoding?;
             if !encoding.is_rebuildable() {
-                return Some((encoding, section.offset));
+                return Some((encoding, section.place.clone()));
             }
             sections = &section.decoded.as_ref()?.children;
         }
@@ -452,12 +492,13 @@ fn find_volumes(
     nested: bool,
     depth: usize,
     budget: &mut Budget,
+    origin: &Origin,
 ) -> Result<Vec<Volume>> {
     let mut volumes = Vec::new();
     let mut cursor = 0usize;
     while let Some(hit) = find(buffer, b"_FVH", cursor) {
         let parsed = if hit >= 40 {
-            parse_volume(buffer, hit - 40, depth, budget)?
+            parse_volume(buffer, hit - 40, depth, budget, origin)?
         } else {
             None
         };
@@ -490,6 +531,7 @@ fn parse_volume(
     offset: usize,
     depth: usize,
     budget: &mut Budget,
+    origin: &Origin,
 ) -> Result<Option<Volume>> {
     if offset + 56 > buffer.len() || &buffer[offset + 40..offset + 44] != b"_FVH" {
         return Ok(None);
@@ -543,8 +585,15 @@ fn parse_volume(
         };
         start = start.max(ext_end);
     }
-    let (files, free_start) =
-        parse_files(buffer, offset, start, offset + length, depth + 1, budget)?;
+    let (files, free_start) = parse_files(
+        buffer,
+        offset,
+        start,
+        offset + length,
+        depth + 1,
+        budget,
+        origin,
+    )?;
     Ok(Some(Volume {
         offset,
         length,
@@ -563,6 +612,7 @@ fn parse_files(
     end: usize,
     depth: usize,
     budget: &mut Budget,
+    origin: &Origin,
 ) -> Result<(Vec<FfsFile>, usize)> {
     let mut files = Vec::new();
     let mut cursor = base + align(start - base, 8);
@@ -619,7 +669,7 @@ fn parse_files(
         }
         let kind = header[18];
         let sections = if kind != FILE_PAD && kind != FILE_RAW {
-            parse_stream(body, depth, budget)?
+            parse_stream(body, depth, budget, &origin.child(cursor + header_size))?
         } else {
             Vec::new()
         };
@@ -641,7 +691,12 @@ fn parse_files(
 }
 
 /// Split a section stream, decoding LZMA, CRC32 and FV-image sections.
-fn parse_stream(stream: &[u8], depth: usize, budget: &mut Budget) -> Result<Vec<Section>> {
+fn parse_stream(
+    stream: &[u8],
+    depth: usize,
+    budget: &mut Budget,
+    origin: &Origin,
+) -> Result<Vec<Section>> {
     if depth > MAX_DEPTH {
         return Err(Error::new(
             Code::FormatUnsupported,
@@ -665,7 +720,8 @@ fn parse_stream(stream: &[u8], depth: usize, budget: &mut Budget) -> Result<Vec<
             return Err(Error::new(
                 Code::FormatInvalid,
                 format!(
-                    "section at {offset:#x}: size {size:#x} exceeds stream {:#x}",
+                    "section at {}: size {size:#x} exceeds stream {:#x}",
+                    origin.at(offset),
                     stream.len()
                 ),
             ));
@@ -675,6 +731,7 @@ fn parse_stream(stream: &[u8], depth: usize, budget: &mut Budget) -> Result<Vec<
             size,
             kind: stream[offset + 3],
             header_size,
+            place: origin.at(offset),
             guid: None,
             data_offset: 0,
             decoded: None,
@@ -682,7 +739,7 @@ fn parse_stream(stream: &[u8], depth: usize, budget: &mut Budget) -> Result<Vec<
             volumes: None,
             crc_valid: None,
         };
-        decode_section(&mut section, stream, depth, budget)?;
+        decode_section(&mut section, stream, depth, budget, origin)?;
         result.push(section);
         offset = align(offset + size, 4);
     }
@@ -697,6 +754,7 @@ fn decode_section(
     stream: &[u8],
     depth: usize,
     budget: &mut Budget,
+    origin: &Origin,
 ) -> Result<()> {
     let raw = section.raw(stream);
     if section.kind == SECTION_FV_IMAGE {
@@ -705,6 +763,7 @@ fn decode_section(
             true,
             depth + 1,
             budget,
+            &origin.child(section.offset + section.header_size),
         )?);
         return Ok(());
     }
@@ -723,7 +782,11 @@ fn decode_section(
         if encoding.is_compressed() {
             budget.charge(bytes.len())?;
         }
-        match parse_stream(&bytes, depth + 1, budget) {
+        let inner = Origin::Decoded {
+            parent: section.place.clone(),
+            base: 0,
+        };
+        match parse_stream(&bytes, depth + 1, budget, &inner) {
             Ok(children) => {
                 section.encoding = Some(encoding);
                 section.decoded = Some(Decoded { bytes, children });
@@ -742,14 +805,14 @@ fn decode_section(
 ///
 /// Failures name `label` and the section offset.
 fn decode_within_budget(
-    offset: usize,
+    place: &str,
     label: &str,
     budget: &Budget,
     decode: impl FnOnce(usize) -> Result<Vec<Candidate>>,
 ) -> Result<Vec<Candidate>> {
     let limit = budget.section_limit();
     decode(limit).map_err(|error| {
-        let error = error.context(format!("{label} section at {offset:#x}"));
+        let error = error.context(format!("{label} section at {place}"));
         if limit < codec::MAX_DECODED {
             error.context(format!(
                 "image budget {MAX_TOTAL_DECODED:#x} bytes, {limit:#x} left"
@@ -771,8 +834,8 @@ fn decode_compression_section(
         return Err(Error::new(
             Code::FormatInvalid,
             format!(
-                "compression section at {:#x}: shorter than its {}-byte header",
-                section.offset,
+                "compression section at {}: shorter than its {}-byte header",
+                section.place,
                 h + 5
             ),
         ));
@@ -783,8 +846,8 @@ fn decode_compression_section(
     }
     section.data_offset = h + 5;
     let payload = &raw[h + 5..];
-    let offset = section.offset;
-    let candidates = decode_within_budget(offset, "EFI compression", budget, |limit| {
+    let place = section.place.clone();
+    let candidates = decode_within_budget(&place, "EFI compression", budget, |limit| {
         Ok(codec::efi_decompress_candidates(payload, limit)?
             .into_iter()
             .map(|(plain, variant)| {
@@ -802,7 +865,7 @@ fn decode_compression_section(
         return Err(Error::new(
             Code::FormatInvalid,
             format!(
-                "{} section at {offset:#x}: expected decoded length {declared:#x} from the section header | received {:#x}",
+                "{} section at {place}: expected decoded length {declared:#x} from the section header | received {:#x}",
                 encoding.label(),
                 plain.len()
             ),
@@ -822,8 +885,8 @@ fn decode_guid_defined_section(
         return Err(Error::new(
             Code::FormatInvalid,
             format!(
-                "GUID section at {:#x}: shorter than its 20-byte header",
-                section.offset
+                "GUID section at {}: shorter than its 20-byte header",
+                section.place
             ),
         ));
     }
@@ -842,8 +905,8 @@ fn decode_guid_defined_section(
         return Err(Error::new(
             Code::FormatInvalid,
             format!(
-                "GUID section at {:#x}: data offset {data_offset:#x} outside {:#x}..={:#x}",
-                section.offset,
+                "GUID section at {}: data offset {data_offset:#x} outside {:#x}..={:#x}",
+                section.place,
                 h + 20,
                 raw.len()
             ),
@@ -855,8 +918,8 @@ fn decode_guid_defined_section(
             return Err(Error::new(
                 Code::FormatInvalid,
                 format!(
-                    "CRC32 section at {:#x}: data offset {data_offset:#x} leaves no CRC32 field",
-                    section.offset
+                    "CRC32 section at {}: data offset {data_offset:#x} leaves no CRC32 field",
+                    section.place
                 ),
             ));
         }
@@ -866,15 +929,15 @@ fn decode_guid_defined_section(
             return Err(Error::new(
                 Code::FormatInvalid,
                 format!(
-                    "CRC32 section at {:#x}: expected checksum {actual:#010x} | received {stored:#010x}",
-                    section.offset
+                    "CRC32 section at {}: expected checksum {actual:#010x} | received {stored:#010x}",
+                    section.place
                 ),
             ));
         }
         section.crc_valid = Some(true);
         return Ok(vec![(payload.to_vec(), encoding)]);
     }
-    decode_within_budget(section.offset, encoding.label(), budget, |limit| {
+    decode_within_budget(&section.place, encoding.label(), budget, |limit| {
         let plain = match encoding {
             Encoding::Lzma => codec::decompress_within(payload, limit)?,
             Encoding::LzmaX86 => codec::lzma_x86_decompress(payload, limit)?,
@@ -1141,7 +1204,7 @@ mod encoding_tests {
         assert_eq!(error.code, Code::FormatInvalid);
         assert!(
             error.message.contains(
-                "Tiano compression section at 0x0: expected decoded length 0x12f from the section header | received 0x130"
+                "Tiano compression section at 0x60: expected decoded length 0x12f from the section header | received 0x130"
             ),
             "{error}"
         );
@@ -1154,20 +1217,20 @@ mod encoding_tests {
         let error = parse_one(&compression_section(1, 304, &truncated)).unwrap_err();
         assert_eq!(error.code, Code::FormatInvalid, "{error}");
         assert!(
-            error.message.starts_with("EFI compression section at 0x0"),
+            error.message.starts_with("EFI compression section at 0x60"),
             "{error}"
         );
 
         let error = parse_one(&brotli_section(304, &STREAM_BROTLI[..40])).unwrap_err();
         assert_eq!(error.code, Code::FormatInvalid, "{error}");
         assert!(
-            error.message.starts_with("Brotli section at 0x0"),
+            error.message.starts_with("Brotli section at 0x60"),
             "{error}"
         );
 
         let error = parse_one(&guid_defined_section(LZMA_F86_GUID, &[0; 5])).unwrap_err();
         assert!(
-            error.message.starts_with("LZMA F86 section at 0x0"),
+            error.message.starts_with("LZMA F86 section at 0x60"),
             "{error}"
         );
     }
@@ -1185,7 +1248,7 @@ mod encoding_tests {
             "{error}"
         );
         assert!(
-            error.message.contains("EFI compression section at 0x0"),
+            error.message.contains("EFI compression section at 0x60"),
             "{error}"
         );
 
@@ -1204,7 +1267,7 @@ mod encoding_tests {
         };
         assert_eq!(budget.section_limit(), 100);
         let stream = compression_section(1, 304, STREAM_TIANO);
-        let error = parse_stream(&stream, 1, &mut budget).unwrap_err();
+        let error = parse_stream(&stream, 1, &mut budget, &Origin::Image(0)).unwrap_err();
         assert_eq!(error.code, Code::FormatUnsupported);
         assert!(
             error
@@ -1258,7 +1321,7 @@ mod encoding_tests {
             assert_eq!(error.code, Code::FormatUnsupported, "{label}: {error}");
             assert!(
                 error.message.contains(&format!(
-                    "{label} section at 0x0: rebuild expected an LZMA or CRC32 encapsulation | received a decode-only {label} section"
+                    "{label} section at 0x60: rebuild expected an LZMA or CRC32 encapsulation | received a decode-only {label} section"
                 )),
                 "{error}"
             );
@@ -1272,7 +1335,10 @@ mod encoding_tests {
         let leaf = &image.leaves[&DXE_GUID][0];
         assert_eq!(
             image.decode_only_encapsulation(leaf),
-            Some((Encoding::TianoCompression, 0)),
+            Some((
+                Encoding::TianoCompression,
+                "0x0 in the stream decoded from 0x60".to_string()
+            )),
             "LZMA is rebuildable, the Tiano section inside it is not"
         );
         stream = lzma_section(&raw_stream());

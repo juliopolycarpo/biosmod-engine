@@ -135,9 +135,9 @@ fn rebuild_encapsulation(
         return Err(Error::new(
             Code::FormatUnsupported,
             format!(
-                "{} section at {:#x}: rebuild expected an LZMA or CRC32 encapsulation | received a decode-only {} section",
+                "{} section at {}: rebuild expected an LZMA or CRC32 encapsulation | received a decode-only {} section",
                 encoding.label(),
-                section.offset,
+                section.place,
                 encoding.label()
             ),
         ));
