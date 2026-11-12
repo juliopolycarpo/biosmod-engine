@@ -15,6 +15,11 @@ pub fn is_expression_opcode(opcode: u8) -> bool {
     )
 }
 
+/// Longest rendered text of one node, in bytes. Longer text is cut and ends with `…`.
+pub const MAX_NODE_TEXT: usize = 1024;
+/// Expression opcodes rendered per condition; later ones are dropped.
+pub const MAX_EXPRESSION_OPCODES: usize = 512;
+
 struct Node {
     text: String,
     /// True when the text needs no parentheses as an operand.
@@ -49,6 +54,20 @@ impl Node {
 #[derive(Default)]
 pub struct ExpressionBuilder {
     stack: Vec<Node>,
+    seen: usize,
+    truncated: bool,
+}
+
+/// Cut `text` to `MAX_NODE_TEXT` bytes (at a character boundary) and mark the cut with `…`.
+fn cap_text(text: &mut String) {
+    if text.len() > MAX_NODE_TEXT {
+        let mut end = MAX_NODE_TEXT;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        text.push('…');
+    }
 }
 
 fn binary_symbol(opcode: u8) -> Option<&'static str> {
@@ -105,7 +124,23 @@ impl ExpressionBuilder {
 
     /// Feed one expression opcode; `payload` is the bytes after the 2-byte header.
     /// `string` resolves a string id to its text for `StringRef1`.
+    ///
+    /// Rendering is bounded: each node's text is capped at [`MAX_NODE_TEXT`] bytes and
+    /// opcodes beyond [`MAX_EXPRESSION_OPCODES`] are dropped, so a long left-deep chain
+    /// costs linear time and the result ends with `…`.
     pub fn push(&mut self, opcode: u8, payload: &[u8], string: &dyn Fn(u16) -> String) {
+        self.seen += 1;
+        if self.seen > MAX_EXPRESSION_OPCODES {
+            self.truncated = true;
+            return;
+        }
+        self.push_node(opcode, payload, string);
+        if let Some(node) = self.stack.last_mut() {
+            cap_text(&mut node.text);
+        }
+    }
+
+    fn push_node(&mut self, opcode: u8, payload: &[u8], string: &dyn Fn(u16) -> String) {
         let u16_at = |at: usize| le16(payload, at, "").unwrap_or(0);
         if let Some(symbol) = binary_symbol(opcode) {
             let right = self.pop();
@@ -172,9 +207,9 @@ impl ExpressionBuilder {
         self.stack.push(node);
     }
 
-    /// Render the expression; several leftover values are joined with `; `.
+    /// Render the expression (at most [`MAX_NODE_TEXT`] bytes plus `…`); several leftover values are joined with `; `.
     pub fn finish(self) -> String {
-        match self.stack.len() {
+        let mut text = match self.stack.len() {
             0 => "<empty>".to_string(),
             _ => self
                 .stack
@@ -182,7 +217,12 @@ impl ExpressionBuilder {
                 .map(|node| node.text)
                 .collect::<Vec<_>>()
                 .join("; "),
+        };
+        cap_text(&mut text);
+        if self.truncated && !text.ends_with('…') {
+            text.push('…');
         }
+        text
     }
 }
 
@@ -228,6 +268,29 @@ mod tests {
         assert_eq!(render(&[(0x15, &[])]), "<missing> and <missing>");
         assert_eq!(render(&[]), "<empty>");
         assert_eq!(render(&[(0x46, &[])]), "true");
+    }
+
+    #[test]
+    fn long_left_deep_chains_render_in_bounded_text() {
+        let mut builder = ExpressionBuilder::default();
+        builder.push(0x12, &[1, 0, 0, 0], &|_| String::new());
+        for question in 0..50_000u16 {
+            builder.push(0x12, &question.to_le_bytes().repeat(2), &|_| String::new());
+            builder.push(0x16, &[], &|_| String::new());
+        }
+        let text = builder.finish();
+        assert!(
+            text.len() <= MAX_NODE_TEXT + 8,
+            "expression text: expected <= {} bytes | received {}",
+            MAX_NODE_TEXT + 8,
+            text.len()
+        );
+        assert!(text.ends_with('…'), "{}", &text[text.len() - 20..]);
+    }
+
+    #[test]
+    fn short_expressions_are_not_marked_truncated() {
+        assert!(!render(&[(0x12, &[9, 0, 1, 0])]).contains('…'));
     }
 
     #[test]
