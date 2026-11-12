@@ -13,6 +13,7 @@ pub mod firmware;
 pub mod ifr;
 pub mod json;
 pub mod legacy;
+pub mod nvram;
 pub mod patch;
 pub mod plan;
 pub mod schema;
