@@ -130,8 +130,12 @@ pub struct PmTestReport {
     pub after: BTreeMap<String, String>,
     /// After minus before, for the numeric counters.
     pub delta: BTreeMap<String, i64>,
+    /// Whether `/sys/power/pm_test` read back as `none` after the restore. When false
+    /// the next suspend of any kind stops at the stage's checkpoint until a person
+    /// repairs it.
+    pub restored_pm_test: bool,
     /// `/sys/power/pm_test` as read after the restore.
-    pub restored_pm_test: String,
+    pub pm_test_after: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// Why the kernel messages are missing, when the log could not be read.
@@ -279,21 +283,21 @@ pub fn pm_test(host: &HostSurfaces, power: &dyn HostWrite, stage: Stage) -> Resu
     let outcome = arm_and_trigger(host.files, power, stage);
     // Always, whatever happened above.
     let restore = power.write(PM_TEST_PATH, "none\n");
-    let restored = read_trimmed(host.files, PM_TEST_PATH).unwrap_or_default();
+    let pm_test_after = read_trimmed(host.files, PM_TEST_PATH).unwrap_or_default();
     drop(held);
-    if restore.is_err() || selected(&restored) != Some("none") {
-        return Err(Error::new(
-            Code::Io,
-            format!(
-                "{PM_TEST_PATH}: expected none restored after the {} test | received {restored:?}{} (set it back by hand: echo none > {PM_TEST_PATH})",
-                stage.name(),
-                restore
-                    .err()
-                    .map(|e| format!(" and write error {e}"))
-                    .unwrap_or_default()
-            ),
-        ));
-    }
+    let restored = restore.is_ok() && selected(&pm_test_after) == Some("none");
+    // A failed restore is not an early return: the run's evidence is still sealed and
+    // published, flagged, so the caller reports it with the repair.
+    let restore_failure = (!restored).then(|| {
+        format!(
+            "{PM_TEST_PATH}: expected none restored after the {} test | received {pm_test_after:?}{} (set it back by hand: echo none > {PM_TEST_PATH})",
+            stage.name(),
+            restore
+                .err()
+                .map(|e| format!(" and write error {e}"))
+                .unwrap_or_default()
+        )
+    });
 
     let finished = host.clock.now();
     let after = suspend_stats(host.files)?;
@@ -308,7 +312,7 @@ pub fn pm_test(host: &HostSurfaces, power: &dyn HostWrite, stage: Stage) -> Resu
         })
         .collect();
     let counted_failure = delta.get("fail").is_some_and(|fail| *fail > 0);
-    let (status, error) = match outcome {
+    let (mut status, mut error) = match outcome {
         // The kernel counted the failure it reported: a failed test, not a broken run.
         Err(message) if counted_failure => (Status::Fail, Some(message)),
         Err(message) => (Status::Error, Some(message)),
@@ -317,6 +321,14 @@ pub fn pm_test(host: &HostSurfaces, power: &dyn HostWrite, stage: Stage) -> Resu
         }
         Ok(()) => (Status::Fail, None),
     };
+    if let Some(failure) = restore_failure {
+        // Whatever the counters said, the machine is left armed: the run is an error.
+        status = Status::Error;
+        error = Some(match error {
+            Some(earlier) => format!("{failure}; earlier: {earlier}"),
+            None => failure,
+        });
+    }
     let new_messages: Vec<String> = match host.kernel_log.records() {
         Ok(records) => records
             .iter()
@@ -339,6 +351,7 @@ pub fn pm_test(host: &HostSurfaces, power: &dyn HostWrite, stage: Stage) -> Resu
         after,
         delta,
         restored_pm_test: restored,
+        pm_test_after,
         error,
         kernel_log_error,
     };
@@ -383,12 +396,13 @@ fn seal(
     builder.add("kernel/delta.log", log.into_bytes())?;
     let change = |name: &str| report.delta.get(name).copied().unwrap_or(0);
     let mut observations = vec![format!(
-        "Stage {} ended {}: success counter {:+}, fail counter {:+}, pm_test read back as {:?}.",
+        "Stage {} ended {}: success counter {:+}, fail counter {:+}, pm_test restored to none: {} (read back as {:?}).",
         report.stage.name(),
         report.status.name(),
         change("success"),
         change("fail"),
-        report.restored_pm_test
+        report.restored_pm_test,
+        report.pm_test_after
     )];
     observations.push(format!("mem_sleep: {}", report.mem_sleep));
     if let Some(error) = &report.error {
@@ -492,8 +506,9 @@ mod tests {
         assert!(!run.report.delta.contains_key("last_failed_errno"));
         assert_eq!(run.report.before["success"], "0");
         assert_eq!(run.report.after["success"], "1");
+        assert!(run.report.restored_pm_test);
         assert_eq!(
-            run.report.restored_pm_test,
+            run.report.pm_test_after,
             "freezer devices platform processors core [none]"
         );
         assert_eq!(
@@ -673,21 +688,23 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_restore_is_the_loudest_error_and_names_the_manual_fix() {
+    fn a_failed_restore_is_still_sealed_flagged_and_names_the_manual_fix() {
         let fake = FakePowerSysfs::mr9a_deep().failing_pm_test_restore();
-        let error = run_as_root(&fake, Stage::Freezer).unwrap_err();
-        assert_eq!(error.code, Code::Io, "{error}");
+        let run = run_as_root(&fake, Stage::Freezer).unwrap();
+        assert!(!run.report.restored_pm_test, "{:?}", run.report);
+        assert_eq!(run.report.status, Status::Error);
+        let error = run.report.error.as_deref().unwrap();
         assert!(
-            error
-                .message
-                .contains("expected none restored after the freezer test"),
+            error.contains("expected none restored after the freezer test"),
             "{error}"
         );
-        assert!(
-            error.message.contains("echo none > /sys/power/pm_test"),
-            "{error}"
-        );
+        assert!(error.contains("echo none > /sys/power/pm_test"), "{error}");
         assert_eq!(fake.pm_test(), "freezer");
+        // The evidence of the half-finished run is not thrown away.
+        let saved: serde_json::Value =
+            serde_json::from_slice(run.bundle.get("pm-test.json").unwrap()).unwrap();
+        assert_eq!(saved["restored_pm_test"], false);
+        assert!(run.bundle.get("evidence.json").is_some());
     }
 
     /// Forwards to the fake and notes whether the stop signals were held at each write.

@@ -219,7 +219,7 @@ pub fn pm_test_to(
         report.status.name(),
         change("success"),
         change("fail"),
-        suspend::selected(&report.restored_pm_test).unwrap_or("unknown"),
+        suspend::selected(&report.pm_test_after).unwrap_or("unknown"),
     );
     let data = json!({
         "report": report,
@@ -499,6 +499,26 @@ mod tests {
             assert!(target.join(file).is_file(), "{file}");
         }
         assert_eq!(fake.pm_test(), "none");
+    }
+
+    #[test]
+    fn a_failed_restore_publishes_the_bundle_then_reports_host_failed_with_the_repair() {
+        let out = tempfile::tempdir().unwrap();
+        let target = out.path().join("stuck");
+        let fake = FakePowerSysfs::mr9a_deep().failing_pm_test_restore();
+        let error =
+            pm_test_run(&fake, &FakePrivilege::root(), Stage::Freezer, &target).unwrap_err();
+        assert_eq!(error.code, Code::HostFailed, "{error}");
+        assert!(
+            error.message.contains("echo none > /sys/power/pm_test"),
+            "(message): expected the manual repair | received {error}"
+        );
+        assert!(target.join("pm-test.json").is_file());
+        assert!(target.join(EVIDENCE_FILE).is_file());
+        assert_eq!(
+            error.details.as_ref().unwrap()["report"]["restored_pm_test"],
+            false
+        );
     }
 
     #[test]
