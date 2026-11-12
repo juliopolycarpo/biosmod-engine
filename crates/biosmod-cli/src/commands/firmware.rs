@@ -320,14 +320,26 @@ fn detector_text(detectors: &[biosmod_core::detect::DetectorReport]) -> String {
     ]];
     for d in &shown {
         let sites: usize = d.modules.iter().map(|m| m.defect.len()).sum();
-        let modules = match d.modules.as_slice() {
-            [] => format!("{} unreadable", d.unsupported.len()),
+        let more = if d.modules.iter().any(|m| m.truncated) {
+            "+"
+        } else {
+            ""
+        };
+        let mut modules = match d.modules.as_slice() {
+            [] => String::new(),
             [only] => only
                 .ui_name
                 .clone()
                 .unwrap_or_else(|| only.ffs_guid.to_string()),
-            many => format!("{} modules, {sites} defect sites", many.len()),
+            many => format!("{} modules, {sites}{more} defect sites", many.len()),
         };
+        // Whatever the state, modules this engine cannot read may hold more hits.
+        if !d.unsupported.is_empty() {
+            if !modules.is_empty() {
+                modules.push_str("; ");
+            }
+            modules.push_str(&format!("{} unreadable", d.unsupported.len()));
+        }
         rows.push(vec![
             d.finding.clone(),
             d.detector.clone(),
@@ -1412,6 +1424,7 @@ mod detector_text_tests {
                 offset: 4,
             }],
             fixed: vec![],
+            truncated: false,
         }
     }
 
@@ -1439,6 +1452,21 @@ mod detector_text_tests {
         assert!(many.contains("2 modules, 2 defect sites"), "{many}");
         let unnamed = detector_text(&[report(DetectorState::LikelyPresent, vec![hits(None)])]);
         assert!(unnamed.contains(GUID), "{unnamed}");
+    }
+
+    #[test]
+    fn unreadable_modules_are_noted_next_to_hits_and_truncated_counts_are_marked() {
+        let mut mixed = report(DetectorState::LikelyPresent, vec![hits(Some("Peim"))]);
+        mixed.unsupported = vec![Guid::constant(GUID), Guid::constant(GUID)];
+        let text = detector_text(&[mixed]);
+        assert!(text.contains("Peim; 2 unreadable"), "{text}");
+        let mut cut = hits(None);
+        cut.truncated = true;
+        let text = detector_text(&[report(
+            DetectorState::UnexpectedCount,
+            vec![cut, hits(None)],
+        )]);
+        assert!(text.contains("2 modules, 2+ defect sites"), "{text}");
     }
 
     #[test]

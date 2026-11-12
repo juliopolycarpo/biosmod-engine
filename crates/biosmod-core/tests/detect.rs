@@ -7,7 +7,7 @@ use biosmod_core::catalog::{
 use biosmod_core::detect::{self, DetectorState};
 use biosmod_core::firmware::Image;
 use biosmod_core::synthetic::{self, Fixture, PEIM_GUID};
-use biosmod_core::util::HexBytes;
+use biosmod_core::util::{Guid, HexBytes};
 
 /// An image holding only a PEIM volume with `peim` as the PE32 body.
 fn peim_image(peim: &[u8]) -> Image {
@@ -246,4 +246,128 @@ fn state_labels_are_distinct_human_text() {
             "absent"
         ]
     );
+}
+
+/// An image with one PE32 file per `(guid, file kind, body)` entry.
+fn image_of(files: &[(Guid, u8, &[u8])]) -> Image {
+    let files: Vec<Vec<u8>> = files
+        .iter()
+        .map(|(guid, kind, body)| synthetic::ffs(*guid, *kind, &synthetic::section(0x10, body), 0))
+        .collect();
+    let mut bytes = vec![0xFF; 0x1000];
+    bytes.extend(synthetic::volume(&files, 0x4000));
+    Image::parse(bytes).expect("synthetic image parses")
+}
+
+/// A PEIM-typed file whose only section is an encapsulation this engine cannot decode.
+fn unreadable_file(guid: Guid) -> Vec<u8> {
+    let mut body = vec![0x42; 16];
+    body.extend_from_slice(&24u16.to_le_bytes());
+    body.extend_from_slice(&0u16.to_le_bytes());
+    body.extend_from_slice(&[0x11; 32]);
+    synthetic::ffs(guid, 0x06, &synthetic::section(0x02, &body), 0)
+}
+
+/// The synthetic PEIM with its defect site copied to `extra` offsets.
+fn peim_with_copies(extra: &[usize]) -> Vec<u8> {
+    let mut peim = Fixture::new(7).peim;
+    let site = peim[Fixture::DETECTOR_SITE..Fixture::DETECTOR_SITE + 8].to_vec();
+    for at in extra {
+        peim[*at..*at + 8].copy_from_slice(&site);
+    }
+    peim
+}
+
+#[test]
+fn an_unexpected_count_in_any_module_outranks_likely_present_elsewhere() {
+    let fixture = Fixture::new(7);
+    let good = fixture.peim.clone();
+    let doubled = peim_with_copies(&[200]);
+    let image = image_of(&[
+        (PEIM_GUID, 0x06, &good),
+        (synthetic::NEXT_GUID, 0x06, &doubled),
+    ]);
+    let report = detect::run(
+        &image,
+        &finding_with(fixture.detector()),
+        &fixture.detector(),
+    );
+    let states: Vec<DetectorState> = report.modules.iter().map(|m| m.state).collect();
+    assert!(
+        states.contains(&DetectorState::LikelyPresent)
+            && states.contains(&DetectorState::UnexpectedCount),
+        "expected one module per state | received {states:?}"
+    );
+    assert_eq!(report.state, DetectorState::UnexpectedCount);
+}
+
+#[test]
+fn fixed_pattern_is_not_claimed_overall_while_a_candidate_module_is_unreadable() {
+    let fixture = Fixture::new(7);
+    let mut fixed = fixture.peim.clone();
+    fixed[Fixture::DETECTOR_SITE] ^= 0xFF;
+    let mut bytes = vec![0xFF; 0x1000];
+    bytes.extend(synthetic::volume(
+        &[
+            synthetic::ffs(PEIM_GUID, 0x06, &synthetic::section(0x10, &fixed), 0),
+            unreadable_file(synthetic::NEXT_GUID),
+        ],
+        0x4000,
+    ));
+    let image = Image::parse(bytes).unwrap();
+    let report = detect::run(
+        &image,
+        &finding_with(fixture.detector()),
+        &fixture.detector(),
+    );
+    assert_eq!(report.modules[0].state, DetectorState::FixedPattern);
+    assert_eq!(report.unsupported, [synthetic::NEXT_GUID]);
+    assert_eq!(report.state, DetectorState::Unsupported);
+}
+
+#[test]
+fn likely_present_keeps_its_state_and_lists_the_unreadable_modules() {
+    let fixture = Fixture::new(7);
+    let mut bytes = vec![0xFF; 0x1000];
+    bytes.extend(synthetic::volume(
+        &[
+            synthetic::ffs(PEIM_GUID, 0x06, &synthetic::section(0x10, &fixture.peim), 0),
+            unreadable_file(synthetic::NEXT_GUID),
+        ],
+        0x4000,
+    ));
+    let image = Image::parse(bytes).unwrap();
+    let report = detect::run(
+        &image,
+        &finding_with(fixture.detector()),
+        &fixture.detector(),
+    );
+    assert_eq!(report.state, DetectorState::LikelyPresent);
+    assert_eq!(report.unsupported, [synthetic::NEXT_GUID]);
+}
+
+#[test]
+fn sites_stop_one_past_the_expected_maximum_and_flag_the_truncation() {
+    let fixture = Fixture::new(7);
+    let peim = peim_with_copies(&[8, 16, 24, 200]);
+    let report = detect::run(
+        &peim_image(&peim),
+        &finding_with(fixture.detector()),
+        &fixture.detector(),
+    );
+    assert_eq!(report.state, DetectorState::UnexpectedCount);
+    let module = &report.modules[0];
+    assert_eq!(
+        module.defect.len(),
+        2,
+        "expected max_per_module + 1 sites | received {:?}",
+        module.defect
+    );
+    assert!(module.truncated);
+    let untruncated = detect::run(
+        &peim_image(&fixture.peim),
+        &finding_with(fixture.detector()),
+        &fixture.detector(),
+    );
+    assert!(!untruncated.modules[0].truncated);
 }

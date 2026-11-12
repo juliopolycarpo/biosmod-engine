@@ -88,6 +88,9 @@ pub struct ModuleHits {
     pub defect: Vec<Site>,
     /// Matches of the corrected-code signatures, in offset order.
     pub fixed: Vec<Site>,
+    /// True when a signature stopped listing sites at `max_per_module + 1`; the real count is higher.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
 }
 
 /// One detector's result on an image.
@@ -168,14 +171,19 @@ fn opaque_candidates(image: &Image, anchor: &Anchor) -> Vec<Guid> {
     guids
 }
 
-fn sites(data: &[u8], signature: &str, pattern: &Pattern) -> Vec<Site> {
-    find_matches(data, &pattern.bytes.0, &pattern.wild, usize::MAX)
+/// Sites of `pattern` in `data`, at most `cap`; the flag says the cap cut the list short.
+fn sites(data: &[u8], signature: &str, pattern: &Pattern, cap: usize) -> (Vec<Site>, bool) {
+    let mut found = find_matches(data, &pattern.bytes.0, &pattern.wild, cap + 1);
+    let truncated = found.len() > cap;
+    found.truncate(cap);
+    let sites = found
         .into_iter()
         .map(|offset| Site {
             signature: signature.to_string(),
             offset,
         })
-        .collect()
+        .collect();
+    (sites, truncated)
 }
 
 /// Run one detector of `finding` on `image`.
@@ -186,10 +194,17 @@ pub fn run(image: &Image, finding: &Finding, detector: &Detector) -> DetectorRep
     for candidate in candidates(image, &detector.anchor) {
         let mut defect = Vec::new();
         let mut fixed = Vec::new();
+        let mut truncated = false;
+        // One site past the maximum is enough to know the count is out of range.
+        let cap = detector.expect.max_per_module as usize + 1;
         for signature in &detector.signatures {
-            defect.extend(sites(candidate.bytes, &signature.label, &signature.defect));
+            let (hits, cut) = sites(candidate.bytes, &signature.label, &signature.defect, cap);
+            defect.extend(hits);
+            truncated |= cut;
             if let Some(pattern) = &signature.fixed {
-                fixed.extend(sites(candidate.bytes, &signature.label, pattern));
+                let (hits, cut) = sites(candidate.bytes, &signature.label, pattern, cap);
+                fixed.extend(hits);
+                truncated |= cut;
             }
         }
         if defect.is_empty() && fixed.is_empty() {
@@ -212,20 +227,19 @@ pub fn run(image: &Image, finding: &Finding, detector: &Detector) -> DetectorRep
             state,
             defect,
             fixed,
+            truncated,
         });
     }
     let unsupported = opaque_candidates(image, &detector.anchor);
-    let state = if modules
-        .iter()
-        .any(|m| m.state == DetectorState::LikelyPresent)
-    {
-        DetectorState::LikelyPresent
-    } else if modules
-        .iter()
-        .any(|m| m.state == DetectorState::UnexpectedCount)
-    {
+    let any = |state| modules.iter().any(|m| m.state == state);
+    // A module with an out-of-range count needs review, so it outranks clean hits
+    // elsewhere. "Only the corrected shape occurs" is a claim about every candidate,
+    // so it cannot stand while some candidate could not be read.
+    let state = if any(DetectorState::UnexpectedCount) {
         DetectorState::UnexpectedCount
-    } else if !modules.is_empty() {
+    } else if any(DetectorState::LikelyPresent) {
+        DetectorState::LikelyPresent
+    } else if !modules.is_empty() && unsupported.is_empty() {
         DetectorState::FixedPattern
     } else if !unsupported.is_empty() {
         DetectorState::Unsupported
