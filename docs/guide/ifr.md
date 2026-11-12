@@ -32,6 +32,8 @@ Prompts are not unique. The same prompt can appear in several forms under differ
 
 - Read-only. Nothing is written to the image.
 - Opcode lengths, nesting (64 scopes) and package bounds are checked. A malformed package fails with `FORMAT_INVALID` naming the offset and opcode, for example `opcode End (0x29) at 0x31: End without an open scope`.
+- On an image, a module whose forms are malformed is reported as a `warning:` line (and in `data.diagnostics` with `--json`) while the other modules still print. With `--guid` the same failure is an error.
+- Condition text is capped at 1024 bytes and 512 expression opcodes; a longer expression ends with `…`.
 - Package lists must close exactly on their declared length; standalone form packages without a list header are not found.
 - Expression conditions that bme does not know render as `opcode_0xNN`; the scope structure is still followed.
 - Date and time defaults are not decoded to values.

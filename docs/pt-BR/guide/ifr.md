@@ -32,6 +32,8 @@ Os textos das perguntas não são únicos. O mesmo texto pode aparecer em vário
 
 - Somente leitura. Nada é gravado na imagem.
 - Comprimentos de opcode, aninhamento (64 escopos) e limites de pacote são verificados. Um pacote malformado falha com `FORMAT_INVALID` indicando offset e opcode, por exemplo `opcode End (0x29) at 0x31: End without an open scope`.
+- Em uma imagem, um módulo com formulários malformados aparece como linha `warning:` (e em `data.diagnostics` com `--json`) e os demais módulos continuam sendo exibidos. Com `--guid`, a mesma falha é um erro.
+- O texto de uma condição é limitado a 1024 bytes e 512 opcodes de expressão; uma expressão maior termina com `…`.
 - As listas de pacotes precisam fechar exatamente no comprimento declarado; pacotes de formulário avulsos, sem cabeçalho de lista, não são encontrados.
 - Expressões de condição que o bme não conhece aparecem como `opcode_0xNN`; a estrutura de escopos continua sendo seguida.
 - Valores padrão de data e hora não são decodificados.
