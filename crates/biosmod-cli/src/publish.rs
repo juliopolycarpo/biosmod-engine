@@ -172,6 +172,47 @@ pub fn publish_file(output: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Publish a set of files as a new directory, replacing nothing.
+///
+/// The directory itself is claimed with an exclusive `create_dir`, so a concurrent
+/// creator loses instead of being merged into. Files are written in the order
+/// given and each is synced; callers put the file that marks completeness last.
+/// On any failure the directory is removed again; if that fails too, the result is
+/// `PUBLISH_INCOMPLETE` naming it.
+///
+/// Example: `publish_directory(Path::new("capture"), &[("a/b.bin", &bytes[..])])?`.
+pub fn publish_directory(output: &Path, files: &[(&str, &[u8])]) -> Result<()> {
+    check_outputs(&[output], &[])?;
+    fs::create_dir(output).map_err(|e| persist_error(output, e))?;
+    let written = files.iter().try_for_each(|(relative, bytes)| {
+        let target = output.join(relative);
+        let parent = target.parent().expect("a file below the output directory");
+        fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+            .and_then(|mut file| file.write_all(bytes).and_then(|()| file.sync_all()))
+            .map_err(|e| io_error(&target, e))
+    });
+    if let Err(cause) = written {
+        return match fs::remove_dir_all(output) {
+            Ok(()) => Err(cause),
+            Err(_) => Err(Error::new(
+                Code::PublishIncomplete,
+                format!(
+                    "{}; the partial directory {} could not be removed",
+                    cause.message,
+                    output.display()
+                ),
+            )
+            .with_details(json!({"directory": output.to_string_lossy(), "cause": cause.code}))),
+        };
+    }
+    sync_parent(output);
+    Ok(())
+}
+
 fn sync_parent(path: &Path) {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty())
         && let Ok(dir) = fs::File::open(parent)
@@ -333,5 +374,33 @@ mod tests {
                 Code::OutputExists
             );
         }
+    }
+
+    #[test]
+    fn publish_directory_writes_nested_files_and_refuses_an_existing_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("capture");
+        publish_directory(&target, &[("a/b/c.bin", b"one"), ("done.json", b"{}")]).unwrap();
+        assert_eq!(fs::read(target.join("a/b/c.bin")).unwrap(), b"one");
+        let error = publish_directory(&target, &[("x", b"y")]).unwrap_err();
+        assert_eq!(error.code, Code::OutputExists, "{error}");
+        assert!(
+            !target.join("x").exists(),
+            "an existing directory is not merged into"
+        );
+    }
+
+    #[test]
+    fn publish_directory_removes_what_it_created_when_a_file_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("capture");
+        // "a" is a file when "a/b" is created, so the second write fails.
+        let error = publish_directory(&target, &[("a", b"1"), ("a/b", b"2")]).unwrap_err();
+        assert_eq!(error.code, Code::Io, "{error}");
+        assert!(
+            !target.exists(),
+            "(publish): expected {} removed",
+            target.display()
+        );
     }
 }
