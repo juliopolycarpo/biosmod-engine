@@ -19,6 +19,8 @@ struct FakeReplayPython {
     /// Versions reported once installed.
     installed_versions: Vec<(&'static str, Option<&'static str>)>,
     lock_seen: RefCell<Option<String>>,
+    /// Working directory of each call, in call order, beside `calls`.
+    cwds: RefCell<Vec<Option<PathBuf>>>,
 }
 
 impl FakeReplayPython {
@@ -33,6 +35,7 @@ impl FakeReplayPython {
             installed: Cell::new(false),
             installed_versions: PACKAGES.iter().map(|(n, v)| (*n, Some(*v))).collect(),
             lock_seen: RefCell::new(None),
+            cwds: RefCell::new(Vec::new()),
         }
     }
 
@@ -79,12 +82,17 @@ fn exit(status: i32, stderr: &str) -> Result<Finished> {
 
 impl Runner for FakeReplayPython {
     fn run(&self, invocation: &Invocation) -> Result<Finished> {
-        let words = invocation.words();
+        let mut words = invocation.words();
         self.calls.borrow_mut().push(format!(
             "{} {}",
             invocation.program.display(),
             words.join(" ")
         ));
+        self.cwds.borrow_mut().push(invocation.cwd.clone());
+        // `-I` only isolates the interpreter; the fake answers the same either way.
+        if words.first().map(String::as_str) == Some("-I") {
+            words.remove(0);
+        }
         if !invocation.program.to_string_lossy().contains("/") && !self.base_exists() {
             return Err(Error::new(
                 Code::ToolUnavailable,
@@ -457,6 +465,38 @@ fn setup_creates_the_environment_installs_the_lock_with_hash_checking_and_verifi
             .flatten()
             .any(|e| e.file_name().to_string_lossy().starts_with(".staging-")),
         "(staging directory): expected it removed"
+    );
+}
+
+#[test]
+fn setup_runs_venv_and_pip_isolated_from_the_callers_directory() {
+    let scene = Scene::new();
+    let fake = FakeReplayPython::new();
+    install(&scene, &fake, &setup_args()).unwrap();
+    let calls = fake.calls.borrow();
+    let cwds = fake.cwds.borrow();
+    for (at, call) in calls.iter().enumerate() {
+        let tool = if call.contains("-m venv") {
+            "venv"
+        } else if call.contains("-m pip") {
+            "pip"
+        } else {
+            continue;
+        };
+        assert!(
+            call.split_whitespace().any(|w| w == "-I"),
+            "(python -m {tool}): expected the -I flag | received {call}"
+        );
+        let cwd = cwds[at].as_deref().unwrap_or(Path::new("<caller>"));
+        assert!(
+            cwd.starts_with(managed_venv(&scene.data()).parent().unwrap())
+                && cwd.to_string_lossy().contains(".staging-"),
+            "(python -m {tool} cwd): expected the staging directory | received {}",
+            cwd.display()
+        );
+    }
+    assert!(
+        calls.iter().any(|c| c.contains("-m venv")) && calls.iter().any(|c| c.contains("-m pip"))
     );
 }
 

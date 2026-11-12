@@ -507,10 +507,11 @@ pub fn install_replay(
     let staged = staging.path().join("venv");
     note(&format!("creating {}", venv.display()));
     let created = env.runner.run(
+        // `-I` and the staging cwd keep a `venv.py` in the caller's directory from running.
         &Invocation::new(&base)
-            .arg("-m")
-            .arg("venv")
+            .args(["-I", "-m", "venv"])
             .arg(&staged)
+            .cwd(staging.path())
             .timeout(Duration::from_secs(300)),
     )?;
     if !created.success() && created.output().contains("ensurepip") {
@@ -530,7 +531,8 @@ pub fn install_replay(
     // `--isolated` ignores pip configuration and PIP_* variables, so the lock decides what
     // is installed and a user index cannot add a source for it.
     let mut pip = Invocation::new(venv_python(&staged))
-        .args(["-m", "pip", "install", "--isolated", "--no-input"])
+        .args(["-I", "-m", "pip", "install", "--isolated", "--no-input"])
+        .cwd(staging.path())
         .args([
             "--disable-pip-version-check",
             "--require-hashes",
