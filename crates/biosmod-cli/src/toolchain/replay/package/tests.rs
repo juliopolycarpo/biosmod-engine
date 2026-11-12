@@ -35,10 +35,15 @@ fn the_digest_is_hex_and_follows_the_content() {
 }
 
 #[test]
-fn ensure_writes_every_file_and_the_digest() {
+fn ensure_writes_every_file_and_the_digest_into_a_digest_named_directory() {
     let data = tempfile::tempdir().unwrap();
     let root = ensure(data.path()).unwrap();
     assert_eq!(root, package_root(data.path()));
+    assert_eq!(
+        root.file_name().unwrap().to_string_lossy(),
+        format!("package-{}", digest()),
+        "(package directory): expected a name derived from the digest"
+    );
     let package = root.join("bme_replay");
     let mut expected: Vec<String> = FILES.iter().map(|(n, _)| n.to_string()).collect();
     expected.push(DIGEST_FILE.into());
@@ -51,6 +56,12 @@ fn ensure_writes_every_file_and_the_digest() {
     assert_eq!(
         fs::read_to_string(package.join("trace.py")).unwrap(),
         FILES.iter().find(|(n, _)| *n == "trace.py").unwrap().1
+    );
+    assert!(
+        names_in(root.parent().unwrap())
+            .iter()
+            .all(|n| !n.starts_with(".")),
+        "(replay dir): expected no staging leftovers"
     );
 }
 
@@ -69,25 +80,84 @@ fn ensure_leaves_a_current_package_untouched() {
 }
 
 #[test]
-fn ensure_refreshes_the_package_when_the_digest_differs() {
+fn an_older_release_directory_is_left_alone_while_a_new_one_is_written() {
     let data = tempfile::tempdir().unwrap();
+    let replay = data.path().join("replay");
+    // `package` is where earlier releases kept the live copy, with a stale digest.
+    for older in [
+        replay.join("package"),
+        replay.join(format!("package-{}", "0".repeat(64))),
+    ] {
+        fs::create_dir_all(older.join("bme_replay")).unwrap();
+        fs::write(older.join("bme_replay/.digest"), "0".repeat(64)).unwrap();
+        fs::write(older.join("bme_replay/trace.py"), "# running now").unwrap();
+    }
     let root = ensure(data.path()).unwrap();
-    let package = root.join("bme_replay");
-    fs::write(package.join("trace.py"), "# stale").unwrap();
-    fs::write(package.join(DIGEST_FILE), "0".repeat(64)).unwrap();
-    ensure(data.path()).unwrap();
-    assert_eq!(
-        fs::read_to_string(package.join("trace.py")).unwrap(),
-        FILES.iter().find(|(n, _)| *n == "trace.py").unwrap().1
-    );
-    assert_eq!(
-        fs::read_to_string(package.join(DIGEST_FILE)).unwrap(),
-        digest()
-    );
+    assert_eq!(root, package_root(data.path()));
+    for older in ["package".to_string(), format!("package-{}", "0".repeat(64))] {
+        assert_eq!(
+            fs::read_to_string(replay.join(&older).join("bme_replay/trace.py")).unwrap(),
+            "# running now",
+            "({older}): expected it untouched while another run may use it"
+        );
+    }
+}
+
+#[test]
+fn concurrent_runs_share_one_package_and_never_replace_a_live_one() {
+    let data = tempfile::tempdir().unwrap();
+    // A run still uses the copy an earlier release left in `package`, whose digest is stale.
+    let legacy = data.path().join("replay/package/bme_replay");
+    fs::create_dir_all(&legacy).unwrap();
+    fs::write(legacy.join(DIGEST_FILE), "0".repeat(64)).unwrap();
+    let live = legacy.join("live.marker");
+    fs::write(&live, "in use").unwrap();
+    let fresh = tempfile::tempdir().unwrap();
+    let roots: Vec<(PathBuf, PathBuf)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|at| {
+                let data = if at % 2 == 0 {
+                    data.path()
+                } else {
+                    fresh.path()
+                };
+                scope.spawn(move || (data.to_path_buf(), ensure(data).unwrap()))
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    for (data, root) in &roots {
+        assert_eq!(root, &package_root(data), "(returned root)");
+        assert!(
+            root.join("bme_replay").join(DIGEST_FILE).is_file(),
+            "(package at {}): expected a complete directory",
+            root.display()
+        );
+    }
     assert!(
-        names_in(root.parent().unwrap())
-            .iter()
-            .all(|n| !n.starts_with(".")),
-        "(replay dir): expected no staging or backup leftovers"
+        live.is_file(),
+        "(live package): expected it never renamed or rewritten"
+    );
+    for dir in [data.path(), fresh.path()] {
+        assert!(
+            names_in(&dir.join("replay"))
+                .iter()
+                .all(|n| !n.starts_with(".")),
+            "(replay dir {}): expected no staging leftovers",
+            dir.display()
+        );
+    }
+}
+
+#[test]
+fn a_package_directory_without_the_right_digest_is_an_error_naming_it() {
+    let data = tempfile::tempdir().unwrap();
+    let broken = package_root(data.path());
+    fs::create_dir_all(broken.join("bme_replay")).unwrap();
+    let error = ensure(data.path()).unwrap_err().to_string();
+    assert!(
+        error.contains(&broken.display().to_string()) && error.contains("digest"),
+        "(broken package): expected an error naming {} and the digest | received {error}",
+        broken.display()
     );
 }

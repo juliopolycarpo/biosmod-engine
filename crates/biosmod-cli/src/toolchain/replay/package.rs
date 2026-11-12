@@ -1,14 +1,14 @@
 //! The `bme_replay` Python package, embedded in the binary.
 //!
 //! The package is MIT code that drives Unicorn through its Python API; it contains no
-//! emulator. bme writes it next to the replay environment (`<data>/replay/package`) and
-//! rewrites it when the embedded digest differs from the one on disk, so a new bme release
-//! refreshes it without recreating the environment, and an environment chosen with
-//! `tools set replay` gets the same package without bme touching it.
+//! emulator. bme writes it next to the replay environment, in a directory named after the
+//! embedded digest (`<data>/replay/package-<digest>`). A new bme release writes a new
+//! directory and never renames or rewrites an existing one, so a run that is already using
+//! a package, and two runs that start together, cannot break each other. An environment
+//! chosen with `tools set replay` gets the same package without bme touching it.
 
-use super::super::{check_recovery, replace_dir};
 use crate::config::{io_error, write_atomic};
-use biosmod_core::Result;
+use biosmod_core::{Code, Error, Result};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -80,25 +80,32 @@ pub fn digest() -> String {
 
 /// Where the package lives for a data directory: the directory that goes on `sys.path`.
 ///
-/// Example: `package_root(Path::new("/d"))` is `/d/replay/package`.
+/// Example: `package_root(Path::new("/d"))` is `/d/replay/package-<digest>`.
 pub fn package_root(data: &Path) -> PathBuf {
-    data.join("replay").join("package")
+    data.join("replay").join(format!("package-{}", digest()))
 }
 
-/// Write the package under `data` unless the digest on disk already matches, and return the
+/// Whether `root` holds a complete package written for this digest.
+fn complete(root: &Path) -> bool {
+    fs::read_to_string(root.join("bme_replay").join(DIGEST_FILE))
+        .is_ok_and(|have| have.trim() == digest())
+}
+
+/// Write the package under `data` unless its digest directory exists, and return the
 /// directory that holds `bme_replay/`.
+///
+/// The files go to a staging directory first and one `rename` publishes it, so a reader sees
+/// either nothing or a complete package. When another run publishes first, its copy is the
+/// same content and is used.
 ///
 /// Example: the first call writes eleven files and `.digest`; a second call writes nothing.
 pub fn ensure(data: &Path) -> Result<PathBuf> {
     let root = package_root(data);
-    let wanted = digest();
-    let package = root.join("bme_replay");
-    if fs::read_to_string(package.join(DIGEST_FILE)).is_ok_and(|have| have.trim() == wanted) {
+    if complete(&root) {
         return Ok(root);
     }
     let parent = root.parent().expect("package root has a parent");
     fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
-    check_recovery(&root)?;
     let staging = tempfile::Builder::new()
         .prefix(".staging-")
         .tempdir_in(parent)
@@ -109,9 +116,21 @@ pub fn ensure(data: &Path) -> Result<PathBuf> {
     for (name, body) in FILES {
         write_atomic(&staged_package.join(name), body.as_bytes())?;
     }
-    write_atomic(&staged_package.join(DIGEST_FILE), wanted.as_bytes())?;
-    replace_dir(&staged, &root)?;
-    Ok(root)
+    write_atomic(&staged_package.join(DIGEST_FILE), digest().as_bytes())?;
+    // The rename fails when the target exists; that is only fine if it is a complete copy.
+    match fs::rename(&staged, &root) {
+        Ok(()) => Ok(root),
+        Err(_) if complete(&root) => Ok(root),
+        Err(e) if root.exists() => Err(Error::new(
+            Code::ToolFailed,
+            format!(
+                "{}: expected a complete replay package with digest {} | received a directory without it ({e})",
+                root.display(),
+                digest()
+            ),
+        )),
+        Err(e) => Err(io_error(&root, e)),
+    }
 }
 
 #[cfg(all(test, unix))]
