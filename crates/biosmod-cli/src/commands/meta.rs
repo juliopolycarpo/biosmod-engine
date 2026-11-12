@@ -57,6 +57,11 @@ pub const GUIDES: &[(&str, &str, &str)] = &[
         include_str!("../../../../docs/guide/nvram.md"),
     ),
     (
+        "diagnostics",
+        "capturing what the running machine reports (ACPI tables, sleep state)",
+        include_str!("../../../../docs/guide/diagnostics.md"),
+    ),
+    (
         "ghidra",
         "installing and running the analysis toolchain",
         include_str!("../../../../docs/guide/ghidra.md"),
@@ -105,6 +110,7 @@ fn commands() -> Value {
         {"name": "tools setup ghidra", "writes": ["tool install", "cache"], "network": true},
         {"name": "tools analyze", "writes": ["Ghidra project", "exports"], "network": false},
         {"name": "diag breadcrumbs decode|read", "writes": [], "network": false, "summary": "read uses ports 72h/73h only"},
+        {"name": "diag acpi capture", "writes": ["capture directory"], "network": false, "summary": "copy ACPI tables, sleep states and sleep kernel messages into a hashed bundle with an evidence record (Linux, root)"},
         {"name": "flash doctor", "writes": [], "network": false, "summary": "read-only system diagnosis for chip access (sysfs, flashrom version)"},
         {"name": "flash probe", "writes": [], "network": false, "summary": "detect the flash chip through flashrom"},
         {"name": "flash backup", "writes": ["chip dump"], "network": false, "summary": "read the chip twice and save identical reads as a new file"},
@@ -141,6 +147,7 @@ pub fn capabilities() -> Reply {
         "exit_codes": {"ok": exit::OK, "failed": exit::FAILED, "usage": exit::USAGE, "publication_incomplete": exit::INCOMPLETE},
         "error_codes": codes,
         "guarantees": [
+            "diag commands read the running machine and write only a new capture directory, except where their summary says otherwise",
             "only the flash commands access a flash chip, through flashrom; flash write is the only command that changes one",
             "flash write requires a backup equal to the chip, an image that parses and the image SHA-256 as confirmation, then reads the chip back",
             "outputs are new files; inputs are never modified",

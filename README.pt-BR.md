@@ -92,6 +92,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | fontes e manutenção de catálogos |
 | `tools status/set/unset/doctor/setup ghidra/analyze/paths` | ver, localizar e instalar o Ghidra 12.2 com ghidra-firmware-utils |
 | `diag breadcrumbs decode/read` | diagnóstico de checkpoint MRC do MR9A (read usa somente portas 72h/73h) |
+| `diag acpi capture` | pacote com hashes das tabelas ACPI, estado de suspensão e mensagens de suspensão do kernel, com registro de evidência (Linux, root) |
 | `flash doctor`, `flash probe`, `flash backup`, `flash write` | diagnosticar, localizar, fazer backup e gravar o chip pelo flashrom (Linux) |
 | `dev synthetic` | imagem e catálogo sintéticos para experimentar com segurança |
 | `version`, `capabilities`, `schema`, `guide` | contratos e documentação incorporada |
@@ -103,7 +104,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 - [Arquitetura](docs/pt-BR/architecture.md): crates, fluxo de dados e verificações de segurança
 - [Formatos](docs/pt-BR/formats.md): estruturas de firmware suportadas e limites
 - [Variáveis NVRAM](docs/pt-BR/guide/nvram.md): estados dos registros, padrões salvos e valores armazenados do Setup
-- [Protocolo](docs/pt-BR/guide/agents.md), [confiança](docs/pt-BR/guide/trust.md), [catálogos](docs/pt-BR/guide/catalogs.md), [recuperação](docs/pt-BR/guide/recovery.md)
+- [Protocolo](docs/pt-BR/guide/agents.md), [confiança](docs/pt-BR/guide/trust.md), [catálogos](docs/pt-BR/guide/catalogs.md), [recuperação](docs/pt-BR/guide/recovery.md), [diagnósticos do host](docs/pt-BR/guide/diagnostics.md)
 - [Qualificação da interface no Linux](docs/pt-BR/linux-desktop-qualification.md): ambientes testados e limites
 - [Interface gráfica](docs/pt-BR/guide/gui.md): configuração Linux e fluxo de geração
 - [Como contribuir](CONTRIBUTING.pt-BR.md), incluindo envio de placas e patches

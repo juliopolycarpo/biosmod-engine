@@ -5,6 +5,7 @@ mod compare;
 mod compare_acpi;
 mod diag;
 mod firmware;
+mod host;
 mod ifr;
 mod meta;
 mod nvram;
@@ -55,6 +56,8 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
     // reads `tools.flashrom` (see `flash::run`).
     let command = match command {
         Command::Flash(sub) => return crate::flash::run(out, sub),
+        // Same reason: host diagnostics need root and never read configuration.
+        Command::Diag(DiagCommand::Acpi(sub)) => return host::run_acpi(sub),
         other => other,
     };
     let paths = Paths::from_env()?;
@@ -85,6 +88,9 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Catalog(sub) => catalog::run(&mut ctx, sub),
         Command::Tools(sub) => tools(&ctx, sub),
         Command::Diag(DiagCommand::Breadcrumbs(sub)) => diag::breadcrumbs(sub),
+        Command::Diag(DiagCommand::Acpi(_)) => {
+            unreachable!("host diagnostics return before configuration")
+        }
         Command::Dev(DevCommand::Synthetic { output }) => diag::synthetic(&output),
         Command::Flash(_) => unreachable!("flash commands return before configuration loads"),
     }

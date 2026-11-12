@@ -443,6 +443,21 @@ pub enum DiagCommand {
     /// MR9A MRC checkpoint breadcrumbs in upper-bank CMOS.
     #[command(subcommand)]
     Breadcrumbs(BreadcrumbCommand),
+    /// ACPI tables and sleep state of the running machine (Linux, root).
+    #[command(subcommand)]
+    Acpi(AcpiCommand),
+}
+
+#[derive(Subcommand)]
+pub enum AcpiCommand {
+    /// Copy the published ACPI tables, sleep states, sleep-related kernel messages and
+    /// boot, kernel and DMI identity into a new directory with a SHA-256 manifest and an
+    /// evidence record (read-only; needs root).
+    Capture {
+        /// New directory to create; an existing one is never touched.
+        #[arg(short, long, value_name = "DIR")]
+        output: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -581,7 +596,8 @@ fn command_name(command: &Command) -> &'static str {
             ToolsCommand::Analyze { .. } => "tools analyze",
             ToolsCommand::Paths => "tools paths",
         },
-        Command::Diag(_) => "diag breadcrumbs",
+        Command::Diag(DiagCommand::Breadcrumbs(_)) => "diag breadcrumbs",
+        Command::Diag(DiagCommand::Acpi(AcpiCommand::Capture { .. })) => "diag acpi capture",
         Command::Flash(f) => match f {
             FlashCommand::Doctor { .. } => "flash doctor",
             FlashCommand::Probe(_) => "flash probe",
