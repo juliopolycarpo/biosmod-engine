@@ -135,6 +135,7 @@ enum FrameKind {
     Form,
     /// A statement; `option_width` is the value width of its first option.
     Statement {
+        form: usize,
         index: usize,
         option_width: Option<u16>,
     },
@@ -217,18 +218,35 @@ impl Walker<'_> {
         Ok(())
     }
 
-    fn current_form(&mut self, opcode: u8, at: usize) -> Result<&mut Form> {
-        if self.sets.last().and_then(|set| set.forms.last()).is_none() {
+    /// The form a new statement belongs to: the last form, which must still be open.
+    fn current_form(&mut self, opcode: u8, at: usize) -> Result<(usize, &mut Form)> {
+        let open = self.stack.iter().any(|f| matches!(f.kind, FrameKind::Form));
+        if !open || self.sets.last().is_none_or(|set| set.forms.is_empty()) {
             return Err(self.fail(opcode, at, "statement outside a form"));
         }
-        let set = self.sets.last_mut().expect("checked above");
-        Ok(set.forms.last_mut().expect("checked above"))
+        if let Some(set) = self.sets.last_mut() {
+            let index = set.forms.len() - 1;
+            if let Some(form) = set.forms.last_mut() {
+                return Ok((index, form));
+            }
+        }
+        Err(Error::new(Code::Internal, "ifr: open form missing"))
     }
 
-    /// Index of the innermost open statement frame.
-    fn open_statement(&self) -> Option<usize> {
+    /// The statement at `(form, index)` of the form set being walked.
+    fn statement_mut(&mut self, form: usize, index: usize) -> Option<&mut Statement> {
+        self.sets
+            .last_mut()?
+            .forms
+            .get_mut(form)?
+            .statements
+            .get_mut(index)
+    }
+
+    /// Address `(form, statement)` of the innermost open statement frame.
+    fn open_statement(&self) -> Option<(usize, usize)> {
         self.stack.iter().rev().find_map(|f| match f.kind {
-            FrameKind::Statement { index, .. } => Some(index),
+            FrameKind::Statement { form, index, .. } => Some((form, index)),
             _ => None,
         })
     }
@@ -317,9 +335,10 @@ impl Walker<'_> {
             match frame.kind {
                 FrameKind::FormSet => self.resolve_varstores(),
                 FrameKind::Statement {
+                    form,
                     index,
                     option_width,
-                } => self.close_statement(index, option_width),
+                } => self.close_statement(form, index, option_width),
                 _ => {}
             }
             return Ok(());
@@ -367,6 +386,17 @@ impl Walker<'_> {
                 kind = FrameKind::FormSet;
             }
             OP_FORM => {
+                // Forms are direct children of the form set; a nested one would
+                // detach open statements from the form they were declared in.
+                if !matches!(
+                    self.stack.as_slice(),
+                    [Frame {
+                        kind: FrameKind::FormSet,
+                        ..
+                    }]
+                ) {
+                    return Err(self.fail(opcode, at, "Form inside another scope"));
+                }
                 self.need(opcode, at, payload, 4)?;
                 let form = Form {
                     opcode_offset: at,
@@ -407,8 +437,9 @@ impl Walker<'_> {
             }
             OP_SUBTITLE | OP_TEXT | OP_ONE_OF | OP_CHECKBOX | OP_NUMERIC | OP_PASSWORD
             | OP_ACTION | OP_REF | OP_DATE | OP_TIME | OP_STRING | OP_ORDERED_LIST => {
-                let index = self.statement(opcode, at, payload)?;
+                let (form, index) = self.statement(opcode, at, payload)?;
                 kind = FrameKind::Statement {
+                    form,
                     index,
                     option_width: None,
                 };
@@ -426,12 +457,13 @@ impl Walker<'_> {
                     default_id: le16(payload, 0, "")?,
                     value,
                 };
-                let Some(index) = self.open_statement() else {
+                let Some((form, index)) = self.open_statement() else {
                     return Err(self.fail(opcode, at, "Default outside a question"));
                 };
-                self.current_form(opcode, at)?.statements[index]
-                    .defaults
-                    .push(default);
+                match self.statement_mut(form, index) {
+                    Some(statement) => statement.defaults.push(default),
+                    None => return Err(self.fail(opcode, at, "Default outside a question")),
+                }
             }
             _ => {}
         }
@@ -493,7 +525,7 @@ impl Walker<'_> {
     }
 
     /// Build a statement from its opcode and return its index in the current form.
-    fn statement(&mut self, opcode: u8, at: usize, payload: &[u8]) -> Result<usize> {
+    fn statement(&mut self, opcode: u8, at: usize, payload: &[u8]) -> Result<(usize, usize)> {
         let kind = match opcode {
             OP_SUBTITLE => StatementKind::Subtitle,
             OP_TEXT => StatementKind::Text,
@@ -539,9 +571,9 @@ impl Walker<'_> {
             }
             self.question_body(opcode, at, payload, &mut statement)?;
         }
-        let form = self.current_form(opcode, at)?;
+        let (form_index, form) = self.current_form(opcode, at)?;
         form.statements.push(statement);
-        Ok(form.statements.len() - 1)
+        Ok((form_index, form.statements.len() - 1))
     }
 
     /// Kind-specific fields that follow the 11-byte question header.
@@ -621,18 +653,20 @@ impl Walker<'_> {
             standard_default: payload[2] & 0x10 != 0,
             manufacturing_default: payload[2] & 0x20 != 0,
         };
-        let Some(index) = self.open_statement() else {
+        let Some((form, index)) = self.open_statement() else {
             return Err(self.fail(opcode, at, "option outside a question"));
         };
-        self.current_form(opcode, at)?.statements[index]
-            .options
-            .push(choice);
+        match self.statement_mut(form, index) {
+            Some(statement) => statement.options.push(choice),
+            None => return Err(self.fail(opcode, at, "option outside a question")),
+        }
         for frame in self.stack.iter_mut().rev() {
             if let FrameKind::Statement {
+                form: open_form,
                 index: open,
                 option_width,
             } = &mut frame.kind
-                && *open == index
+                && (*open_form, *open) == (form, index)
             {
                 option_width.get_or_insert(width.unwrap_or(0) as u16);
                 break;
@@ -642,13 +676,8 @@ impl Walker<'_> {
     }
 
     /// An ordered list stores one value per container; width follows its first option.
-    fn close_statement(&mut self, index: usize, option_width: Option<u16>) {
-        let Some(statement) = self
-            .sets
-            .last_mut()
-            .and_then(|set| set.forms.last_mut())
-            .and_then(|form| form.statements.get_mut(index))
-        else {
+    fn close_statement(&mut self, form: usize, index: usize, option_width: Option<u16>) {
+        let Some(statement) = self.statement_mut(form, index) else {
             return;
         };
         if statement.kind == StatementKind::OrderedList

@@ -373,3 +373,106 @@ fn decode_image_walks_pe_leaves_and_filters_by_guid() {
     let error = decode_image(&plain, Some(crate::synthetic::PEIM_GUID), None).unwrap_err();
     assert_eq!(error.code, Code::TargetNotFound);
 }
+
+#[test]
+fn form_nested_in_a_question_scope_is_rejected_not_indexed_out_of_bounds() {
+    // FormSet { Form { OneOf { Form { OneOfOption } } } }: the inner Form used to
+    // detach the open OneOf from its form and the option indexed past the new form.
+    let body = [
+        formset_open(),
+        ifr_op(0x01, true, &[1, 0, 0, 0]),
+        ifr_one_of_u16((0, 0, 7), 0, 0, (0, 1)),
+        ifr_op(0x01, true, &[2, 0, 0, 0]),
+        ifr_option_u16(0, 0, 0),
+    ]
+    .concat();
+    let message = decode_error(&list_with_body(&body));
+    assert!(message.contains("opcode Form (0x01)"), "{message}");
+    assert!(message.contains("Form inside another scope"), "{message}");
+}
+
+#[test]
+fn form_inside_a_condition_scope_is_rejected() {
+    let body = [
+        formset_open(),
+        ifr_op(0x0A, true, &[]),
+        ifr_op(0x01, true, &[1, 0, 0, 0]),
+    ]
+    .concat();
+    let message = decode_error(&list_with_body(&body));
+    assert!(message.contains("Form inside another scope"), "{message}");
+}
+
+#[test]
+fn statement_after_its_form_closed_is_rejected() {
+    let body = [
+        formset_open(),
+        ifr_op(0x01, true, &[1, 0, 0, 0]),
+        ifr_end(),
+        ifr_checkbox((0, 0, 3), 0, 0),
+        ifr_end(),
+        ifr_end(),
+    ]
+    .concat();
+    let message = decode_error(&list_with_body(&body));
+    assert!(message.contains("statement outside a form"), "{message}");
+}
+
+mod random_streams {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Opcodes worth hitting often: scopes, statements, options, expressions, stores.
+    const INTERESTING: [u8; 30] = [
+        0x01, 0x02, 0x03, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0C, 0x0E, 0x0F, 0x12, 0x14, 0x15,
+        0x17, 0x19, 0x1A, 0x1B, 0x1C, 0x1E, 0x23, 0x24, 0x25, 0x26, 0x29, 0x29, 0x45, 0x5B, 0x5C,
+    ];
+
+    fn opcode_strategy() -> impl Strategy<Value = Vec<u8>> {
+        let opcode = prop_oneof![
+            4 => proptest::sample::select(INTERESTING.to_vec()),
+            1 => any::<u8>(),
+        ];
+        (
+            opcode,
+            any::<bool>(),
+            proptest::collection::vec(any::<u8>(), 0..40),
+        )
+            .prop_map(|(opcode, scope, payload)| ifr_op(opcode, scope, &payload))
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+        /// Random opcode streams under a form set either decode or fail with FormatInvalid.
+        #[test]
+        fn opcode_streams_never_panic(ops in proptest::collection::vec(opcode_strategy(), 0..60)) {
+            let body = [formset_open(), ops.concat(), ifr_end()].concat();
+            if let Err(error) = decode_module(&list_with_body(&body), None) {
+                prop_assert_eq!(error.code, Code::FormatInvalid, "{}", error);
+            }
+        }
+
+        /// Raw bytes in the form package body, behind a valid FormSet header.
+        #[test]
+        fn raw_bodies_never_panic(raw in proptest::collection::vec(any::<u8>(), 0..300)) {
+            let body = [formset_open(), raw].concat();
+            if let Err(error) = decode_module(&list_with_body(&body), None) {
+                prop_assert_eq!(error.code, Code::FormatInvalid, "{}", error);
+            }
+        }
+
+        /// Raw bytes as string package blocks.
+        #[test]
+        fn string_blocks_never_panic(raw in proptest::collection::vec(any::<u8>(), 0..200)) {
+            let mut package = hii_string_package("en-US", &[]);
+            package.pop();
+            package.extend(raw);
+            let length = package.len();
+            package[..3].copy_from_slice(&(length as u32).to_le_bytes()[..3]);
+            if let Err(error) = hii::decode_string_package(&package, 0, length) {
+                prop_assert_eq!(error.code, Code::FormatInvalid, "{}", error);
+            }
+        }
+    }
+}
