@@ -42,7 +42,7 @@ bme replay script harness.py --module PchSmiDispatcher.pe -o out/ -- --case 3
 
 A harness is a Python script that imports `bme_replay`, loads the modules named with `--module` (`bme_replay.modules()`), calls firmware functions and reports with `bme_replay.emit(document)`. bme runs it as `python -I -B` in the replay environment, passes the arguments after `--` as `sys.argv[1:]`, and collects every emitted JSON document. A harness that raises, exits non-zero or runs past `--timeout` (600 s by default) fails the command with `TOOL_FAILED` and its stderr tail.
 
-`bme_replay` is MIT code that bme embeds and writes to `<data dir>/replay/package` before each run, again whenever the embedded digest differs from the one on disk, so a new release refreshes it without recreating the environment. It provides:
+`bme_replay` is MIT code that bme embeds and writes to `<data dir>/replay/package-<digest>` before each run. A new release writes a new directory and never rewrites one that exists, so a run in progress and two runs started together do not disturb each other, and the environment is not recreated. Older digest directories stay; delete them when no run uses them. It provides:
 
 | Piece | Use |
 | ----- | --- |
@@ -55,7 +55,7 @@ A harness is a Python script that imports `bme_replay`, loads the modules named 
 | `SmbusDevice`, `SpdEeprom` | A PCH SMBus controller with slaves |
 | `machine.stub(address, handler)`, `machine.trace` | Replace a function, and read or hash the event trace |
 
-With `-o DIR`, bme writes `result.jsonl` (the documents, one per line) and `evidence.json`, a `bme.evidence/1` record of kind `offline-validation`. Its `replay` block holds the harness name, the interpreter and package versions, the SHA-256 of the harness and of each module, and the SHA-256 of `result.jsonl`. `--board` and `--firmware` fill the record's scope; both default to `unscoped`, and a catalog accepts the record only after they name a real board and build. Without `-o` the record is in the `--json` reply only. An existing `evidence.json` or `result.jsonl` is never overwritten.
+With `-o DIR`, bme writes `result.jsonl` (the documents, one per line) and `evidence.json`, a `bme.evidence/1` record of kind `offline-validation`. Its `replay` block holds the harness name, the interpreter and package versions, the bme release, the `bme_replay` package digest, the SHA-256 of the harness and of each module, and the SHA-256 of `result.jsonl`. `--board` and `--firmware` fill the record's scope; both default to `unscoped`, and a catalog accepts the record only after they name a real board and build. Without `-o` the record is in the `--json` reply only. An existing `evidence.json` or `result.jsonl` is never overwritten.
 
 `tools/replay/examples/b11_context_overread.py` is a complete harness: it replays the original `PchSmiDispatcher` registration with contexts placed at the end of a readable page and shows the 16-byte read faulting at RVA `3A02` when fewer than 16 bytes follow.
 
