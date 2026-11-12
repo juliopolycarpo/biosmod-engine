@@ -353,10 +353,12 @@ fn package_list_scan_requires_the_chain_to_close_on_the_declared_length() {
 #[test]
 fn decode_image_walks_pe_leaves_and_filters_by_guid() {
     let image = Image::parse(ifr_setup_image()).expect("synthetic image parses");
-    let all = decode_image(&image, None, None).unwrap();
+    let all = decode_image(&image, None, None).unwrap().modules;
     assert_eq!(all.len(), 1);
     assert_eq!(all[0].guid, Some(SETUP_GUID));
-    let one = decode_image(&image, Some(SETUP_GUID), Some("pt-BR")).unwrap();
+    let one = decode_image(&image, Some(SETUP_GUID), Some("pt-BR"))
+        .unwrap()
+        .modules;
     assert_eq!(
         one[0].module.package_lists[0].language.as_deref(),
         Some("pt-BR")
@@ -369,7 +371,10 @@ fn decode_image_walks_pe_leaves_and_filters_by_guid() {
 
     let plain = Fixture::new(0x07);
     let plain = Image::parse(plain.image).unwrap();
-    assert!(decode_image(&plain, None, None).unwrap().is_empty());
+    assert_eq!(
+        decode_image(&plain, None, None).unwrap(),
+        ImageIfr::default()
+    );
     let error = decode_image(&plain, Some(crate::synthetic::PEIM_GUID), None).unwrap_err();
     assert_eq!(error.code, Code::TargetNotFound);
 }
@@ -475,4 +480,46 @@ mod random_streams {
             }
         }
     }
+}
+
+/// An image with the good Setup module and a second PE whose form package is malformed.
+fn image_with_one_broken_module() -> (Image, Guid) {
+    let broken_guid = Guid::constant("00000000-0000-0000-0000-0000000000B1");
+    let broken = list_with_body(&[formset_open(), ifr_end(), ifr_end()].concat());
+    let files = [
+        ffs(SETUP_GUID, 0x07, &section(0x10, &ifr_setup_module()), 0),
+        ffs(broken_guid, 0x07, &section(0x10, &broken), 0),
+    ];
+    let mut bytes = vec![0xFF; 0x1000];
+    bytes.extend(volume(&files, 0x4000));
+    (
+        Image::parse(bytes).expect("synthetic image parses"),
+        broken_guid,
+    )
+}
+
+#[test]
+fn image_decode_keeps_good_modules_and_reports_the_broken_one() {
+    let (image, broken_guid) = image_with_one_broken_module();
+    let found = decode_image(&image, None, None).expect("one bad module must not abort the image");
+    assert_eq!(found.modules.len(), 1);
+    assert_eq!(found.modules[0].guid, Some(SETUP_GUID));
+    assert_eq!(found.diagnostics.len(), 1);
+    let diagnostic = &found.diagnostics[0];
+    assert_eq!(diagnostic.guid, broken_guid);
+    assert_eq!(diagnostic.code, Code::FormatInvalid);
+    assert!(
+        diagnostic.message.contains("opcode End (0x29) at 0x31"),
+        "{}",
+        diagnostic.message
+    );
+}
+
+#[test]
+fn image_decode_fails_hard_when_guid_targets_the_broken_module() {
+    let (image, broken_guid) = image_with_one_broken_module();
+    let error = decode_image(&image, Some(broken_guid), None).unwrap_err();
+    assert_eq!(error.code, Code::FormatInvalid);
+    assert!(error.message.contains("0000B1"), "{error}");
+    assert!(error.message.contains("opcode End (0x29)"), "{error}");
 }

@@ -286,17 +286,31 @@ pub struct ModuleIfr {
     pub module: IfrModule,
 }
 
+/// A module of an image whose IFR could not be decoded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ModuleDiagnostic {
+    pub guid: Guid,
+    pub name: Option<String>,
+    pub code: crate::error::Code,
+    pub message: String,
+}
+
+/// Result of decoding an image: the modules that decoded and those that did not.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ImageIfr {
+    pub modules: Vec<ModuleIfr>,
+    pub diagnostics: Vec<ModuleDiagnostic>,
+}
+
 /// Decode the IFR of every PE32/TE leaf in `image`, or only of the file `guid`.
 ///
-/// Modules without any package list are left out. With `guid` set the file must
-/// exist (`TargetNotFound`); decode errors name the file GUID.
+/// Modules without any package list are left out. Without `guid`, a module whose
+/// packages are malformed is reported in [`ImageIfr::diagnostics`] and the other modules
+/// still decode. With `guid` set the file must exist (`TargetNotFound`) and its decode
+/// errors are returned, naming the file GUID.
 ///
 /// Example: `let found = biosmod_core::ifr::decode_image(&image, None, None)?;`
-pub fn decode_image(
-    image: &Image,
-    guid: Option<Guid>,
-    language: Option<&str>,
-) -> Result<Vec<ModuleIfr>> {
+pub fn decode_image(image: &Image, guid: Option<Guid>, language: Option<&str>) -> Result<ImageIfr> {
     use crate::error::{Code, Error};
     if let Some(wanted) = guid
         && !image.leaves.contains_key(&wanted)
@@ -306,7 +320,7 @@ pub fn decode_image(
             format!("GUID {wanted}: expected a file in the image | received none"),
         ));
     }
-    let mut found: Vec<ModuleIfr> = Vec::new();
+    let mut found = ImageIfr::default();
     for (file_guid, leaves) in &image.leaves {
         if guid.is_some_and(|wanted| wanted != *file_guid) {
             continue;
@@ -316,18 +330,27 @@ pub fn decode_image(
             if section.kind != SECTION_PE32 && section.kind != SECTION_TE {
                 continue;
             }
-            let module = decode_module(section.body(stream), language)
-                .map_err(|e| e.context(format!("file {file_guid}")))?;
-            if !module.package_lists.is_empty() {
-                found.push(ModuleIfr {
+            let name = image.ui_name(leaf.volume, leaf.file);
+            match decode_module(section.body(stream), language) {
+                Ok(module) if module.package_lists.is_empty() => {}
+                Ok(module) => found.modules.push(ModuleIfr {
                     guid: Some(*file_guid),
-                    name: image.ui_name(leaf.volume, leaf.file),
+                    name,
                     module,
-                });
+                }),
+                Err(error) if guid.is_some() => {
+                    return Err(error.context(format!("file {file_guid}")));
+                }
+                Err(error) => found.diagnostics.push(ModuleDiagnostic {
+                    guid: *file_guid,
+                    name,
+                    code: error.code,
+                    message: error.message,
+                }),
             }
         }
     }
-    if found.is_empty()
+    if found.modules.is_empty()
         && let Some(wanted) = guid
     {
         return Err(Error::new(

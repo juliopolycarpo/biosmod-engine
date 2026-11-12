@@ -4,7 +4,9 @@ use super::{MAX_IMAGE_BYTES, read_bounded};
 use crate::IfrArgs;
 use crate::output::{Reply, table};
 use biosmod_core::firmware::Image;
-use biosmod_core::ifr::{self, ConditionKind, ModuleIfr, Statement, StatementKind};
+use biosmod_core::ifr::{
+    self, ConditionKind, ImageIfr, ModuleDiagnostic, ModuleIfr, Statement, StatementKind,
+};
 use biosmod_core::util::{Guid, sha256_hex};
 use biosmod_core::{Code, Error, Result};
 use serde_json::json;
@@ -16,7 +18,7 @@ pub fn run(args: &IfrArgs) -> Result<Reply> {
     let guid: Option<Guid> = args.guid.as_deref().map(str::parse).transpose()?;
     let language = args.language.as_deref();
     let sha256 = sha256_hex(&bytes);
-    let (source, modules) = match Image::parse(bytes.clone()) {
+    let (source, decoded) = match Image::parse(bytes.clone()) {
         Ok(image) => ("image", ifr::decode_image(&image, guid, language)?),
         Err(error) if error.code == Code::FormatUnsupported && guid.is_some() => {
             return Err(Error::new(
@@ -30,19 +32,36 @@ pub fn run(args: &IfrArgs) -> Result<Reply> {
         // Not a firmware image: treat the bytes as one PE, TE or raw section.
         Err(error) if error.code == Code::FormatUnsupported => (
             "module",
-            vec![ModuleIfr {
-                guid: None,
-                name: None,
-                module: ifr::decode_module(&bytes, language)?,
-            }],
+            ImageIfr {
+                modules: vec![ModuleIfr {
+                    guid: None,
+                    name: None,
+                    module: ifr::decode_module(&bytes, language)?,
+                }],
+                diagnostics: vec![],
+            },
         ),
         Err(error) => return Err(error.context(args.input.display())),
     };
+    let ImageIfr {
+        modules,
+        diagnostics,
+    } = decoded;
     let modules: Vec<ModuleIfr> = modules
         .into_iter()
         .filter(|m| !m.module.package_lists.is_empty())
         .collect();
     if modules.is_empty() {
+        if let Some(first) = diagnostics.first() {
+            return Err(Error::new(
+                first.code,
+                format!(
+                    "{}: no module decoded | {}",
+                    args.input.display(),
+                    describe_all(&diagnostics)
+                ),
+            ));
+        }
         return Err(Error::new(
             Code::TargetNotFound,
             format!(
@@ -51,11 +70,32 @@ pub fn run(args: &IfrArgs) -> Result<Reply> {
             ),
         ));
     }
-    let text = render(&modules);
+    let mut text = render(&modules);
+    for diagnostic in &diagnostics {
+        let _ = writeln!(text, "warning: {}", describe(diagnostic));
+    }
     Ok(Reply::new(
-        json!({"input": args.input.to_string_lossy(), "sha256": sha256, "source": source, "modules": modules}),
+        json!({"input": args.input.to_string_lossy(), "sha256": sha256, "source": source, "modules": modules, "diagnostics": diagnostics}),
         text,
     ))
+}
+
+/// `GUID name: message` for a module that failed to decode.
+fn describe(diagnostic: &ModuleDiagnostic) -> String {
+    let name = diagnostic
+        .name
+        .as_deref()
+        .map(|n| format!(" {n}"))
+        .unwrap_or_default();
+    format!("file {}{name}: {}", diagnostic.guid, diagnostic.message)
+}
+
+fn describe_all(diagnostics: &[ModuleDiagnostic]) -> String {
+    diagnostics
+        .iter()
+        .map(describe)
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn condition_tag(kind: ConditionKind) -> &'static str {
