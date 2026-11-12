@@ -37,12 +37,13 @@ pub enum Code {
     PlatformUnsupported,
     FlashRefused,
     FlashFailed,
+    HostRefused,
     Internal,
 }
 
 impl Code {
     /// Every code, in documentation order.
-    pub const ALL: [Code; 29] = [
+    pub const ALL: [Code; 30] = [
         Code::Usage,
         Code::Io,
         Code::CatalogInvalid,
@@ -71,6 +72,7 @@ impl Code {
         Code::PlatformUnsupported,
         Code::FlashRefused,
         Code::FlashFailed,
+        Code::HostRefused,
         Code::Internal,
     ];
 
@@ -105,6 +107,7 @@ impl Code {
             Code::PlatformUnsupported => "PLATFORM_UNSUPPORTED",
             Code::FlashRefused => "FLASH_REFUSED",
             Code::FlashFailed => "FLASH_FAILED",
+            Code::HostRefused => "HOST_REFUSED",
             Code::Internal => "INTERNAL",
         }
     }
@@ -161,6 +164,9 @@ impl Code {
             Code::FlashRefused => "a flash chip safety check failed; nothing was written",
             Code::FlashFailed => {
                 "a flash chip write or its read-back failed; the chip may hold a partial image"
+            }
+            Code::HostRefused => {
+                "a host diagnostic refused to run: the user, chip, board or request is outside what its safety rules cover; nothing was changed"
             }
             Code::Internal => "an internal invariant failed; please report it",
         }
@@ -231,4 +237,23 @@ macro_rules! ensure {
             $crate::bail!($code, $($arg)*);
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_code_has_a_unique_identifier_and_a_meaning() {
+        let mut seen = std::collections::BTreeSet::new();
+        for code in Code::ALL {
+            assert!(
+                seen.insert(code.as_str()),
+                "(code identifiers): expected unique | received {} twice",
+                code.as_str()
+            );
+            assert!(!code.meaning().is_empty(), "{code}: expected a meaning");
+        }
+        assert_eq!(Code::HostRefused.as_str(), "HOST_REFUSED");
+    }
 }
