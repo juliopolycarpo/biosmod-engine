@@ -290,6 +290,51 @@ fn select_ldn(ports: &mut dyn PortIo, port: u16, chip: &ChipMap, ldn: u8) -> Res
     ports.write(port + 1, ldn)
 }
 
+/// Writes that put selectors back. They run on [`Undo::commit`], and on drop when the
+/// code between the selector change and the commit returned early or panicked and
+/// unwound, so the chip is not left selected (a release build aborts instead).
+struct Undo<'a> {
+    ports: &'a mut dyn PortIo,
+    /// (port, value) writes, in order.
+    writes: Vec<(u16, u8)>,
+    armed: bool,
+}
+
+impl<'a> Undo<'a> {
+    fn new(ports: &'a mut dyn PortIo, writes: Vec<(u16, u8)>) -> Undo<'a> {
+        Undo {
+            ports,
+            writes,
+            armed: true,
+        }
+    }
+
+    /// The ports, for the work that needs the undo.
+    fn ports(&mut self) -> &mut dyn PortIo {
+        &mut *self.ports
+    }
+
+    /// Run the writes now and report the first failure.
+    fn commit(mut self) -> Result<()> {
+        self.armed = false;
+        let writes = std::mem::take(&mut self.writes);
+        writes
+            .iter()
+            .try_for_each(|(port, value)| self.ports.write(*port, *value))
+    }
+}
+
+impl Drop for Undo<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            // Best effort: there is nobody to report to while unwinding.
+            for (port, value) in &self.writes {
+                let _ = self.ports.write(*port, *value);
+            }
+        }
+    }
+}
+
 /// Run `restore` after `result` and report both failures when both happen.
 fn finish<T>(result: Result<T>, restore: Result<()>, what: &str) -> Result<T> {
     match (result, restore) {
@@ -327,14 +372,16 @@ fn probe<'a>(
     entry: &ChipMap,
     chips: &'a [ChipMap],
 ) -> Result<Probe<'a>> {
+    let mut session = Undo::new(ports, vec![(port, entry.lock)]);
     let unlock = entry
         .unlock
         .iter()
-        .try_for_each(|key| ports.write(port, *key));
+        .try_for_each(|key| session.ports().write(port, *key));
     // Even when the key sequence failed partway the chip may be one write from
     // configuration mode, so the exit key is sent on every path.
-    let outcome = unlock.and_then(|()| probe_in_configuration_mode(ports, port, entry, chips));
-    let exit = ports.write(port, entry.lock);
+    let outcome =
+        unlock.and_then(|()| probe_in_configuration_mode(session.ports(), port, entry, chips));
+    let exit = session.commit();
     finish(outcome, exit, "configuration mode")
 }
 
@@ -357,8 +404,12 @@ fn probe_in_configuration_mode<'a>(
     };
     // From here on the LDN selector changes, so put it back whatever happens.
     let saved_ldn = config_read(ports, port, chip.ldn_register)?;
-    let read = read_logical_devices(ports, port, chip);
-    let restore = select_ldn(ports, port, chip, saved_ldn);
+    let mut undo = Undo::new(
+        ports,
+        vec![(port, chip.ldn_register), (port + 1, saved_ldn)],
+    );
+    let read = read_logical_devices(undo.ports(), port, chip);
+    let restore = undo.commit();
     let (logical_devices, hardware_monitor_base) =
         finish(read, restore, "logical device selection")?;
     Ok(Probe::Known {
@@ -415,7 +466,9 @@ fn read_banks(
 ) -> Result<BTreeMap<String, BTreeMap<String, u8>>> {
     ports.write(index, hwm.bank_register)?;
     let original = ports.read(data)?;
+    let mut undo = Undo::new(ports, vec![(index, hwm.bank_register), (data, original)]);
     let read = (|| {
+        let ports = undo.ports();
         let mut banks = BTreeMap::new();
         for bank in &hwm.banks {
             ports.write(index, hwm.bank_register)?;
@@ -429,9 +482,7 @@ fn read_banks(
         }
         Ok(banks)
     })();
-    let restore = ports
-        .write(index, hwm.bank_register)
-        .and_then(|()| ports.write(data, original));
+    let restore = undo.commit();
     finish(read, restore, "hardware monitor bank selection")
 }
 
@@ -857,6 +908,56 @@ mod tests {
             !crate::signals::is_blocked(libc::SIGTERM),
             "(SIGTERM): expected released after a failed read"
         );
+    }
+
+    /// Forwards to a fake and panics on the `n`th read of `port`, as a bug in the code
+    /// between a selector change and its restore would.
+    struct PanicOnRead<P> {
+        inner: P,
+        port: u16,
+        n: usize,
+        seen: usize,
+    }
+
+    impl<P: PortIo> PortIo for PanicOnRead<P> {
+        fn read(&mut self, port: u16) -> Result<u8> {
+            if port == self.port {
+                self.seen += 1;
+                if self.seen == self.n {
+                    panic!(
+                        "(PanicOnRead): injected panic at read {} of port {port:#x}",
+                        self.n
+                    );
+                }
+            }
+            self.inner.read(port)
+        }
+
+        fn write(&mut self, port: u16, value: u8) -> Result<()> {
+            self.inner.write(port, value)
+        }
+    }
+
+    #[test]
+    fn a_panic_in_either_phase_still_restores_the_selectors_when_unwinding() {
+        // Release builds abort on panic and never get here; debug builds and tests unwind.
+        // Data-port reads 4+ are the logical device phase; 0xA26 is the monitor's data port.
+        for (port, n) in [(0x2F, 4), (0x2F, 12), (0xA26, 1), (0xA26, 30)] {
+            let mut spy = PanicOnRead {
+                inner: FakeSuperIoPorts::mr9a_nct5532d(),
+                port,
+                n,
+                seen: 0,
+            };
+            let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                read(&mut spy, builtin())
+            }));
+            assert!(
+                unwound.is_err(),
+                "(read {n} of {port:#x}): expected the injected panic"
+            );
+            assert_restored(&spy.inner);
+        }
     }
 
     #[test]
