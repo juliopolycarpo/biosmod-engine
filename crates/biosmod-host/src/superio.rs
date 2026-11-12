@@ -322,10 +322,13 @@ fn probe<'a>(
     entry: &ChipMap,
     chips: &'a [ChipMap],
 ) -> Result<Probe<'a>> {
-    for key in &entry.unlock {
-        ports.write(port, *key)?;
-    }
-    let outcome = probe_in_configuration_mode(ports, port, entry, chips);
+    let unlock = entry
+        .unlock
+        .iter()
+        .try_for_each(|key| ports.write(port, *key));
+    // Even when the key sequence failed partway the chip may be one write from
+    // configuration mode, so the exit key is sent on every path.
+    let outcome = unlock.and_then(|()| probe_in_configuration_mode(ports, port, entry, chips));
     let exit = ports.write(port, entry.lock);
     finish(outcome, exit, "configuration mode")
 }
@@ -782,6 +785,45 @@ mod tests {
             let error = read(&mut ports, builtin()).unwrap_err();
             assert!(
                 error.message.contains("injected failure"),
+                "(read {fail_at}): {error}"
+            );
+            assert_restored(&ports);
+        }
+    }
+
+    #[test]
+    fn leaving_configuration_mode_is_attempted_when_the_unlock_fails_halfway() {
+        // The first 0x87 was accepted, the second failed: the chip is one write away
+        // from configuration mode and must still get the exit key.
+        let mut ports = FakeSuperIoPorts::mr9a_nct5532d().failing_write(2);
+        let error = read(&mut ports, builtin()).unwrap_err();
+        assert!(
+            error.message.contains("injected failure of write 2"),
+            "{error}"
+        );
+        let last_write = ports
+            .trace
+            .iter()
+            .rev()
+            .find(|op| matches!(op, PortOp::Write(..)));
+        assert_eq!(
+            last_write,
+            Some(&PortOp::Write(0x2E, 0xAA)),
+            "(last port write): expected the exit key | received {last_write:?}"
+        );
+        assert_restored(&ports);
+    }
+
+    #[test]
+    fn a_failure_in_the_logical_device_phase_restores_the_selection_and_exits() {
+        // Read 1-2 are the ID, 3 the saved LDN; every later read is in the phase.
+        for fail_at in [4, 5, 9, 20] {
+            let mut ports = FakeSuperIoPorts::mr9a_nct5532d().failing_config_read(fail_at);
+            let error = read(&mut ports, builtin()).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("injected failure of configuration read"),
                 "(read {fail_at}): {error}"
             );
             assert_restored(&ports);

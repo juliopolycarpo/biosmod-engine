@@ -240,6 +240,10 @@ pub struct FakeSuperIoPorts {
     banks: std::collections::BTreeMap<(u8, u8), u8>,
     hwm_reads: usize,
     fail_hwm_read_at: Option<usize>,
+    writes: usize,
+    fail_write_at: Option<usize>,
+    config_reads: usize,
+    fail_config_read_at: Option<usize>,
     /// Accesses the fake refuses.
     pub violations: Vec<String>,
     /// Every access in order.
@@ -290,6 +294,10 @@ impl FakeSuperIoPorts {
             banks,
             hwm_reads: 0,
             fail_hwm_read_at: None,
+            writes: 0,
+            fail_write_at: None,
+            config_reads: 0,
+            fail_config_read_at: None,
             violations: Vec::new(),
             trace: Vec::new(),
         }
@@ -317,6 +325,28 @@ impl FakeSuperIoPorts {
     pub fn failing_hwm_read(mut self, n: usize) -> FakeSuperIoPorts {
         self.fail_hwm_read_at = Some(n);
         self
+    }
+
+    /// Fail the `n`th (1-based) port write of any kind without applying it.
+    pub fn failing_write(mut self, n: usize) -> FakeSuperIoPorts {
+        self.fail_write_at = Some(n);
+        self
+    }
+
+    /// Fail the `n`th (1-based) configuration data-port read while in configuration
+    /// mode. Reads 1 and 2 are the chip ID and 3 the saved logical device number; later
+    /// ones belong to the logical device phase.
+    pub fn failing_config_read(mut self, n: usize) -> FakeSuperIoPorts {
+        self.fail_config_read_at = Some(n);
+        self
+    }
+
+    fn injected(what: &str, n: usize) -> biosmod_core::Error {
+        // An injected fault, not a protocol violation.
+        biosmod_core::Error::new(
+            biosmod_core::Code::Io,
+            format!("(FakeSuperIoPorts): injected failure of {what} {n}"),
+        )
     }
 
     /// Whether the chip is out of configuration mode.
@@ -354,6 +384,13 @@ impl crate::ports::PortIo for FakeSuperIoPorts {
         if port == data_port {
             if !self.unlocked {
                 return Ok(0xFF);
+            }
+            self.config_reads += 1;
+            if self.fail_config_read_at == Some(self.config_reads) {
+                return Err(FakeSuperIoPorts::injected(
+                    "configuration read",
+                    self.config_reads,
+                ));
             }
             return Ok(match self.index {
                 0x20 => (self.chip_id >> 8) as u8,
@@ -398,6 +435,10 @@ impl crate::ports::PortIo for FakeSuperIoPorts {
 
     fn write(&mut self, port: u16, value: u8) -> Result<()> {
         self.trace.push(PortOp::Write(port, value));
+        self.writes += 1;
+        if self.fail_write_at == Some(self.writes) {
+            return Err(FakeSuperIoPorts::injected("write", self.writes));
+        }
         let (index_port, data_port) = (self.config_port, self.config_port + 1);
         if port == index_port {
             if self.unlocked {
