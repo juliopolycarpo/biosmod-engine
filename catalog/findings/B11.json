@@ -42,5 +42,47 @@
   ],
   "patches": [
     "B11"
+  ],
+  "detectors": [
+    {
+      "id": "context-wide-copy",
+      "title": "16-byte copy of a 4- or 8-byte public context",
+      "anchor": {
+        "in": "pe32",
+        "module_kind": "smm"
+      },
+      "signatures": [
+        {
+          "label": "register-copy",
+          "defect": {
+            "bytes": "897870488b44242048897078488b442420f30f6f06f30f7f8080000000488b4424208b4bf08988c8000000486343f0488b4c2420488d1440498b04d0488981b0000000498b44d008488981b8000000498b44d010488981c0000000488b4424204c89a8a0000000488b4424"
+          },
+          "fixed": {
+            "bytes": "897870488970788b4bf083f9067414678d51ff83fa0276050f1006eb0af30f7e06eb04660f6e060f1180800000008988c80000004863d1488d1452410f100cd00f1188b00000004d8b4cd0104c8988c00000004c89a8a000000090909090909090909090909090488b4424"
+          }
+        },
+        {
+          "label": "sw-auto-assign-copy",
+          "defect": {
+            "bytes": "fffff30f6f06488b44",
+            "wild": [
+              0,
+              1
+            ]
+          },
+          "fixed": {
+            "bytes": "fffff30f7e06488b44",
+            "wild": [
+              0,
+              1
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "min_per_module": 1,
+        "max_per_module": 2
+      }
+    }
   ]
 }

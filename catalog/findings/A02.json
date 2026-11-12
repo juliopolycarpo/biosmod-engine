@@ -30,5 +30,29 @@
   "remediation": "Exact-method, length-preserving AML corrections and ACPICA replay. C1.",
   "patches": [
     "A02"
+  ],
+  "detectors": [
+    {
+      "id": "rpme-logical-and",
+      "title": "LAnd where a bitwise And of the PME bit is meant",
+      "anchor": {
+        "in": "dsdt"
+      },
+      "signatures": [
+        {
+          "label": "rpme-pme-bit",
+          "defect": {
+            "bytes": "90610c0000010057445045607b610c0000010000a40a"
+          },
+          "fixed": {
+            "bytes": "7b610c000001000057445045607b610c0000010000a4"
+          }
+        }
+      ],
+      "expect": {
+        "min_per_module": 1,
+        "max_per_module": 1
+      }
+    }
   ]
 }

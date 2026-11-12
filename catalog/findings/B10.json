@@ -42,5 +42,66 @@
   ],
   "patches": [
     "B10"
+  ],
+  "detectors": [
+    {
+      "id": "sx-phase-ignored",
+      "title": "Sx registration compares Type only, so exit handlers fire on entry",
+      "anchor": {
+        "in": "pe32",
+        "module_kind": "smm"
+      },
+      "signatures": [
+        {
+          "label": "register-compare",
+          "defect": {
+            "bytes": "80000000413bc50f8cbdfcffff83f8060f8db4fcffff8b8384000000413bc50f8ca5fcffff83f8020f8d9cfcffff48",
+            "wild": [
+              9,
+              10,
+              11,
+              12,
+              18,
+              19,
+              20,
+              21,
+              33,
+              34,
+              35,
+              36,
+              42,
+              43,
+              44,
+              45
+            ]
+          },
+          "fixed": {
+            "bytes": "8000000083f8060f83bdfcffff8b838400000085c07417ffc80f85abfcffff48bf0300000000000080e9a6fcffff48",
+            "wild": [
+              9,
+              10,
+              11,
+              12,
+              18,
+              19,
+              20,
+              21,
+              27,
+              28,
+              29,
+              30,
+              42,
+              43,
+              44,
+              45
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "min_per_module": 1,
+        "max_per_module": 1
+      }
+    }
   ]
 }
