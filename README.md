@@ -87,7 +87,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 | `scan`                                                             | detected build and every patch state                          |
 | `patch`, `export`, `verify`                                          | builds, optional recipes and verification                                 |
 | `extract`, `replace`                                               | one module or ACPI table out, an edited module back in        |
-| `compare`                                                          | pair two images' modules by GUID: identical, identical after relocation, or different |
+| `compare`, `compare --functions`                                   | pair two images' modules by GUID, or two `tools analyze` exports by function |
 | `derive`                                                           | draft a variant for another build by unique signatures        |
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | catalog sources and maintenance                               |
 | `tools status/set/unset/doctor/setup ghidra/analyze/paths`         | see, locate and install Ghidra 12.2 with ghidra-firmware-utils |

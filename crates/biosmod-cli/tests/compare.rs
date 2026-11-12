@@ -78,3 +78,104 @@ fn compare_never_writes_files() {
     names.sort();
     assert_eq!(names, ["a.bin", "b.bin"]);
 }
+
+/// A hand-written `tools analyze` export: named fake of Ghidra's `ExportFirmware` output.
+mod export_fake {
+    use serde_json::{Value, json};
+
+    pub fn ins(rva: u64, bytes: &str, text: &str) -> Value {
+        json!({"rva": format!("{rva:#x}"), "bytes": bytes, "mnemonic": text.split(' ').next().unwrap(), "text": text})
+    }
+
+    pub fn function(name: &str, rva: u64, instructions: Vec<Value>) -> Value {
+        json!({"name": name, "rva": format!("{rva:#x}"), "calls": [], "instructions": instructions})
+    }
+
+    pub fn export(program: &str, functions: Vec<Value>) -> String {
+        json!({"program": program, "image_base": "0x00400000", "functions": functions}).to_string()
+    }
+}
+
+#[test]
+fn functions_mode_reports_identical_changed_and_unmatched() {
+    use export_fake::{export, function, ins};
+    let sandbox = Sandbox::new();
+    let same = |rva| {
+        function(
+            "same",
+            rva,
+            vec![ins(rva, "55", "PUSH EBP"), ins(rva + 1, "c3", "RET")],
+        )
+    };
+    let body = |imm: &str, bytes: &str| {
+        vec![
+            ins(0x40, "55", "PUSH EBP"),
+            ins(0x41, bytes, &format!("MOV EAX,{imm}")),
+            ins(0x46, "c3", "RET"),
+        ]
+    };
+    let a = sandbox.path("a.json");
+    let b = sandbox.path("b.json");
+    fs::write(
+        &a,
+        export(
+            "Mod",
+            vec![
+                same(0x10),
+                function("edit", 0x40, body("0x1", "b801000000")),
+                function("gone", 0x80, vec![ins(0x80, "f4", "HLT")]),
+            ],
+        ),
+    )
+    .unwrap();
+    fs::write(
+        &b,
+        export(
+            "Mod",
+            vec![
+                same(0x10),
+                function("edit", 0x40, body("0x2", "b802000000")),
+            ],
+        ),
+    )
+    .unwrap();
+    let doc = sandbox
+        .run(["compare", "--functions", s(&a), s(&b), "--json"])
+        .json();
+    let data = &doc["data"];
+    assert_eq!(data["summary"]["identical"], 1, "{doc}");
+    assert_eq!(data["summary"]["changed"], 1, "{doc}");
+    assert_eq!(data["summary"]["unmatched_a"], 1, "{doc}");
+    let changed = data["pairs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["verdict"] == "changed")
+        .unwrap();
+    assert_eq!(changed["changed_ranges"][0]["a"]["rva_start"], "0x41");
+    assert_eq!(
+        changed["candidate"], true,
+        "an unanchored entry point pairs as a candidate: {changed}"
+    );
+    let text = sandbox.run(["compare", "--functions", s(&a), s(&b)]).stdout;
+    assert!(text.contains("1 changed"), "{text}");
+    assert!(text.contains("gone 0x80"), "{text}");
+}
+
+#[test]
+fn functions_mode_rejects_an_export_without_instructions() {
+    let sandbox = Sandbox::new();
+    let old = sandbox.path("old.json");
+    fs::write(
+        &old,
+        r#"{"program":"m","functions":[{"name":"f","rva":"0x10"}]}"#,
+    )
+    .unwrap();
+    let run = sandbox.run(["compare", "--functions", s(&old), s(&old), "--json"]);
+    assert_eq!(run.error_code(), "FORMAT_INVALID");
+    assert!(
+        run.stdout.contains("old.json function f at 0x10"),
+        "{}",
+        run.stdout
+    );
+}
