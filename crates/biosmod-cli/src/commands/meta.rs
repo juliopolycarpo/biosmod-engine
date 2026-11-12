@@ -111,7 +111,7 @@ fn commands() -> Value {
         {"name": "tools analyze", "writes": ["Ghidra project", "exports"], "network": false},
         {"name": "diag breadcrumbs decode|read", "writes": [], "network": false, "summary": "read uses ports 72h/73h only"},
         {"name": "diag acpi capture", "writes": ["capture directory"], "network": false, "summary": "copy ACPI tables, sleep states and sleep kernel messages into a hashed bundle with an evidence record (Linux, root)"},
-        {"name": "diag superio read", "writes": ["Super I/O access selectors (restored)", "capture directory (optional)"], "network": false, "summary": "identify a Super I/O chip by ID and read its logical devices and hardware-monitor registers; refuses unknown chips (Linux, root)"},
+        {"name": "diag superio read", "writes": ["Super I/O access selectors (restored)", "capture directory (optional)"], "network": false, "summary": "identify a Super I/O chip by ID and read its logical devices and hardware-monitor registers; refuses unknown chips; when a kernel hwmon driver owns the chip it reads that driver's sysfs files and touches no port, or with --unbound-only refuses naming the module to unload (Linux, root)"},
         {"name": "flash doctor", "writes": [], "network": false, "summary": "read-only system diagnosis for chip access (sysfs, flashrom version)"},
         {"name": "flash probe", "writes": [], "network": false, "summary": "detect the flash chip through flashrom"},
         {"name": "flash backup", "writes": ["chip dump"], "network": false, "summary": "read the chip twice and save identical reads as a new file"},

@@ -14,6 +14,7 @@ pub mod acpi;
 pub mod bundle;
 pub mod clock;
 pub mod files;
+pub mod hwmon;
 pub mod identity;
 pub mod kmsg;
 pub mod ports;

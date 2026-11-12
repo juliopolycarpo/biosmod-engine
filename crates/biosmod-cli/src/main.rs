@@ -455,7 +455,8 @@ pub enum DiagCommand {
 pub enum SuperioCommand {
     /// Detect the chip by ID on ports 2Eh/4Eh, refuse unknown IDs, and read its logical
     /// devices and hardware-monitor registers. Writes only access selectors and restores
-    /// the logical device and bank selection.
+    /// the logical device and bank selection. When a kernel driver owns the chip, no port
+    /// is touched: the driver's hwmon files are read instead.
     Read {
         /// Port device (default /dev/port).
         #[arg(long, default_value = "/dev/port")]
@@ -463,6 +464,12 @@ pub enum SuperioCommand {
         /// Also save the reading, manifest and evidence record in this new directory.
         #[arg(short, long, value_name = "DIR")]
         output: Option<PathBuf>,
+        /// Fail instead of falling back when a kernel hwmon driver (nct6775, ...) is bound to
+        /// the chip. By default a bound driver means no port is touched and the reading is
+        /// what the driver publishes in sysfs. bme never unloads a driver; the error names
+        /// the `modprobe -r` step.
+        #[arg(long)]
+        unbound_only: bool,
     },
 }
 

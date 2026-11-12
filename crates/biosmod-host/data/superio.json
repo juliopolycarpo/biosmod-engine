@@ -9,6 +9,12 @@
       "unlock": ["0x87", "0x87"],
       "lock": "0xAA",
       "id": { "registers": ["0x20", "0x21"], "value": "0xC560", "mask": "0xFFF0" },
+      "kernel_drivers": [
+        {
+          "module": "nct6775",
+          "hwmon_names": ["nct6775", "nct6776", "nct6779", "nct6791", "nct6792", "nct6793", "nct6795", "nct6796", "nct6797", "nct6798", "nct6799"]
+        }
+      ],
       "ldn_register": "0x07",
       "activation_register": "0x30",
       "base_registers": ["0x60", "0x61"],

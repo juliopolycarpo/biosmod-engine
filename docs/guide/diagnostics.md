@@ -44,10 +44,12 @@ Tables keep the sysfs names, which are the ACPI signatures, so they pair with th
 ```sh
 sudo bme diag superio read
 sudo bme diag superio read --json -o fan-controller-2026-11-12
+sudo bme diag superio read --unbound-only
 ```
 
 Reads the fan controller the way the one-off scripts did, with the safety rules built in:
 
+0. **It checks for a kernel driver first.** A bound `nct6775` caches the monitor's bank selection and writes fan registers on its own schedule; switching the bank through `/dev/port` behind it can misdirect one of its writes, and the kernel's region claims do not cover `/dev/port`. `bme` looks for a hwmon device whose `name` the chip table lists for the family (`/sys/class/hwmon/*/name`) and for a `/proc/ioports` entry labelled with the module. If it finds one, no port is touched: the reading is what the driver publishes (`pwmN`, `pwmN_enable`, `pwmN_auto_point*`, `fanN_input`, `tempN_input`, `tempN_label` and the other `pwm`, `fan` and `temp` files), and it states that the register map, the banks and anything the driver does not expose are not available through sysfs. `--unbound-only` turns the bound case into `HOST_REFUSED` naming the module. Either way the message gives the step for a person to run, `sudo modprobe -r nct6775`; `bme` never unloads a driver. A hwmon or ioports listing that exists but cannot be read is an error, not "no driver". In `--json` the reading carries `source`: `raw-ports` or `hwmon-sysfs`.
 1. It probes the configuration ports 2Eh and 4Eh: the entry key, then the chip ID. An address where nothing answers is left alone.
 2. It looks the ID up in the chip table. An ID no entry claims is refused with `HOST_REFUSED` and the ID in the message; the chip is left in the state it was found in. The low nibble of the ID is the silicon revision and is ignored (the MR9A's chip answers `0xC562`; the datasheet lists `0xC561`). The table entry is named for the family, `NCT5532D/NCT6779D`: the Linux `nct6775` driver documents the two together under ID `0xC56x`, so the ID alone does not say which one the board carries; the chip marking does.
 3. It reads the logical devices the map lists (activation and, where the device has one, the I/O base), then the hardware-monitor registers the map lists, bank by bank, through the monitor's index and data ports.

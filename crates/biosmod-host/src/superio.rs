@@ -27,6 +27,7 @@
 
 use crate::HostSurfaces;
 use crate::bundle::{Bundle, BundleBuilder};
+use crate::hwmon::{HwmonReading, detect_bound_driver, read_hwmon};
 use crate::identity::HostIdentity;
 use crate::ports::PortIo;
 use crate::privilege::require_root;
@@ -150,6 +151,16 @@ pub struct HardwareMonitorMap {
     pub banks: Vec<BankMap>,
 }
 
+/// A kernel hardware-monitor driver that binds a chip family.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KernelDriver {
+    /// The module to unload to free the chip.
+    pub module: String,
+    /// The `name` its hwmon devices report (one per chip it supports).
+    pub hwmon_names: Vec<String>,
+}
+
 /// A supported chip family and its register map.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -175,6 +186,9 @@ pub struct ChipMap {
     pub base_registers: Vec<u8>,
     pub logical_devices: Vec<LogicalDeviceMap>,
     pub hardware_monitor: Option<HardwareMonitorMap>,
+    /// Kernel drivers that bind this family. While one is bound, no raw port access.
+    #[serde(default)]
+    pub kernel_drivers: Vec<KernelDriver>,
     /// What the entry covers beyond its name, e.g. that an ID is shared by a family.
     #[serde(default)]
     pub note: Option<String>,
@@ -221,6 +235,16 @@ impl ChipMap {
         }
         if self.source.trim().is_empty() {
             return Err(format!("{at}: expected a source reference"));
+        }
+        if self.hardware_monitor.is_some()
+            && self
+                .kernel_drivers
+                .iter()
+                .any(|d| d.module.is_empty() || d.hwmon_names.is_empty())
+        {
+            return Err(format!(
+                "{at}: expected each kernel driver to name its module and hwmon names"
+            ));
         }
         Ok(())
     }
@@ -616,10 +640,22 @@ fn ports_tried(chips: &[ChipMap]) -> String {
         .join(", ")
 }
 
+/// Where a reading came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "source")]
+pub enum Reading {
+    /// The chip's registers through the I/O ports.
+    #[serde(rename = "raw-ports")]
+    RawPorts(SuperIoReading),
+    /// What a bound kernel driver publishes in sysfs; no port was touched.
+    #[serde(rename = "hwmon-sysfs")]
+    Hwmon(HwmonReading),
+}
+
 /// A reading and the bundle that preserves it.
 #[derive(Debug)]
 pub struct SuperIoCapture {
-    pub reading: SuperIoReading,
+    pub reading: Reading,
     pub bundle: Bundle,
 }
 
@@ -627,18 +663,42 @@ pub struct SuperIoCapture {
 ///
 /// Needs root: a non-root user is refused before any port is touched.
 ///
-/// Example: `capture(&surfaces, &mut ports, builtin())?.bundle.get("superio.json")`.
+/// A kernel driver bound to the chip (see [`crate::hwmon`]) is checked before any port
+/// access. With one bound, no port is touched: the reading is what the driver
+/// publishes in sysfs, or with `unbound_only` the call is refused with the module to
+/// unload. A chip with no driver is read through the ports.
+///
+/// Example: `capture(&surfaces, &mut ports, builtin(), false)?.bundle.get("superio.json")`.
 pub fn capture(
     host: &HostSurfaces,
     ports: &mut dyn PortIo,
     chips: &[ChipMap],
+    unbound_only: bool,
 ) -> Result<SuperIoCapture> {
     require_root(host.privilege, "diag superio read")?;
     let identity = HostIdentity::read(host.files)?;
     let at = host.clock.now();
+    if let Some(driver) = detect_bound_driver(host.files, chips)? {
+        if unbound_only {
+            return Err(Error::new(
+                Code::HostRefused,
+                format!(
+                    "super I/O raw access: expected no bound kernel driver | received {} ({}); unload it yourself with `{}` and rerun, bme never unloads a driver",
+                    driver.module,
+                    driver.found_by,
+                    driver.unload_command()
+                ),
+            ));
+        }
+        let hwmon = read_hwmon(host.files, driver)?;
+        return seal_hwmon(&identity, at, hwmon);
+    }
     let reading = read(ports, chips)?;
     let mut builder = BundleBuilder::new();
-    builder.add("superio.json", biosmod_core::json::pretty(&reading))?;
+    builder.add(
+        "superio.json",
+        biosmod_core::json::pretty(&Reading::RawPorts(reading.clone())),
+    )?;
     let register_count: usize = reading.registers.values().map(BTreeMap::len).sum();
     let mut observations = vec![format!(
         "{} {} (ID {}) answered on configuration port {}; {} logical devices read.",
@@ -668,6 +728,44 @@ pub fn capture(
             title: format!("{} {} Super I/O registers", reading.vendor, reading.chip),
             observations,
             limits: "A snapshot of the registers at one instant: temperatures, fan speeds and duty cycles move. The register meanings come from the chip's map, not from this board's wiring; which header a fan channel drives is not established.".into(),
+            digests: BTreeMap::new(),
+        },
+    );
+    Ok(SuperIoCapture {
+        reading: Reading::RawPorts(reading),
+        bundle,
+    })
+}
+
+/// Seal the sysfs reading of a bound driver.
+fn seal_hwmon(
+    identity: &HostIdentity,
+    at: crate::Timestamp,
+    hwmon: HwmonReading,
+) -> Result<SuperIoCapture> {
+    let mut builder = BundleBuilder::new();
+    let reading = Reading::Hwmon(hwmon.clone());
+    builder.add("superio.json", biosmod_core::json::pretty(&reading))?;
+    let observations = vec![
+        format!(
+            "Kernel driver {} is bound ({}); no port was touched.",
+            hwmon.driver.module, hwmon.driver.found_by
+        ),
+        format!(
+            "{} hwmon attributes read from {}.",
+            hwmon.attributes.len(),
+            hwmon.driver.hwmon.as_deref().unwrap_or("no hwmon device")
+        ),
+        hwmon.not_available.clone(),
+    ];
+    let bundle = builder.seal(
+        identity,
+        at,
+        Receipt {
+            command: "diag superio read",
+            title: "Super I/O hardware monitor through the bound kernel driver".into(),
+            observations,
+            limits: "A snapshot of what the driver published at one instant. Registers the driver does not expose are not in it, and which header a fan channel drives is not established.".into(),
             digests: BTreeMap::new(),
         },
     );
@@ -1054,8 +1152,13 @@ mod tests {
         let (files, log) = (sysfs.files(), FakeKernelLog::new());
         let privilege = FakePrivilege::user(1000);
         let mut ports = RecordingPorts::new();
-        let error =
-            capture(&surfaces(&files, &log, &privilege), &mut ports, builtin()).unwrap_err();
+        let error = capture(
+            &surfaces(&files, &log, &privilege),
+            &mut ports,
+            builtin(),
+            false,
+        )
+        .unwrap_err();
         assert_eq!(error.code, Code::HostRefused, "{error}");
         assert!(error.message.contains("received uid 1000"), "{error}");
         assert!(
@@ -1071,9 +1174,14 @@ mod tests {
         let (files, log) = (sysfs.files(), FakeKernelLog::new());
         let privilege = FakePrivilege::root();
         let mut ports = FakeSuperIoPorts::mr9a_nct5532d();
-        let bundle = capture(&surfaces(&files, &log, &privilege), &mut ports, builtin())
-            .unwrap()
-            .bundle;
+        let bundle = capture(
+            &surfaces(&files, &log, &privilege),
+            &mut ports,
+            builtin(),
+            false,
+        )
+        .unwrap()
+        .bundle;
         let reading: serde_json::Value =
             serde_json::from_slice(bundle.get("superio.json").unwrap()).unwrap();
         assert_eq!(reading["chip"], "NCT5532D/NCT6779D");
@@ -1087,6 +1195,97 @@ mod tests {
         assert_eq!(evidence["host"]["command"], "diag superio read");
         assert_eq!(evidence["host"]["boot_id"], FakeSysfs::BOOT_ID);
         assert!(bundle.get(MANIFEST_FILE).is_some());
+        assert_restored(&ports);
+    }
+
+    fn driver_bound_sysfs() -> FakeSysfs {
+        FakeSysfs::mr9a()
+            .file("sys/class/hwmon/hwmon3/name", "nct6779\n")
+            .file("sys/class/hwmon/hwmon3/pwm2", "100\n")
+            .file("sys/class/hwmon/hwmon3/pwm2_enable", "5\n")
+            .file("sys/class/hwmon/hwmon3/fan2_input", "900\n")
+    }
+
+    #[test]
+    fn a_bound_driver_means_no_port_is_touched_and_sysfs_is_the_reading() {
+        let sysfs = driver_bound_sysfs();
+        let (files, log) = (sysfs.files(), FakeKernelLog::new());
+        let privilege = FakePrivilege::root();
+        let mut ports = RecordingPorts::new();
+        let capture = capture(
+            &surfaces(&files, &log, &privilege),
+            &mut ports,
+            builtin(),
+            false,
+        )
+        .unwrap();
+        assert!(
+            ports.log.is_empty(),
+            "(port log with a bound driver): expected empty | received {:?}",
+            ports.log
+        );
+        let Reading::Hwmon(reading) = &capture.reading else {
+            panic!(
+                "(reading source): expected hwmon-sysfs | received {:?}",
+                capture.reading
+            );
+        };
+        assert_eq!(reading.driver.module, "nct6775");
+        assert_eq!(reading.attributes["pwm2_enable"], "5");
+        let saved: serde_json::Value =
+            serde_json::from_slice(capture.bundle.get("superio.json").unwrap()).unwrap();
+        assert_eq!(saved["source"], "hwmon-sysfs");
+        assert_eq!(saved["attributes"]["fan2_input"], "900");
+        let evidence =
+            String::from_utf8(capture.bundle.get(EVIDENCE_FILE).unwrap().to_vec()).unwrap();
+        assert!(evidence.contains("no port was touched"), "{evidence}");
+    }
+
+    #[test]
+    fn unbound_only_refuses_a_bound_chip_naming_the_driver_and_the_unload_step() {
+        let sysfs = driver_bound_sysfs();
+        let (files, log) = (sysfs.files(), FakeKernelLog::new());
+        let privilege = FakePrivilege::root();
+        let mut ports = RecordingPorts::new();
+        let error = capture(
+            &surfaces(&files, &log, &privilege),
+            &mut ports,
+            builtin(),
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, Code::HostRefused, "{error}");
+        assert!(
+            error
+                .message
+                .contains("expected no bound kernel driver | received nct6775"),
+            "{error}"
+        );
+        assert!(
+            error.message.contains("`sudo modprobe -r nct6775`"),
+            "{error}"
+        );
+        assert!(
+            ports.log.is_empty(),
+            "(port log): expected empty | received {:?}",
+            ports.log
+        );
+    }
+
+    #[test]
+    fn an_unrelated_hwmon_device_does_not_stop_the_raw_read() {
+        let sysfs = FakeSysfs::mr9a().file("sys/class/hwmon/hwmon0/name", "coretemp\n");
+        let (files, log) = (sysfs.files(), FakeKernelLog::new());
+        let privilege = FakePrivilege::root();
+        let mut ports = FakeSuperIoPorts::mr9a_nct5532d();
+        let capture = capture(
+            &surfaces(&files, &log, &privilege),
+            &mut ports,
+            builtin(),
+            true,
+        )
+        .unwrap();
+        assert!(matches!(capture.reading, Reading::RawPorts(_)));
         assert_restored(&ports);
     }
 }

@@ -100,12 +100,16 @@ pub fn capture_acpi_to(surfaces: &HostSurfaces, output: &Path) -> Result<Reply> 
 
 pub fn run_superio(command: SuperioCommand) -> Result<Reply> {
     match command {
-        SuperioCommand::Read { device, output } => superio_read(&device, output.as_deref()),
+        SuperioCommand::Read {
+            device,
+            output,
+            unbound_only,
+        } => superio_read(&device, output.as_deref(), unbound_only),
     }
 }
 
 #[cfg(target_os = "linux")]
-fn superio_read(device: &Path, output: Option<&Path>) -> Result<Reply> {
+fn superio_read(device: &Path, output: Option<&Path>, unbound_only: bool) -> Result<Reply> {
     use biosmod_host::ports::DevPort;
     if let Some(output) = output {
         check_outputs(&[output], &[])?;
@@ -115,11 +119,11 @@ fn superio_read(device: &Path, output: Option<&Path>) -> Result<Reply> {
         biosmod_host::privilege::require_root(surfaces.privilege, "diag superio read")
     })?;
     let mut ports = DevPort::open(device, "sudo bme diag superio read")?;
-    on_this_machine(|surfaces| read_superio_to(surfaces, &mut ports, output))
+    on_this_machine(|surfaces| read_superio_to(surfaces, &mut ports, output, unbound_only))
 }
 
 #[cfg(not(target_os = "linux"))]
-fn superio_read(_device: &Path, output: Option<&Path>) -> Result<Reply> {
+fn superio_read(_device: &Path, output: Option<&Path>, _unbound_only: bool) -> Result<Reply> {
     if let Some(output) = output {
         check_outputs(&[output], &[])?;
     }
@@ -133,8 +137,9 @@ pub fn read_superio_to(
     surfaces: &HostSurfaces,
     ports: &mut dyn PortIo,
     output: Option<&Path>,
+    unbound_only: bool,
 ) -> Result<Reply> {
-    let capture = superio::capture(surfaces, ports, superio::builtin())?;
+    let capture = superio::capture(surfaces, ports, superio::builtin(), unbound_only)?;
     if let Some(output) = output {
         publish_bundle(output, &capture.bundle)?;
     }
@@ -155,8 +160,35 @@ pub fn read_superio_to(
     ))
 }
 
-/// Human summary of a reading: chip, logical devices, then one line per bank.
-fn render_superio(reading: &superio::SuperIoReading) -> String {
+/// Human summary of a reading, whichever way it was taken.
+fn render_superio(reading: &superio::Reading) -> String {
+    match reading {
+        superio::Reading::RawPorts(reading) => render_raw_superio(reading),
+        superio::Reading::Hwmon(reading) => render_hwmon(reading),
+    }
+}
+
+/// What a bound driver publishes: the refusal reason first, then the attributes.
+fn render_hwmon(reading: &biosmod_host::hwmon::HwmonReading) -> String {
+    let mut text = format!("{}\n", reading.raw_access_refused);
+    text += &format!(
+        "hwmon {} ({}): {} attributes\n",
+        reading.driver.hwmon.as_deref().unwrap_or("none"),
+        reading.name.as_deref().unwrap_or("unnamed"),
+        reading.attributes.len()
+    );
+    for (name, value) in &reading.attributes {
+        text += &format!("  {name} = {value}\n");
+    }
+    for name in &reading.unreadable {
+        text += &format!("  {name}: unreadable\n");
+    }
+    text += &format!("Not available through sysfs: {}\n", reading.not_available);
+    text
+}
+
+/// Raw reading: chip, logical devices, then one line per bank.
+fn render_raw_superio(reading: &superio::SuperIoReading) -> String {
     let mut text = format!(
         "{} {} (ID {}) on configuration port {}\n",
         reading.vendor, reading.chip, reading.chip_id, reading.config_port
@@ -239,7 +271,16 @@ mod tests {
         ports: &mut FakeSuperIoPorts,
         output: Option<&Path>,
     ) -> Result<Reply> {
-        let sysfs = FakeSysfs::mr9a();
+        read_chip_on(FakeSysfs::mr9a(), privilege, ports, output, false)
+    }
+
+    fn read_chip_on(
+        sysfs: FakeSysfs,
+        privilege: &FakePrivilege,
+        ports: &mut FakeSuperIoPorts,
+        output: Option<&Path>,
+        unbound_only: bool,
+    ) -> Result<Reply> {
         let files = sysfs.files();
         let log = FakeKernelLog::new();
         read_superio_to(
@@ -251,13 +292,69 @@ mod tests {
             },
             ports,
             output,
+            unbound_only,
         )
+    }
+
+    fn driver_bound() -> FakeSysfs {
+        FakeSysfs::mr9a()
+            .file("sys/class/hwmon/hwmon3/name", "nct6779\n")
+            .file("sys/class/hwmon/hwmon3/pwm1", "128\n")
+            .file("sys/class/hwmon/hwmon3/fan1_input", "1204\n")
+    }
+
+    #[test]
+    fn a_bound_driver_is_read_through_sysfs_and_no_port_moves() {
+        let mut ports = FakeSuperIoPorts::mr9a_nct5532d();
+        let reply = read_chip_on(
+            driver_bound(),
+            &FakePrivilege::root(),
+            &mut ports,
+            None,
+            false,
+        )
+        .unwrap();
+        assert_eq!(reply.data["reading"]["source"], "hwmon-sysfs");
+        assert_eq!(reply.data["reading"]["attributes"]["fan1_input"], "1204");
+        assert!(reply.text.contains("fan1_input = 1204"), "{}", reply.text);
+        assert!(
+            reply.text.contains("sudo modprobe -r nct6775"),
+            "{}",
+            reply.text
+        );
+        assert!(
+            reply.text.contains("Not available through sysfs"),
+            "{}",
+            reply.text
+        );
+        assert!(
+            ports.trace.is_empty(),
+            "(port trace): expected empty | received {:?}",
+            ports.trace
+        );
+    }
+
+    #[test]
+    fn unbound_only_turns_a_bound_driver_into_a_refusal() {
+        let mut ports = FakeSuperIoPorts::mr9a_nct5532d();
+        let error = read_chip_on(
+            driver_bound(),
+            &FakePrivilege::root(),
+            &mut ports,
+            None,
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, Code::HostRefused, "{error}");
+        assert!(error.message.contains("received nct6775"), "{error}");
+        assert!(ports.trace.is_empty());
     }
 
     #[test]
     fn superio_reply_carries_the_reading_and_the_receipt() {
         let mut ports = FakeSuperIoPorts::mr9a_nct5532d();
         let reply = read_chip(&FakePrivilege::root(), &mut ports, None).unwrap();
+        assert_eq!(reply.data["reading"]["source"], "raw-ports");
         assert_eq!(reply.data["reading"]["chip_id"], "0xc562");
         assert_eq!(reply.data["reading"]["registers"]["2"]["02"], 69);
         assert_eq!(

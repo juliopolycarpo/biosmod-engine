@@ -44,10 +44,12 @@ As tabelas mantêm os nomes do sysfs, que são as assinaturas ACPI, então combi
 ```sh
 sudo bme diag superio read
 sudo bme diag superio read --json -o fan-controller-2026-11-12
+sudo bme diag superio read --unbound-only
 ```
 
 Lê o controlador de ventoinhas como faziam os scripts avulsos, com as regras de segurança embutidas:
 
+0. **Antes, verifica se há driver do kernel.** Um `nct6775` ligado guarda em cache o banco selecionado do monitor e grava nos registradores das ventoinhas no próprio ritmo; trocar o banco por `/dev/port` por trás dele pode desviar uma das gravações, e as reservas de região do kernel não cobrem `/dev/port`. O `bme` procura um dispositivo hwmon cujo `name` a tabela de chips lista para a família (`/sys/class/hwmon/*/name`) e uma entrada de `/proc/ioports` com o nome do módulo. Se achar, nenhuma porta é tocada: a leitura é o que o driver publica (`pwmN`, `pwmN_enable`, `pwmN_auto_point*`, `fanN_input`, `tempN_input`, `tempN_label` e os demais arquivos `pwm`, `fan` e `temp`), e o resultado diz que o mapa de registradores, os bancos e o que o driver não expõe não estão disponíveis pelo sysfs. `--unbound-only` transforma o caso "ligado" em `HOST_REFUSED` com o nome do módulo. Nos dois casos a mensagem traz o passo para a pessoa executar, `sudo modprobe -r nct6775`; o `bme` nunca descarrega um driver. Uma listagem de hwmon ou ioports que existe mas não pode ser lida é erro, não "sem driver". Em `--json` a leitura traz `source`: `raw-ports` ou `hwmon-sysfs`.
 1. Sonda as portas de configuração 2Eh e 4Eh: a chave de entrada e depois o ID do chip. Um endereço em que nada responde é deixado em paz.
 2. Procura o ID na tabela de chips. Um ID que nenhuma entrada reivindica é recusado com `HOST_REFUSED` e o ID na mensagem; o chip fica no estado em que foi encontrado. O nibble baixo do ID é a revisão do silício e é ignorado (o chip da MR9A responde `0xC562`; a folha de dados lista `0xC561`). A entrada da tabela leva o nome da família, `NCT5532D/NCT6779D`: o driver `nct6775` do Linux documenta os dois juntos sob o ID `0xC56x`, então o ID sozinho não diz qual deles a placa tem; quem diz é a marcação do chip.
 3. Lê os dispositivos lógicos que o mapa lista (ativação e, quando o dispositivo tem, a base de E/S) e depois os registradores do monitor de hardware que o mapa lista, banco a banco, pelas portas de índice e de dados do monitor.
