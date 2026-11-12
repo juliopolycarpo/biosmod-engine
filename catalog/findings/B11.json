@@ -64,17 +64,21 @@
         {
           "label": "sw-auto-assign-copy",
           "defect": {
-            "bytes": "fffff30f6f06488b44",
+            "bytes": "e900000000f30f6f06488b442420f30f7f8080000000488b",
             "wild": [
-              0,
-              1
+              1,
+              2,
+              3,
+              4
             ]
           },
           "fixed": {
-            "bytes": "fffff30f7e06488b44",
+            "bytes": "e900000000f30f7e06488b442420f30f7f8080000000488b",
             "wild": [
-              0,
-              1
+              1,
+              2,
+              3,
+              4
             ]
           }
         }

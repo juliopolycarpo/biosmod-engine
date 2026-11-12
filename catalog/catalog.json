@@ -159,8 +159,8 @@
     {
       "path": "findings/B11.json",
       "kind": "finding",
-      "length": 2680,
-      "sha256": "ce12028734c825e3fe61c83605d5f604ec166f3f3de17a09aa54b15045aba199"
+      "length": 2808,
+      "sha256": "5b22b0abe8b1f861b33f662709a7195d8218a5b6e8a73ba942b3dacf5a22c173"
     },
     {
       "path": "findings/B12.json",
