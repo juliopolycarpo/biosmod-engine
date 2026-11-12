@@ -464,10 +464,11 @@ pub enum SuperioCommand {
         /// Also save the reading, manifest and evidence record in this new directory.
         #[arg(short, long, value_name = "DIR")]
         output: Option<PathBuf>,
-        /// Fail instead of falling back when a kernel hwmon driver (nct6775, ...) is bound to
-        /// the chip. By default a bound driver means no port is touched and the reading is
-        /// what the driver publishes in sysfs. bme never unloads a driver; the error names
-        /// the `modprobe -r` step.
+        /// Fail instead of falling back when nct6775 is bound to the chip. Any other kernel
+        /// claimant (it87, f71882fg, an unknown holder of the ports) is refused with or
+        /// without this flag. By default a bound nct6775 means no port is touched and the
+        /// reading is what the driver publishes in sysfs. bme never unloads a driver; the
+        /// error names the `modprobe -r` step.
         #[arg(long)]
         unbound_only: bool,
     },

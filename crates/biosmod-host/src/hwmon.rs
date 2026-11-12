@@ -34,6 +34,8 @@ pub struct BoundDriver {
     pub hwmon: Option<String>,
     /// How it was found, for the message and the receipt.
     pub found_by: String,
+    /// Whether its hwmon files may stand in for the raw reading.
+    pub sysfs_fallback: bool,
 }
 
 impl BoundDriver {
@@ -54,6 +56,10 @@ pub fn detect_bound_driver(
     chips: &[ChipMap],
 ) -> Result<Option<BoundDriver>> {
     let drivers: Vec<_> = chips.iter().flat_map(|chip| &chip.kernel_drivers).collect();
+    let config_ports: Vec<u16> = chips
+        .iter()
+        .flat_map(|chip| chip.config_ports.iter().flat_map(|p| [*p, *p + 1]))
+        .collect();
     match files.entries(HWMON_ROOT) {
         Ok(entries) => {
             for entry in entries.iter().filter(|e| e.name.starts_with("hwmon")) {
@@ -64,6 +70,7 @@ pub fn detect_bound_driver(
                         module: driver.module.clone(),
                         hwmon: Some(entry.name.clone()),
                         found_by: format!("{HWMON_ROOT}/{}/name is {name:?}", entry.name),
+                        sysfs_fallback: driver.sysfs_fallback,
                     }));
                 }
             }
@@ -78,32 +85,117 @@ pub fn detect_bound_driver(
             ));
         }
     }
-    match files.read(IOPORTS_PATH) {
-        Ok(bytes) => {
-            let text = String::from_utf8_lossy(&bytes);
-            for line in text.lines() {
-                // `  0a20-0a2f : nct6775`
-                let Some((range, label)) = line.trim().split_once(" : ") else {
-                    continue;
-                };
-                if let Some(driver) = drivers.iter().find(|d| d.module == label.trim()) {
-                    return Ok(Some(BoundDriver {
-                        module: driver.module.clone(),
-                        hwmon: None,
-                        found_by: format!("{IOPORTS_PATH} holds {range} : {}", driver.module),
-                    }));
-                }
-            }
-            Ok(None)
+    for claim in io_claims(files)? {
+        if let Some(driver) = drivers.iter().find(|d| d.module == claim.label) {
+            return Ok(Some(BoundDriver {
+                module: driver.module.clone(),
+                hwmon: None,
+                found_by: format!("{IOPORTS_PATH} holds {} : {}", claim.range, driver.module),
+                sysfs_fallback: driver.sysfs_fallback,
+            }));
         }
-        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(Error::new(
-            Code::Io,
-            format!(
-                "{IOPORTS_PATH}: expected a readable file to rule out a bound driver | received {e}"
-            ),
-        )),
+        // Any other holder of a configuration port is a driver we have no name for.
+        if !is_firmware_reservation(&claim.label)
+            && config_ports
+                .iter()
+                .any(|p| claim.start <= *p && *p <= claim.end)
+        {
+            return Ok(Some(BoundDriver {
+                module: claim.label.clone(),
+                hwmon: None,
+                found_by: format!(
+                    "{IOPORTS_PATH} holds {} : {}, a configuration port; the label may not be a module name",
+                    claim.range, claim.label
+                ),
+                sysfs_fallback: false,
+            }));
+        }
     }
+    Ok(None)
+}
+
+/// One leaf entry of `/proc/ioports`: a range some holder has claimed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IoClaim {
+    pub start: u16,
+    pub end: u16,
+    /// The range as the kernel printed it, `0a20-0a2f`.
+    pub range: String,
+    pub label: String,
+}
+
+/// Labels of reservations the firmware or the bus code makes, which hold a range
+/// without being a driver using it.
+fn is_firmware_reservation(label: &str) -> bool {
+    ["pnp ", "PCI", "motherboard", "system", "reserved", "ACPI"]
+        .iter()
+        .any(|prefix| label.starts_with(prefix))
+}
+
+/// The leaf claims of `/proc/ioports`; a missing file is no claims, an unreadable one
+/// an error (the safe answer to "cannot tell" is to stop).
+///
+/// Leaves only: a parent window such as `0000-0cf7 : PCI Bus` covers everything and
+/// says nothing about who uses a port inside it.
+///
+/// Example: with `  0a20-0a2f : nct6775`, `io_claims(&files)?[0].label` is `"nct6775"`.
+pub fn io_claims(files: &dyn HostFiles) -> Result<Vec<IoClaim>> {
+    let bytes = match files.read(IOPORTS_PATH) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => {
+            return Err(Error::new(
+                Code::Io,
+                format!(
+                    "{IOPORTS_PATH}: expected a readable file to rule out a bound driver | received {e}"
+                ),
+            ));
+        }
+    };
+    let text = String::from_utf8_lossy(&bytes);
+    // (indent, claim) per line, then keep the ones the next line is not nested under.
+    let mut parsed: Vec<(usize, IoClaim)> = Vec::new();
+    for line in text.lines() {
+        let indent = line.len() - line.trim_start().len();
+        // `  0a20-0a2f : nct6775`
+        let Some((range, label)) = line.trim().split_once(" : ") else {
+            continue;
+        };
+        let Some((start, end)) = range.split_once('-') else {
+            continue;
+        };
+        let (Ok(start), Ok(end)) = (u16::from_str_radix(start, 16), u16::from_str_radix(end, 16))
+        else {
+            continue;
+        };
+        parsed.push((
+            indent,
+            IoClaim {
+                start,
+                end,
+                range: range.to_string(),
+                label: label.trim().to_string(),
+            },
+        ));
+    }
+    let mut claims = Vec::new();
+    for (at, (indent, claim)) in parsed.iter().enumerate() {
+        let has_children = parsed.get(at + 1).is_some_and(|(next, _)| next > indent);
+        if !has_children {
+            claims.push(claim.clone());
+        }
+    }
+    Ok(claims)
+}
+
+/// A driver claim that overlaps `start..=end`, ignoring firmware reservations.
+///
+/// Example: with a claim `0a20-0a2f : other`, `claim_overlapping(&claims, 0xa25, 0xa26)`
+/// is that claim.
+pub fn claim_overlapping(claims: &[IoClaim], start: u16, end: u16) -> Option<&IoClaim> {
+    claims
+        .iter()
+        .find(|c| c.start <= end && start <= c.end && !is_firmware_reservation(&c.label))
 }
 
 /// What a bound driver publishes, as `diag superio read` reports it.
@@ -287,11 +379,84 @@ mod tests {
     }
 
     #[test]
+    fn a_hwmon_name_of_another_super_io_driver_is_bound_but_has_no_sysfs_fallback() {
+        for (name, module) in [
+            ("it8620", "it87"),
+            ("f71882fg", "f71882fg"),
+            ("w83667hg", "w83627ehf"),
+            ("nct6683", "nct6683"),
+        ] {
+            let sysfs = FakeSysfs::mr9a().file("sys/class/hwmon/hwmon2/name", format!("{name}\n"));
+            let driver = detect_bound_driver(&sysfs.files(), builtin())
+                .unwrap()
+                .unwrap();
+            assert_eq!(driver.module, module, "(hwmon name {name})");
+            assert!(
+                !driver.sysfs_fallback,
+                "(hwmon name {name}): expected no sysfs fallback"
+            );
+        }
+        let nct = FakeSysfs::mr9a().file("sys/class/hwmon/hwmon2/name", "nct6798\n");
+        assert!(
+            detect_bound_driver(&nct.files(), builtin())
+                .unwrap()
+                .unwrap()
+                .sysfs_fallback
+        );
+    }
+
+    #[test]
+    fn an_unknown_driver_holding_a_configuration_port_is_a_claimant() {
+        let sysfs = FakeSysfs::mr9a().file(
+            "proc/ioports",
+            "0000-0cf7 : PCI Bus 0000:00\n  002e-002f : mysterydrv\n  004e-004f : pnp 00:03\n",
+        );
+        let driver = detect_bound_driver(&sysfs.files(), builtin())
+            .unwrap()
+            .unwrap();
+        assert_eq!(driver.module, "mysterydrv");
+        assert!(!driver.sysfs_fallback);
+        assert!(driver.found_by.contains("002e-002f"), "{driver:?}");
+    }
+
+    #[test]
+    fn firmware_reservations_and_parent_windows_are_not_claimants() {
+        let sysfs = FakeSysfs::mr9a().file(
+            "proc/ioports",
+            "0000-0cf7 : PCI Bus 0000:00\n  002e-002f : pnp 00:03\n  004e-004f : motherboard\n  0a20-0a2f : pnp 00:04\n",
+        );
+        assert_eq!(
+            detect_bound_driver(&sysfs.files(), builtin()).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn claims_are_leaves_and_overlap_is_by_range() {
+        let sysfs = FakeSysfs::mr9a().file(
+            "proc/ioports",
+            "0000-0cf7 : PCI Bus 0000:00\n  0a20-0a2f : other\n  0a30-0a3f : pnp 00:05\n",
+        );
+        let claims = io_claims(&sysfs.files()).unwrap();
+        assert_eq!(
+            claim_overlapping(&claims, 0x0a25, 0x0a26).map(|c| c.label.as_str()),
+            Some("other")
+        );
+        assert_eq!(
+            claim_overlapping(&claims, 0x0a30, 0x0a36),
+            None,
+            "firmware reservation"
+        );
+        assert_eq!(claim_overlapping(&claims, 0x0a40, 0x0a46), None);
+    }
+
+    #[test]
     fn a_claim_without_a_hwmon_device_reads_nothing_and_says_so() {
         let driver = BoundDriver {
             module: "nct6775".into(),
             hwmon: None,
             found_by: "x".into(),
+            sysfs_fallback: true,
         };
         let reading = read_hwmon(&FakeSysfs::mr9a().files(), driver).unwrap();
         assert!(reading.attributes.is_empty());

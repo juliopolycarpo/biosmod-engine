@@ -27,7 +27,9 @@
 
 use crate::HostSurfaces;
 use crate::bundle::{Bundle, BundleBuilder};
-use crate::hwmon::{HwmonReading, detect_bound_driver, read_hwmon};
+use crate::hwmon::{
+    HwmonReading, IoClaim, claim_overlapping, detect_bound_driver, io_claims, read_hwmon,
+};
 use crate::identity::HostIdentity;
 use crate::ports::PortIo;
 use crate::privilege::require_root;
@@ -159,6 +161,11 @@ pub struct KernelDriver {
     pub module: String,
     /// The `name` its hwmon devices report (one per chip it supports).
     pub hwmon_names: Vec<String>,
+    /// Whether the hwmon files of this driver are read as the reading while it is bound.
+    /// Only drivers whose attribute names were checked say so; any other bound driver
+    /// refuses the raw read with its module named.
+    #[serde(default)]
+    pub sysfs_fallback: bool,
 }
 
 /// A supported chip family and its register map.
@@ -523,6 +530,20 @@ fn read_banks(
 ///
 /// Example: `read(&mut DevPort::open(...)?, builtin())?.chip_id == "0xc562"` on the MR9A.
 pub fn read(ports: &mut dyn PortIo, chips: &[ChipMap]) -> Result<SuperIoReading> {
+    read_with_claims(ports, chips, &[])
+}
+
+/// [`read`] that also refuses when a claim in `claims` (from `/proc/ioports`) overlaps
+/// the monitor's ports, which only the chip can report: that check runs after the
+/// chip left configuration mode and before any bank register is written.
+///
+/// Example: a claim `0a20-0a2f : mysterydrv` with the monitor at `0xa20` is a
+/// `HOST_REFUSED` naming `mysterydrv`.
+pub fn read_with_claims(
+    ports: &mut dyn PortIo,
+    chips: &[ChipMap],
+    claims: &[IoClaim],
+) -> Result<SuperIoReading> {
     // From the first entry key until the selectors are back, a stop signal would
     // strand the chip in configuration mode or on another monitor bank.
     let _held = crate::signals::SignalBlock::new();
@@ -562,6 +583,7 @@ pub fn read(ports: &mut dyn PortIo, chips: &[ChipMap]) -> Result<SuperIoReading>
                     id,
                     logical_devices,
                     hardware_monitor_base,
+                    claims,
                 );
             }
         }
@@ -582,6 +604,7 @@ fn finish_reading(
     id: u16,
     logical_devices: Vec<LogicalDeviceReading>,
     hardware_monitor_base: Option<(u8, u16)>,
+    claims: &[IoClaim],
 ) -> Result<SuperIoReading> {
     let mut reading = SuperIoReading {
         vendor: chip.vendor.clone(),
@@ -609,6 +632,16 @@ fn finish_reading(
     }
     reading.hwm_active = Some(active);
     reading.hwm_base = Some(format!("{base:#x}"));
+    let monitor_end = base + hwm.data_offset.max(hwm.index_offset);
+    if let Some(claim) = claim_overlapping(claims, base, monitor_end) {
+        return Err(Error::new(
+            Code::HostRefused,
+            format!(
+                "super I/O hardware monitor ports {base:#x}-{monitor_end:#x}: expected no kernel driver claim | received {} ({}); unload it yourself with `sudo modprobe -r {}` if it is a module and rerun, bme never unloads a driver. No monitor register was written.",
+                claim.label, claim.range, claim.label
+            ),
+        ));
+    }
     reading.registers = read_banks(ports, base + hwm.index_offset, base + hwm.data_offset, hwm)?;
     Ok(reading)
 }
@@ -679,7 +712,9 @@ pub fn capture(
     let identity = HostIdentity::read(host.files)?;
     let at = host.clock.now();
     if let Some(driver) = detect_bound_driver(host.files, chips)? {
-        if unbound_only {
+        // Without a checked sysfs layout for the driver (or when asked for raw only)
+        // the only safe answer is to stop and name the claimant.
+        if unbound_only || !driver.sysfs_fallback {
             return Err(Error::new(
                 Code::HostRefused,
                 format!(
@@ -693,7 +728,8 @@ pub fn capture(
         let hwmon = read_hwmon(host.files, driver)?;
         return seal_hwmon(&identity, at, hwmon);
     }
-    let reading = read(ports, chips)?;
+    let claims = io_claims(host.files)?;
+    let reading = read_with_claims(ports, chips, &claims)?;
     let mut builder = BundleBuilder::new();
     builder.add(
         "superio.json",
@@ -1270,6 +1306,79 @@ mod tests {
             "(port log): expected empty | received {:?}",
             ports.log
         );
+    }
+
+    #[test]
+    fn another_super_io_driver_bound_refuses_the_raw_read_even_without_unbound_only() {
+        let sysfs = FakeSysfs::mr9a().file("sys/class/hwmon/hwmon1/name", "it8620\n");
+        let (files, log) = (sysfs.files(), FakeKernelLog::new());
+        let privilege = FakePrivilege::root();
+        let mut ports = RecordingPorts::new();
+        let error = capture(
+            &surfaces(&files, &log, &privilege),
+            &mut ports,
+            builtin(),
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, Code::HostRefused, "{error}");
+        assert!(error.message.contains("received it87"), "{error}");
+        assert!(error.message.contains("`sudo modprobe -r it87`"), "{error}");
+        assert!(
+            ports.log.is_empty(),
+            "(port log): expected empty | received {:?}",
+            ports.log
+        );
+    }
+
+    #[test]
+    fn an_unknown_driver_claiming_the_ports_refuses_the_raw_read_naming_it() {
+        let sysfs = FakeSysfs::mr9a().file("proc/ioports", "  002e-002f : mysterydrv\n");
+        let (files, log) = (sysfs.files(), FakeKernelLog::new());
+        let privilege = FakePrivilege::root();
+        let mut ports = RecordingPorts::new();
+        let error = capture(
+            &surfaces(&files, &log, &privilege),
+            &mut ports,
+            builtin(),
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, Code::HostRefused, "{error}");
+        assert!(error.message.contains("received mysterydrv"), "{error}");
+        assert!(
+            ports.log.is_empty(),
+            "(port log): expected empty | received {:?}",
+            ports.log
+        );
+    }
+
+    #[test]
+    fn a_claim_on_the_monitor_range_refuses_before_any_bank_write() {
+        // The chip answers and reports its monitor at 0xA20; something holds 0xA20-0xA2F.
+        let sysfs = FakeSysfs::mr9a().file("proc/ioports", "  0a20-0a2f : mysterydrv\n");
+        let (files, log) = (sysfs.files(), FakeKernelLog::new());
+        let privilege = FakePrivilege::root();
+        let mut ports = FakeSuperIoPorts::mr9a_nct5532d();
+        let error = capture(
+            &surfaces(&files, &log, &privilege),
+            &mut ports,
+            builtin(),
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, Code::HostRefused, "{error}");
+        assert!(error.message.contains("mysterydrv"), "{error}");
+        assert!(error.message.contains("0xa20"), "{error}");
+        assert!(
+            ports
+                .trace
+                .iter()
+                .all(|op| !matches!(op, PortOp::Write(0xA25 | 0xA26, _))),
+            "(monitor ports): expected no write | received {:?}",
+            ports.trace
+        );
+        assert_restored(&ports);
     }
 
     #[test]

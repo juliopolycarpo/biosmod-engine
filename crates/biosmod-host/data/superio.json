@@ -12,7 +12,24 @@
       "kernel_drivers": [
         {
           "module": "nct6775",
+          "sysfs_fallback": true,
           "hwmon_names": ["nct6775", "nct6776", "nct6779", "nct6791", "nct6792", "nct6793", "nct6795", "nct6796", "nct6797", "nct6798", "nct6799"]
+        },
+        {
+          "module": "it87",
+          "hwmon_names": ["it87", "it8603", "it8620", "it8628", "it8686", "it8688"]
+        },
+        {
+          "module": "f71882fg",
+          "hwmon_names": ["f71858fg", "f71862fg", "f71869", "f71869a", "f71882fg", "f71889fg", "f71889ed", "f71889a", "f8000", "f81866a"]
+        },
+        {
+          "module": "w83627ehf",
+          "hwmon_names": ["w83627ehf", "w83627dhg", "w83627dhg-p", "w83667hg", "w83667hg-b"]
+        },
+        {
+          "module": "nct6683",
+          "hwmon_names": ["nct6683"]
         }
       ],
       "ldn_register": "0x07",
