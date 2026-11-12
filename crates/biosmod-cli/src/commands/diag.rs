@@ -8,6 +8,10 @@ use biosmod_core::breadcrumbs::{self, Breadcrumbs};
 use biosmod_core::synthetic::Fixture;
 use biosmod_core::util::unhex;
 use biosmod_core::{Code, Error, Result};
+#[cfg(any(target_os = "linux", test))]
+use biosmod_host::PortIo;
+#[cfg(target_os = "linux")]
+use biosmod_host::ports::DevPort;
 use serde_json::json;
 use std::fs;
 use std::path::Path;
@@ -21,47 +25,15 @@ pub trait UpperCmos {
     fn read(&mut self, index: u8) -> Result<u8>;
 }
 
-/// `/dev/port` on Linux.
-#[cfg(target_os = "linux")]
-pub struct DevPort {
-    file: fs::File,
-    path: std::path::PathBuf,
-}
+/// [`UpperCmos`] over the CMOS index/data ports 72h/73h.
+#[cfg(any(target_os = "linux", test))]
+pub struct CmosPorts<'a>(pub &'a mut dyn PortIo);
 
-#[cfg(target_os = "linux")]
-impl DevPort {
-    pub fn open(path: &Path) -> Result<DevPort> {
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)
-            .map_err(|e| {
-                let hint = if e.kind() == std::io::ErrorKind::PermissionDenied {
-                    " (run as root: sudo bme diag breadcrumbs read)"
-                } else {
-                    ""
-                };
-                Error::new(Code::Io, format!("{}: {e}{hint}", path.display()))
-            })?;
-        Ok(DevPort {
-            file,
-            path: path.to_path_buf(),
-        })
-    }
-}
-
-#[cfg(target_os = "linux")]
-impl UpperCmos for DevPort {
+#[cfg(any(target_os = "linux", test))]
+impl UpperCmos for CmosPorts<'_> {
     fn read(&mut self, index: u8) -> Result<u8> {
-        use std::os::unix::fs::FileExt;
-        self.file
-            .write_at(&[index], 0x72)
-            .map_err(|e| io_error(&self.path, e))?;
-        let mut value = [0u8];
-        self.file
-            .read_at(&mut value, 0x73)
-            .map_err(|e| io_error(&self.path, e))?;
-        Ok(value[0])
+        self.0.write(0x72, index)?;
+        self.0.read(0x73)
     }
 }
 
@@ -120,7 +92,8 @@ pub fn breadcrumbs(command: BreadcrumbCommand) -> Result<Reply> {
 
 #[cfg(target_os = "linux")]
 fn read_device(device: &Path) -> Result<Reply> {
-    let raw = read_all(&mut DevPort::open(device)?)?;
+    let mut ports = DevPort::open(device, "sudo bme diag breadcrumbs read")?;
+    let raw = read_all(&mut CmosPorts(&mut ports))?;
     reply(&raw)
 }
 
@@ -199,6 +172,18 @@ mod tests {
         assert_eq!(
             text,
             "stored MRC pass: BF/00 location 0000, pass ended: true\nfailed MRC passes since arming: 0\n"
+        );
+    }
+
+    #[test]
+    fn cmos_ports_select_through_72h_and_read_73h_only() {
+        use biosmod_host::testkit::{PortOp, RecordingPorts};
+        let mut ports = RecordingPorts::new().with(0x73, 0xA1);
+        assert_eq!(CmosPorts(&mut ports).read(0xE0).unwrap(), 0xA1);
+        assert_eq!(
+            ports.log,
+            [PortOp::Write(0x72, 0xE0), PortOp::Read(0x73)],
+            "(port log): expected only 72h/73h accesses"
         );
     }
 

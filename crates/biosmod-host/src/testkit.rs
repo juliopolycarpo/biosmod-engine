@@ -159,3 +159,63 @@ impl Clock for FixedClock {
         }
     }
 }
+
+/// One access recorded by [`RecordingPorts`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortOp {
+    Read(u16),
+    Write(u16, u8),
+}
+
+/// Ports that answer from a table and remember every access.
+#[derive(Default)]
+pub struct RecordingPorts {
+    values: std::collections::HashMap<u16, u8>,
+    pub log: Vec<PortOp>,
+}
+
+impl RecordingPorts {
+    pub fn new() -> RecordingPorts {
+        RecordingPorts::default()
+    }
+
+    /// Make reads of `port` return `value`.
+    pub fn with(mut self, port: u16, value: u8) -> RecordingPorts {
+        self.values.insert(port, value);
+        self
+    }
+}
+
+impl crate::ports::PortIo for RecordingPorts {
+    fn read(&mut self, port: u16) -> Result<u8> {
+        self.log.push(PortOp::Read(port));
+        Ok(self.values.get(&port).copied().unwrap_or(0xFF))
+    }
+
+    fn write(&mut self, port: u16, value: u8) -> Result<()> {
+        self.log.push(PortOp::Write(port, value));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::PortIo;
+
+    #[test]
+    fn recording_ports_answer_from_the_table_and_log_in_order() {
+        let mut ports = RecordingPorts::new().with(0x73, 0xA1);
+        ports.write(0x72, 0xE0).unwrap();
+        assert_eq!(ports.read(0x73).unwrap(), 0xA1);
+        assert_eq!(ports.read(0x99).unwrap(), 0xFF);
+        assert_eq!(
+            ports.log,
+            [
+                PortOp::Write(0x72, 0xE0),
+                PortOp::Read(0x73),
+                PortOp::Read(0x99)
+            ]
+        );
+    }
+}
