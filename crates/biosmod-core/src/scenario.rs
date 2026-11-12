@@ -13,8 +13,8 @@ use schemars::JsonSchema;
 use serde::de::{self, Deserializer};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
-use std::collections::BTreeSet;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Document identifier of this format.
 pub const SCENARIO_SCHEMA: &str = "bme.scenario/1";
@@ -49,9 +49,6 @@ pub fn service_names(kind: ServicesKind) -> Vec<String> {
     };
     all[key].clone()
 }
-
-/// Device kinds the runtime's library models.
-pub const DEVICE_KINDS: [&str; 3] = ["port-registers", "indexed-registers", "mmio-registers"];
 
 /// An integer written as a JSON number or a `0x` string.
 ///
@@ -238,24 +235,111 @@ pub struct ScenarioBinding {
     pub to: String,
 }
 
-/// A named hardware model from the runtime's library.
+/// A named hardware model from the runtime's library, with the options that model takes.
+///
+/// Example: `{"name": "hwm", "kind": "indexed-registers", "options": {"index_port": "0xa25",
+/// "data_port": "0xa26"}}` is an [`ScenarioDevice::IndexedRegisters`].
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum ScenarioDevice {
+    /// Flat port registers.
+    PortRegisters {
+        /// Unique name; expectations refer to it.
+        name: String,
+        #[serde(default)]
+        options: PortOptions,
+    },
+    /// An index port and a data port in front of banked 8-bit registers.
+    IndexedRegisters {
+        name: String,
+        options: IndexedOptions,
+    },
+    /// Memory-mapped registers in a window.
+    MmioRegisters {
+        name: String,
+        /// Window base address.
+        base: Word,
+        /// Window size in bytes.
+        size: Word,
+        #[serde(default)]
+        options: MmioOptions,
+    },
+}
+
+impl ScenarioDevice {
+    pub fn name(&self) -> &str {
+        match self {
+            ScenarioDevice::PortRegisters { name, .. }
+            | ScenarioDevice::IndexedRegisters { name, .. }
+            | ScenarioDevice::MmioRegisters { name, .. } => name,
+        }
+    }
+
+    /// The `kind` the document spells, e.g. `indexed-registers`.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            ScenarioDevice::PortRegisters { .. } => "port-registers",
+            ScenarioDevice::IndexedRegisters { .. } => "indexed-registers",
+            ScenarioDevice::MmioRegisters { .. } => "mmio-registers",
+        }
+    }
+}
+
+/// Options of `port-registers`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PortOptions {
+    /// Initial value by port (`"0x404"` or `"1028"`); only these ports are claimed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub values: BTreeMap<String, Word>,
+    /// Ports whose writes are dropped.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read_only: Vec<Word>,
+}
+
+/// Options of `indexed-registers`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct ScenarioDevice {
-    /// Unique name; expectations refer to it.
-    pub name: String,
-    /// `port-registers`, `indexed-registers` or `mmio-registers`.
-    pub kind: String,
-    /// MMIO base address; only `mmio-registers`.
+pub struct IndexedOptions {
+    pub index_port: Word,
+    pub data_port: Word,
+    /// Number of register banks; 1 when omitted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base: Option<Word>,
-    /// MMIO window size; only `mmio-registers`.
+    pub banks: Option<Word>,
+    /// Index that selects a bank when written, as the NCT55xx monitor does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<Word>,
-    /// Options of the model, as the runtime documents them.
-    #[serde(default, skip_serializing_if = "Map::is_empty")]
-    #[schemars(with = "serde_json::Map<String, Value>")]
-    pub options: Map<String, Value>,
+    pub bank_register: Option<Word>,
+    /// Initial registers: bank, then index, then a byte.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub registers: BTreeMap<String, BTreeMap<String, Word>>,
+    /// Value of a register nobody set; 0 when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<Word>,
+    /// Fill every register from this seed and scramble the initial index and bank.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<Word>,
+    /// The bank in use when the model has no `bank_register`; 0 when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_bank: Option<Word>,
+}
+
+impl IndexedOptions {
+    /// Bank count, 1 when omitted.
+    pub fn bank_count(&self) -> u64 {
+        self.banks.map_or(1, |w| w.0)
+    }
+}
+
+/// Options of `mmio-registers`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MmioOptions {
+    /// Initial value by offset inside the window.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub values: BTreeMap<String, Word>,
+    /// Value of an offset not listed; reading one is an unmodeled access when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<Word>,
 }
 
 /// A UEFI variable present before the call.
@@ -385,36 +469,150 @@ fn symbols_of(scenario: &Scenario) -> Vec<&'static str> {
     symbols
 }
 
+/// A map key naming a port, offset, bank or index: `0x` and hex digits, or plain decimal.
+fn key_value(key: &str, what: &str) -> Result<u64> {
+    let parsed = match key.strip_prefix("0x") {
+        Some(digits) => u64::from_str_radix(digits, 16).ok(),
+        None if key == "0" || !key.starts_with('0') => key.parse().ok(),
+        None => None,
+    };
+    parsed.ok_or_else(|| {
+        invalid(format!(
+            "{what} {key:?}: expected 0x followed by hex digits or a decimal number"
+        ))
+    })
+}
+
+fn at_most(value: u64, limit: u64, what: &str) -> Result<()> {
+    if value > limit {
+        return Err(invalid(format!(
+            "{what}: expected at most {limit:#x} | received {value:#x}"
+        )));
+    }
+    Ok(())
+}
+
 fn devices(scenario: &Scenario) -> Result<()> {
     let mut seen = BTreeSet::new();
+    let mut ports = BTreeSet::new();
+    let mut windows: Vec<(u64, u64, &str)> = Vec::new();
     for device in &scenario.hardware {
-        crate::validation::identifier(&device.name, "hardware name").map_err(scenario_error)?;
-        if !seen.insert(device.name.as_str()) {
+        let name = device.name();
+        crate::validation::identifier(name, "hardware name").map_err(scenario_error)?;
+        if !seen.insert(name) {
             return Err(invalid(format!(
-                "hardware {:?}: expected a unique name | received a duplicate",
-                device.name
+                "hardware {name:?}: expected a unique name | received a duplicate"
             )));
         }
-        if !DEVICE_KINDS.contains(&device.kind.as_str()) {
-            return Err(invalid(format!(
-                "hardware {:?} kind: expected one of {DEVICE_KINDS:?} | received {:?}",
-                device.name, device.kind
-            )));
-        }
-        let mmio = device.kind == "mmio-registers";
-        let ok = if mmio {
-            device.base.is_some() && device.size.is_some()
-        } else {
-            device.base.is_none() && device.size.is_none()
+        let mut claim = |port: u64| -> Result<()> {
+            at_most(port, 0xFFFF, &format!("hardware {name:?} port"))?;
+            if ports.insert(port) {
+                Ok(())
+            } else {
+                Err(invalid(format!(
+                    "hardware {name:?} port {port:#x}: expected an unclaimed port | received one another device claims"
+                )))
+            }
         };
-        if !ok {
-            return Err(invalid(format!(
-                "hardware {:?}: expected base and size exactly for mmio-registers | received kind {} with base {:?} and size {:?}",
-                device.name,
-                device.kind,
-                device.base.map(|w| w.0),
-                device.size.map(|w| w.0)
-            )));
+        match device {
+            ScenarioDevice::PortRegisters { options, .. } => {
+                for key in options.values.keys() {
+                    claim(key_value(key, &format!("hardware {name:?} port"))?)?;
+                }
+                for port in &options.read_only {
+                    if !options
+                        .values
+                        .keys()
+                        .any(|key| key_value(key, "").is_ok_and(|v| v == port.0))
+                    {
+                        return Err(invalid(format!(
+                            "hardware {name:?} read_only {:#x}: expected a port listed in values | received none",
+                            port.0
+                        )));
+                    }
+                }
+            }
+            ScenarioDevice::IndexedRegisters { options, .. } => {
+                claim(options.index_port.0)?;
+                if options.data_port.0 == options.index_port.0 {
+                    return Err(invalid(format!(
+                        "hardware {name:?}: expected different index and data ports | received {:#x} twice",
+                        options.data_port.0
+                    )));
+                }
+                claim(options.data_port.0)?;
+                let banks = options.bank_count();
+                if !(1..=256).contains(&banks) {
+                    return Err(invalid(format!(
+                        "hardware {name:?} banks: expected 1-256 | received {banks}"
+                    )));
+                }
+                for (field, value) in [
+                    ("bank_register", options.bank_register),
+                    ("default", options.default),
+                ] {
+                    if let Some(word) = value {
+                        at_most(word.0, 0xFF, &format!("hardware {name:?} {field}"))?;
+                    }
+                }
+                if let Some(bank) = options.fixed_bank
+                    && bank.0 >= banks
+                {
+                    return Err(invalid(format!(
+                        "hardware {name:?} fixed_bank: expected below banks ({banks}) | received {}",
+                        bank.0
+                    )));
+                }
+                for (bank, entries) in &options.registers {
+                    let bank = key_value(bank, &format!("hardware {name:?} register bank"))?;
+                    if bank >= banks {
+                        return Err(invalid(format!(
+                            "hardware {name:?} register bank: expected below banks ({banks}) | received {bank}"
+                        )));
+                    }
+                    for (index, value) in entries {
+                        let index = key_value(index, &format!("hardware {name:?} register index"))?;
+                        at_most(index, 0xFF, &format!("hardware {name:?} register index"))?;
+                        at_most(value.0, 0xFF, &format!("hardware {name:?} register value"))?;
+                    }
+                }
+            }
+            ScenarioDevice::MmioRegisters {
+                base,
+                size,
+                options,
+                ..
+            } => {
+                if size.0 == 0 {
+                    return Err(invalid(format!(
+                        "hardware {name:?} size: expected at least 1 | received 0"
+                    )));
+                }
+                let end = base.0.checked_add(size.0).ok_or_else(|| {
+                    invalid(format!(
+                        "hardware {name:?}: expected a window inside 64 bits | received base {:#x} size {:#x}",
+                        base.0, size.0
+                    ))
+                })?;
+                if let Some((_, _, other)) = windows
+                    .iter()
+                    .find(|(start, stop, _)| base.0 < *stop && *start < end)
+                {
+                    return Err(invalid(format!(
+                        "hardware {name:?}: expected a window apart from {other:?} | received an overlap"
+                    )));
+                }
+                windows.push((base.0, end, name));
+                for key in options.values.keys() {
+                    let offset = key_value(key, &format!("hardware {name:?} offset"))?;
+                    if offset >= size.0 {
+                        return Err(invalid(format!(
+                            "hardware {name:?} offset {offset:#x}: expected inside the {:#x}-byte window | received outside",
+                            size.0
+                        )));
+                    }
+                }
+            }
         }
     }
     Ok(())
@@ -425,7 +623,7 @@ fn expectation_refs(scenario: &Scenario, expectation: &Expectation) -> Result<()
         Expectation::Register { device, .. } => (device, "indexed-registers"),
         Expectation::Port { device, .. } => (device, "port-registers"),
         // A module may create the variable with SetVariable, so it needs no declaration.
-        Expectation::Variable { .. } => return Ok(()),
+        Expectation::Variable { .. } | Expectation::Return { .. } => return Ok(()),
         Expectation::ServiceCalls { service, .. } => {
             let Some(services) = &scenario.services else {
                 return Err(invalid(format!(
@@ -442,18 +640,52 @@ fn expectation_refs(scenario: &Scenario, expectation: &Expectation) -> Result<()
                 )))
             };
         }
-        Expectation::Return { .. } => return Ok(()),
     };
-    match scenario.hardware.iter().find(|d| d.name == *device) {
-        Some(found) if found.kind == wanted => Ok(()),
-        Some(found) => Err(invalid(format!(
-            "device {device:?}: expected kind {wanted} | received {}",
-            found.kind
-        ))),
-        None => Err(invalid(format!(
-            "device {device:?}: expected a declared {wanted} device | received none"
-        ))),
+    let found = match scenario.hardware.iter().find(|d| d.name() == device) {
+        Some(found) if found.kind() == wanted => found,
+        Some(found) => {
+            return Err(invalid(format!(
+                "device {device:?}: expected kind {wanted} | received {}",
+                found.kind()
+            )));
+        }
+        None => {
+            return Err(invalid(format!(
+                "device {device:?}: expected a declared {wanted} device | received none"
+            )));
+        }
+    };
+    match (expectation, found) {
+        (
+            Expectation::Register { bank, index, .. },
+            ScenarioDevice::IndexedRegisters { options, .. },
+        ) => {
+            let banks = options.bank_count();
+            if let Some(bank) = bank
+                && bank.0 >= banks
+            {
+                return Err(invalid(format!(
+                    "device {device:?} bank: expected below banks ({banks}) | received {}",
+                    bank.0
+                )));
+            }
+            at_most(index.0, 0xFF, &format!("device {device:?} index"))?;
+        }
+        (Expectation::Port { port, .. }, ScenarioDevice::PortRegisters { options, .. }) => {
+            let claimed = options
+                .values
+                .keys()
+                .any(|key| key_value(key, "").is_ok_and(|v| v == port.0));
+            if !claimed {
+                return Err(invalid(format!(
+                    "device {device:?} port {:#x}: expected a port listed in the device's values | received none",
+                    port.0
+                )));
+            }
+        }
+        _ => {}
     }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -158,6 +158,113 @@
       "pattern": "^([0-9a-fA-F]{2})*$",
       "type": "string"
     },
+    "IndexedOptions": {
+      "additionalProperties": false,
+      "description": "Options of `indexed-registers`.",
+      "properties": {
+        "bank_register": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Index that selects a bank when written, as the NCT55xx monitor does."
+        },
+        "banks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Number of register banks; 1 when omitted."
+        },
+        "data_port": {
+          "$ref": "#/$defs/Word"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Value of a register nobody set; 0 when omitted."
+        },
+        "fixed_bank": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The bank in use when the model has no `bank_register`; 0 when omitted."
+        },
+        "index_port": {
+          "$ref": "#/$defs/Word"
+        },
+        "registers": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "$ref": "#/$defs/Word"
+            },
+            "type": "object"
+          },
+          "description": "Initial registers: bank, then index, then a byte.",
+          "type": "object"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Fill every register from this seed and scramble the initial index and bank."
+        }
+      },
+      "required": [
+        "index_port",
+        "data_port"
+      ],
+      "type": "object"
+    },
+    "MmioOptions": {
+      "additionalProperties": false,
+      "description": "Options of `mmio-registers`.",
+      "properties": {
+        "default": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Value of an offset not listed; reading one is an unmodeled access when omitted."
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Word"
+          },
+          "description": "Initial value by offset inside the window.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "Operand": {
       "description": "A Word, or the name of an address the runtime provides",
       "oneOf": [
@@ -182,6 +289,27 @@
         }
       ]
     },
+    "PortOptions": {
+      "additionalProperties": false,
+      "description": "Options of `port-registers`.",
+      "properties": {
+        "read_only": {
+          "description": "Ports whose writes are dropped.",
+          "items": {
+            "$ref": "#/$defs/Word"
+          },
+          "type": "array"
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Word"
+          },
+          "description": "Initial value by port (`\"0x404\"` or `\"1028\"`); only these ports are claimed.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "ScenarioBinding": {
       "additionalProperties": false,
       "properties": {
@@ -201,50 +329,86 @@
       "type": "object"
     },
     "ScenarioDevice": {
-      "additionalProperties": false,
-      "description": "A named hardware model from the runtime's library.",
-      "properties": {
-        "base": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Word"
+      "description": "A named hardware model from the runtime's library, with the options that model takes.\n\nExample: `{\"name\": \"hwm\", \"kind\": \"indexed-registers\", \"options\": {\"index_port\": \"0xa25\",\n\"data_port\": \"0xa26\"}}` is an [`ScenarioDevice::IndexedRegisters`].",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Flat port registers.",
+          "properties": {
+            "kind": {
+              "const": "port-registers",
+              "type": "string"
             },
-            {
-              "type": "null"
+            "name": {
+              "description": "Unique name; expectations refer to it.",
+              "type": "string"
+            },
+            "options": {
+              "$ref": "#/$defs/PortOptions",
+              "default": {}
             }
+          },
+          "required": [
+            "kind",
+            "name"
           ],
-          "description": "MMIO base address; only `mmio-registers`."
-        },
-        "kind": {
-          "description": "`port-registers`, `indexed-registers` or `mmio-registers`.",
-          "type": "string"
-        },
-        "name": {
-          "description": "Unique name; expectations refer to it.",
-          "type": "string"
-        },
-        "options": {
-          "additionalProperties": true,
-          "description": "Options of the model, as the runtime documents them.",
           "type": "object"
         },
-        "size": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Word"
+        {
+          "additionalProperties": false,
+          "description": "An index port and a data port in front of banked 8-bit registers.",
+          "properties": {
+            "kind": {
+              "const": "indexed-registers",
+              "type": "string"
             },
-            {
-              "type": "null"
+            "name": {
+              "type": "string"
+            },
+            "options": {
+              "$ref": "#/$defs/IndexedOptions"
             }
+          },
+          "required": [
+            "kind",
+            "name",
+            "options"
           ],
-          "description": "MMIO window size; only `mmio-registers`."
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Memory-mapped registers in a window.",
+          "properties": {
+            "base": {
+              "$ref": "#/$defs/Word",
+              "description": "Window base address."
+            },
+            "kind": {
+              "const": "mmio-registers",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "options": {
+              "$ref": "#/$defs/MmioOptions",
+              "default": {}
+            },
+            "size": {
+              "$ref": "#/$defs/Word",
+              "description": "Window size in bytes."
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "base",
+            "size"
+          ],
+          "type": "object"
         }
-      },
-      "required": [
-        "name",
-        "kind"
-      ],
-      "type": "object"
+      ]
     },
     "ScenarioEntry": {
       "additionalProperties": false,

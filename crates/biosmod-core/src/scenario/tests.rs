@@ -14,7 +14,7 @@ fn document() -> Value {
         "hardware": [{
             "name": "hwm",
             "kind": "indexed-registers",
-            "options": {"index_port": "0xa25", "data_port": "0xa26"}
+            "options": {"index_port": "0xa25", "data_port": "0xa26", "banks": 16}
         }],
         "variables": [{
             "name": "NCT5532D_SMF",
@@ -254,7 +254,7 @@ fn a_variable_expectation_needs_no_declared_variable() {
 fn an_unknown_device_kind_is_rejected() {
     let mut value = document();
     value["hardware"][0]["kind"] = json!("flash");
-    assert!(rejected(value).contains("kind: expected one of"));
+    assert!(rejected(value).contains("unknown variant `flash`"));
 }
 
 #[test]
@@ -271,10 +271,129 @@ fn a_duplicate_device_name_is_rejected() {
 fn mmio_devices_need_a_window_and_port_devices_must_not_have_one() {
     let mut value = document();
     value["hardware"][0]["base"] = json!("0xfed1c000");
-    assert!(rejected(value).contains("expected base and size exactly for mmio-registers"));
+    assert!(rejected(value).contains("unknown field `base`"));
     let mut value = document();
     value["hardware"][0]["kind"] = json!("mmio-registers");
-    assert!(rejected(value).contains("expected base and size exactly for mmio-registers"));
+    let message = rejected(value);
+    assert!(
+        message.contains("missing field `base`") || message.contains("unknown field"),
+        "{message}"
+    );
+}
+
+fn device(options: Value) -> Value {
+    json!({"name": "hwm", "kind": "indexed-registers", "options": options})
+}
+
+fn with_device(device: Value) -> Value {
+    let mut value = document();
+    value["hardware"] = json!([device]);
+    value
+}
+
+#[test]
+fn an_unknown_option_names_itself() {
+    let message = rejected(with_device(device(
+        json!({"index_port": "0xa25", "data_port": "0xa26", "bankz": 16}),
+    )));
+    assert!(message.contains("unknown field `bankz`"), "{message}");
+}
+
+#[test]
+fn an_option_that_is_not_a_number_is_rejected() {
+    let message = rejected(with_device(device(
+        json!({"index_port": "0xa25", "data_port": "0xa26", "seed": "soon"}),
+    )));
+    assert!(message.contains("number \"soon\""), "{message}");
+}
+
+#[test]
+fn a_missing_required_option_is_named() {
+    let message = rejected(with_device(device(json!({"index_port": "0xa25"}))));
+    assert!(message.contains("missing field `data_port`"), "{message}");
+}
+
+#[test]
+fn an_expectation_bank_must_be_below_the_declared_banks() {
+    let mut value = with_device(device(
+        json!({"index_port": "0xa25", "data_port": "0xa26", "banks": 2}),
+    ));
+    value["expect"][0]["bank"] = json!(2);
+    let message = rejected(value);
+    assert!(
+        message.contains("bank: expected below banks (2) | received 2"),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_register_bank_or_index_outside_the_model_is_rejected() {
+    let message = rejected(with_device(device(
+        json!({"index_port": "0xa25", "data_port": "0xa26", "banks": 2, "registers": {"2": {"0x10": 1}}}),
+    )));
+    assert!(
+        message.contains("register bank: expected below banks (2) | received 2"),
+        "{message}"
+    );
+    let message = rejected(with_device(device(
+        json!({"index_port": "0xa25", "data_port": "0xa26", "registers": {"0": {"0x100": 1}}}),
+    )));
+    assert!(
+        message.contains("register index: expected at most 0xff | received 0x100"),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_register_key_that_is_not_a_number_is_rejected() {
+    let message = rejected(with_device(device(
+        json!({"index_port": "0xa25", "data_port": "0xa26", "registers": {"zero": {}}}),
+    )));
+    assert!(message.contains("register bank \"zero\""), "{message}");
+}
+
+#[test]
+fn two_devices_cannot_claim_the_same_port() {
+    let mut value = document();
+    value["hardware"] = json!([
+        device(json!({"index_port": "0xa25", "data_port": "0xa26"})),
+        {"name": "other", "kind": "port-registers", "options": {"values": {"0xa26": 0}}}
+    ]);
+    let message = rejected(value);
+    assert!(
+        message.contains("0xa26") && message.contains("claims"),
+        "{message}"
+    );
+}
+
+#[test]
+fn an_mmio_value_outside_its_window_and_overlapping_windows_are_rejected() {
+    let window = |name: &str, base: &str, offset: &str| {
+        json!({"name": name, "kind": "mmio-registers", "base": base, "size": "0x1000",
+               "options": {"values": {offset: 0}}})
+    };
+    let mut value = document();
+    value["hardware"] = json!([window("a", "0xfed1c000", "0x1000")]);
+    let message = rejected(value);
+    assert!(message.contains("offset 0x1000"), "{message}");
+    let mut value = document();
+    value["hardware"] = json!([
+        window("a", "0xfed1c000", "0x0"),
+        window("b", "0xfed1c800", "0x0")
+    ]);
+    let message = rejected(value);
+    assert!(message.contains("overlap"), "{message}");
+}
+
+#[test]
+fn a_port_expectation_needs_a_port_the_device_lists() {
+    let mut value = document();
+    value["hardware"] = json!([
+        {"name": "pm", "kind": "port-registers", "options": {"values": {"0x404": 1}}}
+    ]);
+    value["expect"][0] = json!({"kind": "port", "device": "pm", "port": "0x405", "equals": 0});
+    let message = rejected(value);
+    assert!(message.contains("port 0x405"), "{message}");
 }
 
 #[test]
