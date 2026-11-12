@@ -5,6 +5,7 @@ use crate::HostSurfaces;
 use crate::bundle::{Bundle, BundleBuilder};
 use crate::files::{EntryKind, HostFiles};
 use crate::identity::HostIdentity;
+use crate::privilege::require_root;
 use crate::receipt::Receipt;
 use biosmod_core::{Code, Error, Result};
 use std::collections::BTreeMap;
@@ -25,17 +26,7 @@ const MAX_DEPTH: usize = 4;
 ///
 /// Example: `capture(&surfaces)?.get("acpi/tables/DSDT")` is the running DSDT.
 pub fn capture(host: &HostSurfaces) -> Result<Bundle> {
-    if !host.privilege.is_root() {
-        return Err(Error::new(
-            Code::HostRefused,
-            format!(
-                "diag acpi capture: expected effective user root | received {} (the tables are root-only; run as root)",
-                host.privilege
-                    .effective_user()
-                    .map_or("none".to_string(), |uid| format!("uid {uid}"))
-            ),
-        ));
-    }
+    require_root(host.privilege, "diag acpi capture")?;
     let identity = HostIdentity::read(host.files)?;
     let at = host.clock.now();
     let mut builder = BundleBuilder::new();

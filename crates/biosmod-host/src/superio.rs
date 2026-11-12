@@ -24,6 +24,7 @@ use crate::HostSurfaces;
 use crate::bundle::{Bundle, BundleBuilder};
 use crate::identity::HostIdentity;
 use crate::ports::PortIo;
+use crate::privilege::require_root;
 use crate::receipt::Receipt;
 use biosmod_core::{Code, Error, Result};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -546,23 +547,24 @@ fn ports_tried(chips: &[ChipMap]) -> String {
         .join(", ")
 }
 
+/// A reading and the bundle that preserves it.
+#[derive(Debug)]
+pub struct SuperIoCapture {
+    pub reading: SuperIoReading,
+    pub bundle: Bundle,
+}
+
 /// Read the chip and seal the reading, manifest and receipt into a bundle.
 ///
 /// Needs root: a non-root user is refused before any port is touched.
 ///
-/// Example: `capture(&surfaces, &mut ports, builtin())?.get("superio.json")`.
-pub fn capture(host: &HostSurfaces, ports: &mut dyn PortIo, chips: &[ChipMap]) -> Result<Bundle> {
-    if !host.privilege.is_root() {
-        return Err(Error::new(
-            Code::HostRefused,
-            format!(
-                "diag superio read: expected effective user root | received {} (port access needs root)",
-                host.privilege
-                    .effective_user()
-                    .map_or("none".to_string(), |uid| format!("uid {uid}"))
-            ),
-        ));
-    }
+/// Example: `capture(&surfaces, &mut ports, builtin())?.bundle.get("superio.json")`.
+pub fn capture(
+    host: &HostSurfaces,
+    ports: &mut dyn PortIo,
+    chips: &[ChipMap],
+) -> Result<SuperIoCapture> {
+    require_root(host.privilege, "diag superio read")?;
     let identity = HostIdentity::read(host.files)?;
     let at = host.clock.now();
     let reading = read(ports, chips)?;
@@ -589,7 +591,7 @@ pub fn capture(host: &HostSurfaces, ports: &mut dyn PortIo, chips: &[ChipMap]) -
         ));
     }
     observations.push("Logical device and hardware-monitor bank selections were restored.".into());
-    Ok(builder.seal(
+    let bundle = builder.seal(
         &identity,
         at,
         Receipt {
@@ -599,7 +601,8 @@ pub fn capture(host: &HostSurfaces, ports: &mut dyn PortIo, chips: &[ChipMap]) -
             limits: "A snapshot of the registers at one instant: temperatures, fan speeds and duty cycles move. The register meanings come from the chip's map, not from this board's wiring; which header a fan channel drives is not established.".into(),
             digests: BTreeMap::new(),
         },
-    ))
+    );
+    Ok(SuperIoCapture { reading, bundle })
 }
 
 #[cfg(test)]
@@ -850,7 +853,9 @@ mod tests {
         let (files, log) = (sysfs.files(), FakeKernelLog::new());
         let privilege = FakePrivilege::root();
         let mut ports = FakeSuperIoPorts::mr9a_nct5532d();
-        let bundle = capture(&surfaces(&files, &log, &privilege), &mut ports, builtin()).unwrap();
+        let bundle = capture(&surfaces(&files, &log, &privilege), &mut ports, builtin())
+            .unwrap()
+            .bundle;
         let reading: serde_json::Value =
             serde_json::from_slice(bundle.get("superio.json").unwrap()).unwrap();
         assert_eq!(reading["chip"], "NCT5532D");
