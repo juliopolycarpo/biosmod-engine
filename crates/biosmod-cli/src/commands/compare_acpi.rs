@@ -405,9 +405,8 @@ mod tests {
             "{diff}"
         );
         assert!(
-            done.written[0]
-                .file
-                .ends_with("DSDT-TEST/_SB.SIO1.SIOS.diff"),
+            Path::new(&done.written[0].file)
+                .ends_with(Path::new("DSDT-TEST").join("_SB.SIO1.SIOS.diff")),
             "{}",
             done.written[0].file
         );
