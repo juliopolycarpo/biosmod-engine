@@ -22,12 +22,13 @@ pub mod privilege;
 pub mod receipt;
 pub mod signals;
 pub mod superio;
+pub mod suspend;
 
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
 
 pub use clock::{Clock, SystemClock, Timestamp};
-pub use files::{EntryKind, HostFiles, RootedFiles};
+pub use files::{EntryKind, HostFiles, HostWrite, RootedFiles};
 pub use kmsg::{KernelLog, KernelRecord};
 pub use ports::PortIo;
 pub use privilege::{Privilege, ProcessPrivilege};

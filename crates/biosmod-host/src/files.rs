@@ -33,6 +33,21 @@ pub trait HostFiles {
     fn entries(&self, path: &str) -> io::Result<Vec<DirEntry>>;
 }
 
+/// Writes to existing kernel control files such as `/sys/power/pm_test`.
+///
+/// Separate from [`HostFiles`] so a command that only reads cannot write by
+/// accident: it takes this trait only when its safety rules allow a write.
+pub trait HostWrite {
+    /// Write `text` to an existing file; never creates one.
+    ///
+    /// Example: `power.write("/sys/power/pm_test", "freezer\n")?`.
+    fn write(&self, path: &str, text: &str) -> io::Result<()>;
+
+    /// Ask the kernel to flush buffered file data to disk, before a test that could
+    /// lose it. Fakes do nothing.
+    fn sync_filesystems(&self) {}
+}
+
 /// [`HostFiles`] over a directory standing in for `/`; the real system uses `/`.
 #[derive(Debug, Clone)]
 pub struct RootedFiles {
@@ -91,6 +106,28 @@ impl HostFiles for RootedFiles {
     }
 }
 
+impl HostWrite for RootedFiles {
+    fn write(&self, path: &str, text: &str) -> io::Result<()> {
+        use std::io::Write;
+        // No `create`: a missing control file means an unsupported kernel, not a new file.
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(self.resolve(path))?;
+        // One write call: sysfs parses each write as a whole command.
+        file.write_all(text.as_bytes())
+    }
+
+    fn sync_filesystems(&self) {
+        // Only the real system has buffers worth flushing.
+        #[cfg(unix)]
+        if self.root == std::path::Path::new("/") {
+            // SAFETY: sync(2) takes no arguments and cannot fail.
+            unsafe { libc::sync() };
+        }
+    }
+}
+
 /// A file's text with surrounding whitespace removed; `None` when it is missing,
 /// unreadable or empty.
 ///
@@ -127,6 +164,19 @@ mod tests {
         let sub = entries.iter().find(|e| e.name == "sub").unwrap();
         assert_eq!(sub.kind, EntryKind::Directory);
         assert_eq!(files.read("/sys/a/one").unwrap(), b"1");
+    }
+
+    #[test]
+    fn rooted_files_write_replaces_existing_files_and_never_creates() {
+        let sysfs = FakeSysfs::new().file("sys/power/pm_test", "[none] freezer\n");
+        let files = sysfs.files();
+        files.write("/sys/power/pm_test", "core\n").unwrap();
+        assert_eq!(files.read("/sys/power/pm_test").unwrap(), b"core\n");
+        let error = files.write("/sys/power/absent", "x").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound, "{error}");
+        assert!(!sysfs.path("sys/power/absent").exists());
+        // A temporary root is not the system: this must return without syncing.
+        files.sync_filesystems();
     }
 
     #[test]

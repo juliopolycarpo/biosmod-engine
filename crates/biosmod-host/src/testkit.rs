@@ -4,7 +4,7 @@
 //! tree, the rest are in-memory.
 
 use crate::clock::{Clock, Timestamp};
-use crate::files::RootedFiles;
+use crate::files::{DirEntry, EntryKind, HostFiles, HostWrite, RootedFiles};
 use crate::kmsg::{KernelLog, KernelRecord};
 use crate::privilege::Privilege;
 use biosmod_core::Result;
@@ -495,10 +495,393 @@ impl crate::ports::PortIo for FakeSuperIoPorts {
     }
 }
 
+/// How [`FakePowerSysfs`] behaves when a test suspend is triggered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SuspendBehavior {
+    Succeeds,
+    /// The kernel counts a failure and the `state` write returns an error.
+    CountsFailure,
+    /// The `state` write returns an error and no counter moves.
+    RejectsWrite,
+}
+
+struct PowerState {
+    files: std::collections::BTreeMap<String, String>,
+    records: Vec<KernelRecord>,
+    writes: Vec<(String, String)>,
+    real_sleeps: u32,
+    violations: Vec<String>,
+    ignore_pm_test_writes: bool,
+    fail_pm_test_restore: bool,
+    suspend: SuspendBehavior,
+}
+
+/// `/sys/power`, the suspend counters and the kernel log in memory, with the
+/// kernel's rules for the test checkpoints.
+///
+/// It stands in for the real kernel when a pm-test is exercised, and it fails loudly
+/// on the one thing the command must never do: a `mem` write while the machine would
+/// really sleep (`pm_test` is `none`, or the stage lies past the point where
+/// `s2idle` diverges). That counts in [`FakePowerSysfs::real_sleeps`]. Identity
+/// files (boot ID, DMI) come from [`FakeSysfs::mr9a`].
+pub struct FakePowerSysfs {
+    identity: FakeSysfs,
+    state: std::cell::RefCell<PowerState>,
+}
+
+impl FakePowerSysfs {
+    const PM_TEST: &'static str = "/sys/power/pm_test";
+    const STATE: &'static str = "/sys/power/state";
+    const MEM_SLEEP: &'static str = "/sys/power/mem_sleep";
+    const STATS: &'static str = "/sys/power/suspend_stats";
+    const COUNTERS: [&'static str; 10] = [
+        "success",
+        "fail",
+        "failed_freeze",
+        "failed_prepare",
+        "failed_suspend",
+        "failed_suspend_late",
+        "failed_suspend_noirq",
+        "failed_resume",
+        "failed_resume_early",
+        "failed_resume_noirq",
+    ];
+
+    /// A machine whose `mem_sleep` is `[deep]`, `pm_test` is `none`, with zeroed counters.
+    pub fn mr9a_deep() -> FakePowerSysfs {
+        let mut files = std::collections::BTreeMap::new();
+        files.insert(
+            Self::PM_TEST.to_string(),
+            "freezer devices platform processors core [none]\n".to_string(),
+        );
+        files.insert(Self::STATE.to_string(), "freeze mem disk\n".to_string());
+        files.insert(Self::MEM_SLEEP.to_string(), "s2idle [deep]\n".to_string());
+        for name in Self::COUNTERS {
+            files.insert(format!("{}/{name}", Self::STATS), "0\n".to_string());
+        }
+        files.insert(format!("{}/last_failed_dev", Self::STATS), "\n".to_string());
+        files.insert(
+            format!("{}/last_failed_errno", Self::STATS),
+            "0\n".to_string(),
+        );
+        FakePowerSysfs {
+            identity: FakeSysfs::mr9a(),
+            state: std::cell::RefCell::new(PowerState {
+                files,
+                records: vec![KernelRecord {
+                    level: 6,
+                    sequence: 0,
+                    micros: 1_000_000,
+                    message: "PM: hibernation: Registered nosave memory".into(),
+                }],
+                writes: Vec::new(),
+                real_sleeps: 0,
+                violations: Vec::new(),
+                ignore_pm_test_writes: false,
+                fail_pm_test_restore: false,
+                suspend: SuspendBehavior::Succeeds,
+            }),
+        }
+    }
+
+    /// The MR9A as it boots: `mem_sleep` selects `s2idle`.
+    pub fn mr9a_s2idle() -> FakePowerSysfs {
+        let fake = FakePowerSysfs::mr9a_deep();
+        fake.set(Self::MEM_SLEEP, "[s2idle] deep\n");
+        fake
+    }
+
+    fn set(&self, path: &str, text: &str) {
+        self.state
+            .borrow_mut()
+            .files
+            .insert(path.to_string(), text.to_string());
+    }
+
+    /// Replace the `pm_test` listing, e.g. a kernel without the `core` stage.
+    pub fn with_pm_test_listing(self, listing: &str) -> FakePowerSysfs {
+        self.set(Self::PM_TEST, &format!("{listing}\n"));
+        self
+    }
+
+    /// Replace the `state` listing, e.g. `freeze disk` without `mem`.
+    pub fn with_states(self, listing: &str) -> FakePowerSysfs {
+        self.set(Self::STATE, &format!("{listing}\n"));
+        self
+    }
+
+    /// Remove the suspend counters, as on a kernel without them.
+    pub fn without_suspend_stats(self) -> FakePowerSysfs {
+        self.state
+            .borrow_mut()
+            .files
+            .retain(|path, _| !path.starts_with(Self::STATS));
+        self
+    }
+
+    /// `pm_test` writes succeed but leave the selection unchanged.
+    pub fn ignoring_pm_test_writes(self) -> FakePowerSysfs {
+        self.state.borrow_mut().ignore_pm_test_writes = true;
+        self
+    }
+
+    /// The suspend fails: the kernel counts it and the `state` write errors.
+    pub fn failing_suspend(self) -> FakePowerSysfs {
+        self.state.borrow_mut().suspend = SuspendBehavior::CountsFailure;
+        self
+    }
+
+    /// The `state` write errors without any counter moving (e.g. `EBUSY`).
+    pub fn rejecting_state_write(self) -> FakePowerSysfs {
+        self.state.borrow_mut().suspend = SuspendBehavior::RejectsWrite;
+        self
+    }
+
+    /// Writing `none` back to `pm_test` fails, so the stage stays armed.
+    pub fn failing_pm_test_restore(self) -> FakePowerSysfs {
+        self.state.borrow_mut().fail_pm_test_restore = true;
+        self
+    }
+
+    /// The current text of a fake file.
+    pub fn text(&self, path: &str) -> String {
+        self.state.borrow().files[path].clone()
+    }
+
+    /// The word `pm_test` selects.
+    pub fn pm_test(&self) -> String {
+        let text = self.text(Self::PM_TEST);
+        let start = text.find('[').expect("a selection") + 1;
+        let end = text.find(']').expect("a selection");
+        text[start..end].to_string()
+    }
+
+    /// Every accepted write, in order, as (path, trimmed text).
+    pub fn writes(&self) -> Vec<(String, String)> {
+        self.state.borrow().writes.clone()
+    }
+
+    /// Times a suspend would really have slept the machine.
+    pub fn real_sleeps(&self) -> u32 {
+        self.state.borrow().real_sleeps
+    }
+
+    /// Writes the command must never make (unknown files, a real sleep).
+    pub fn violations(&self) -> Vec<String> {
+        self.state.borrow().violations.clone()
+    }
+
+    fn select(listing: &str, word: &str) -> String {
+        let words: Vec<String> = listing
+            .split_whitespace()
+            .map(|w| w.trim_matches(|c| c == '[' || c == ']').to_string())
+            .collect();
+        let rendered: Vec<String> = words
+            .iter()
+            .map(|w| {
+                if w == word {
+                    format!("[{w}]")
+                } else {
+                    w.clone()
+                }
+            })
+            .collect();
+        format!("{}\n", rendered.join(" "))
+    }
+
+    fn bump(state: &mut PowerState, name: &str) {
+        let path = format!("{}/{name}", Self::STATS);
+        let value: i64 = state.files[&path].trim().parse().unwrap_or(0);
+        state.files.insert(path, format!("{}\n", value + 1));
+    }
+
+    fn selection_of(listing: &str) -> String {
+        let start = listing.find('[').map(|i| i + 1).unwrap_or(0);
+        let end = listing.find(']').unwrap_or(listing.len());
+        listing[start..end].to_string()
+    }
+}
+
+impl HostFiles for FakePowerSysfs {
+    fn read(&self, path: &str) -> std::io::Result<Vec<u8>> {
+        match self.state.borrow().files.get(path) {
+            Some(text) => Ok(text.clone().into_bytes()),
+            None if path.starts_with("/sys/power/") => {
+                Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+            }
+            None => self.identity.files().read(path),
+        }
+    }
+
+    fn entries(&self, path: &str) -> std::io::Result<Vec<DirEntry>> {
+        if path != Self::STATS {
+            return self.identity.files().entries(path);
+        }
+        let prefix = format!("{}/", Self::STATS);
+        let entries: Vec<DirEntry> = self
+            .state
+            .borrow()
+            .files
+            .keys()
+            .filter_map(|file| file.strip_prefix(&prefix))
+            .map(|name| DirEntry {
+                name: name.to_string(),
+                kind: EntryKind::File,
+            })
+            .collect();
+        if entries.is_empty() {
+            return Err(std::io::Error::from(std::io::ErrorKind::NotFound));
+        }
+        Ok(entries)
+    }
+}
+
+impl HostWrite for FakePowerSysfs {
+    fn write(&self, path: &str, text: &str) -> std::io::Result<()> {
+        let word = text.trim().to_string();
+        let mut state = self.state.borrow_mut();
+        let invalid =
+            |message: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, message);
+        match path {
+            Self::PM_TEST => {
+                let listing = state.files[Self::PM_TEST].clone();
+                if !listing
+                    .split_whitespace()
+                    .any(|w| w.trim_matches(|c| c == '[' || c == ']') == word)
+                {
+                    return Err(invalid(format!("{path}: EINVAL for {word:?}")));
+                }
+                if word == "none" && state.fail_pm_test_restore {
+                    return Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+                }
+                state.writes.push((path.to_string(), word.clone()));
+                if !state.ignore_pm_test_writes {
+                    state
+                        .files
+                        .insert(path.to_string(), Self::select(&listing, &word));
+                }
+                Ok(())
+            }
+            Self::STATE => {
+                state.writes.push((path.to_string(), word.clone()));
+                if word != "mem" {
+                    state.violations.push(format!(
+                        "{path}: expected a write of mem | received {word:?}"
+                    ));
+                    return Err(invalid(format!("{path}: only mem is faked")));
+                }
+                let stage = Self::selection_of(&state.files[Self::PM_TEST]);
+                let mode = Self::selection_of(&state.files[Self::MEM_SLEEP]);
+                let past_s2idle_divergence =
+                    matches!(stage.as_str(), "platform" | "processors" | "core") && mode != "deep";
+                if stage == "none" || past_s2idle_divergence {
+                    state.real_sleeps += 1;
+                    state.violations.push(format!(
+                        "{path}: the kernel would really sleep (pm_test {stage:?}, mem_sleep {mode:?})"
+                    ));
+                    return Err(invalid(format!("{path}: real sleep refused by the fake")));
+                }
+                match state.suspend {
+                    SuspendBehavior::RejectsWrite => Err(std::io::Error::new(
+                        std::io::ErrorKind::ResourceBusy,
+                        format!("{path}: device or resource busy"),
+                    )),
+                    SuspendBehavior::CountsFailure => {
+                        Self::bump(&mut state, "fail");
+                        Self::bump(&mut state, "failed_suspend");
+                        let sequence = state.records.len() as u64;
+                        state.records.push(KernelRecord {
+                            level: 3,
+                            sequence,
+                            micros: 90_000_000,
+                            message:
+                                "PM: Some devices failed to suspend, or early wake event detected"
+                                    .into(),
+                        });
+                        Err(std::io::Error::other(format!("{path}: input/output error")))
+                    }
+                    SuspendBehavior::Succeeds => {
+                        Self::bump(&mut state, "success");
+                        for (offset, message) in [
+                            "PM: suspend entry (deep)".to_string(),
+                            format!("PM: suspend debug: Waiting for 5 second(s) at the {stage} test point."),
+                            "PM: suspend exit".to_string(),
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        {
+                            let sequence = state.records.len() as u64;
+                            state.records.push(KernelRecord {
+                                level: 6,
+                                sequence,
+                                micros: 90_000_000 + offset as u64,
+                                message,
+                            });
+                        }
+                        Ok(())
+                    }
+                }
+            }
+            other => {
+                state.violations.push(format!(
+                    "{other}: expected pm_test | state | received a write of {word:?}"
+                ));
+                Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+            }
+        }
+    }
+}
+
+impl KernelLog for FakePowerSysfs {
+    fn records(&self) -> Result<Vec<KernelRecord>> {
+        Ok(self.state.borrow().records.clone())
+    }
+}
+
+/// A kernel log the user may not read, as with `kernel.dmesg_restrict` set.
+pub struct UnreadableKernelLog;
+
+impl KernelLog for UnreadableKernelLog {
+    fn records(&self) -> Result<Vec<KernelRecord>> {
+        Err(biosmod_core::Error::new(
+            biosmod_core::Code::Io,
+            "/dev/kmsg: expected readable | received permission denied (kernel.dmesg_restrict)",
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ports::PortIo;
+
+    #[test]
+    fn the_power_fake_counts_a_mem_write_that_would_really_sleep() {
+        let fake = FakePowerSysfs::mr9a_s2idle();
+        // pm_test is none: a real sleep.
+        assert!(fake.write("/sys/power/state", "mem\n").is_err());
+        // A late stage under s2idle is a real sleep too.
+        fake.write("/sys/power/pm_test", "core\n").unwrap();
+        assert!(fake.write("/sys/power/state", "mem\n").is_err());
+        assert_eq!(fake.real_sleeps(), 2);
+        assert_eq!(fake.violations().len(), 2);
+        // An early stage under s2idle is a test.
+        fake.write("/sys/power/pm_test", "devices\n").unwrap();
+        fake.write("/sys/power/state", "mem\n").unwrap();
+        assert_eq!(fake.real_sleeps(), 2);
+        assert_eq!(fake.text("/sys/power/suspend_stats/success"), "1\n");
+    }
+
+    #[test]
+    fn the_power_fake_rejects_unknown_stages_and_foreign_files() {
+        let fake = FakePowerSysfs::mr9a_deep();
+        let error = fake.write("/sys/power/pm_test", "warp\n").unwrap_err();
+        assert!(error.to_string().contains("EINVAL for \"warp\""), "{error}");
+        assert!(fake.write("/sys/power/disk", "reboot\n").is_err());
+        assert_eq!(fake.violations().len(), 1);
+        assert!(fake.read("/sys/power/absent").is_err());
+        assert_eq!(fake.read("/proc/version").unwrap()[..5], *b"Linux");
+    }
 
     #[test]
     fn recording_ports_answer_from_the_table_and_log_in_order() {

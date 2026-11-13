@@ -449,6 +449,30 @@ pub enum DiagCommand {
     /// Super I/O chip registers: fan controller and logical devices (Linux, root).
     #[command(subcommand)]
     Superio(SuperioCommand),
+    /// Suspend tests that return without sleeping the machine (Linux, root).
+    #[command(subcommand)]
+    Suspend(SuspendCommand),
+}
+
+#[derive(Subcommand)]
+pub enum SuspendCommand {
+    /// Run one kernel suspend test stage (/sys/power/pm_test) and report the suspend
+    /// counters. The kernel stops at the stage's checkpoint and unwinds; the machine does
+    /// not sleep, but its devices and processes are frozen for several seconds. pm_test is
+    /// always set back to none.
+    PmTest {
+        /// Checkpoint to test: freezer, devices, platform, processors or core. One per run;
+        /// none (a real sleep) is refused. platform, processors and core need mem_sleep deep.
+        #[arg(long, value_name = "STAGE")]
+        stage: String,
+        /// New directory for the test report, kernel messages, manifest and evidence record.
+        #[arg(short, long, value_name = "DIR")]
+        output: PathBuf,
+        /// Confirm that running desktop sessions freeze and the screen may go dark for a few
+        /// seconds; save your work first.
+        #[arg(long, required = true)]
+        i_understand_this_suspends: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -625,6 +649,9 @@ fn command_name(command: &Command) -> &'static str {
         Command::Diag(DiagCommand::Breadcrumbs(_)) => "diag breadcrumbs",
         Command::Diag(DiagCommand::Acpi(AcpiCommand::Capture { .. })) => "diag acpi capture",
         Command::Diag(DiagCommand::Superio(SuperioCommand::Read { .. })) => "diag superio read",
+        Command::Diag(DiagCommand::Suspend(SuspendCommand::PmTest { .. })) => {
+            "diag suspend pm-test"
+        }
         Command::Flash(f) => match f {
             FlashCommand::Doctor { .. } => "flash doctor",
             FlashCommand::Probe(_) => "flash probe",

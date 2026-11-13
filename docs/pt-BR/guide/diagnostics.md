@@ -2,15 +2,15 @@
 
 [English](../../guide/diagnostics.md) | Português (Brasil)
 
-Vários achados dependem do que a máquina em execução informa, como as tabelas ACPI que o kernel publicou, os estados de suspensão que ele oferece e os registradores do controlador de ventoinhas. `bme diag` lê esses fatos, calcula seus hashes e escreve um recibo, para que outra pessoa confira uma afirmação apenas pelos arquivos. O leitor de checkpoints MRC tem [guia próprio](breadcrumbs.md).
+Vários achados dependem do que a máquina em execução informa, como as tabelas ACPI que o kernel publicou, os estados de suspensão que ele oferece e os registradores do controlador de ventoinhas e até onde uma suspensão chega. `bme diag` lê esses fatos, calcula seus hashes e escreve um recibo, para que outra pessoa confira uma afirmação apenas pelos arquivos. O leitor de checkpoints MRC tem [guia próprio](breadcrumbs.md).
 
 Tudo exige Linux. Comandos que leem arquivos ou portas protegidos exigem root; execute com `sudo` ou `pkexec`.
 
 ## Regras comuns
 
-- **Somente leitura, salvo quando o comando disser o contrário.** O único arquivo que um comando de leitura cria é o seu novo diretório de saída. `diag superio read` também grava os seletores de acesso do chip, e nada além disso.
+- **Somente leitura, salvo quando o comando disser o contrário.** O único arquivo que um comando de leitura cria é o seu novo diretório de saída. `diag superio read` também grava os seletores de acesso do chip e `diag suspend pm-test` grava `/sys/power/pm_test` e `/sys/power/state`; nada além disso é gravado.
 - **Somente saídas novas.** Um diretório de captura que já existe, mesmo vazio, é recusado antes de ler o host. Nada é sobrescrito nem mesclado.
-- **Uma recusa é um erro, não um palpite.** `HOST_REFUSED` significa que o usuário, o chip detectado ou o modo pedido está fora do que as regras de segurança do comando cobrem; nenhuma configuração foi alterada e, no máximo, uma sondagem de chip gravou seus seletores de acesso.
+- **Uma recusa é um erro, não um palpite.** `HOST_REFUSED` significa que o usuário, o chip detectado ou o modo pedido está fora do que as regras de segurança do comando cobrem; nenhuma configuração foi alterada e, no máximo, uma sondagem de chip gravou seus seletores de acesso. `HOST_FAILED` é o inverso: o comando rodou, o resultado é uma falha e a evidência foi salva mesmo assim.
 - **Um recibo para cada leitura.** Um registro `bme.evidence/1` do tipo `hardware-observation` informa o comando, o boot ID (`/proc/sys/kernel/random/boot_id`), a versão do kernel e o SHA-256 dos artefatos, no objeto `host`. Placa e firmware vêm do DMI e não são resolvidos em um catálogo; por isso `bme catalog validate` não aceita esses registros como evidência de catálogo. São recibos.
 - **Nenhuma identidade além do modelo.** Números de série, UUIDs e etiquetas de patrimônio nunca são copiados.
 - **O acesso ao hardware passa por traits.** O código lê arquivos, o log do kernel e portas por traits de `biosmod-host` e os testes usam fakes nomeados (`FakeSysfs`, `FakeKernelLog`, `FakePrivilege`); nenhum teste toca a máquina em que roda.
@@ -63,9 +63,40 @@ Os chips são dados em `crates/biosmod-host/data/superio.json`: portas de config
 
 Exige root e `/dev/port` (Linux); `--device` indica outro arquivo para testes.
 
+## Estágios do teste de suspensão
+
+```sh
+sudo bme diag suspend pm-test --stage freezer -o pm-freezer-2026-11-12 --i-understand-this-suspends
+```
+
+Executa um estágio do teste de suspensão do kernel. `/sys/power/pm_test` faz a próxima suspensão parar em um ponto de verificação, esperar cinco segundos e desfazer, de modo que os estágios até ali rodam sem a máquina dormir. Os estágios, na ordem em que o kernel os alcança:
+
+| Estágio | O que já rodou quando ele para |
+| --- | --- |
+| `freezer` | espaço de usuário e threads do kernel congelados |
+| `devices` | todos os drivers de dispositivo suspensos |
+| `platform` | a preparação de suspensão do firmware (ACPI `_PTS`) |
+| `processors` | os processadores não principais estão offline |
+| `core` | os dispositivos do núcleo do sistema estão suspensos |
+
+O comando recebe `--stage` e `--i-understand-this-suspends`, que é obrigatório: a área de trabalho congela por vários segundos e um estágio que dê errado pode travar a máquina. Salve seu trabalho antes. Ele roda um estágio por execução, de modo que uma falha nomeia o seu estágio.
+
+O que ele confere, em ordem, e recusa com `HOST_REFUSED` antes de gravar qualquer coisa:
+
+1. O usuário é root.
+2. O estágio não é `none`: isso é uma suspensão real, e um comando que não consegue acordar a máquina não é um diagnóstico.
+3. `/sys/power/pm_test` lista o estágio e seleciona `none` no momento. Um teste armado por outra pessoa não é tocado. Um resto de uma execução interrompida tem a mesma aparência, então a recusa traz o reparo: `echo none > /sys/power/pm_test`, para rodar quando nada mais estiver testando.
+4. `/sys/power/state` lista `mem`.
+5. Para `platform`, `processors` e `core`, `/sys/power/mem_sleep` seleciona `deep`. Com `s2idle` o kernel nunca chega a esses pontos e a gravação seria uma suspensão real. `freezer` e `devices` param antes de o modo importar e, por isso, rodam com `s2idle`, que é o que a MR9A usa ao iniciar.
+
+Depois lê `/sys/power/suspend_stats` e o log do kernel, descarrega os buffers de arquivo (`sync`), grava o estágio, **relê** e só então grava `mem`. Se a seleção não tiver efeito, `mem` nunca é gravado. Aconteça o que acontecer, grava `none` de volta e também relê; se isso falhar, a execução ainda é selada e publicada, com `restored_pm_test: false` em `pm-test.json`, e o comando termina com `HOST_FAILED` e o reparo, `echo none > /sys/power/pm_test`, porque o estágio continua armado e a próxima suspensão de qualquer tipo pararia ali. `SIGINT`, `SIGTERM` e `SIGHUP` ficam retidos do armamento até a releitura da restauração; `SIGKILL` e uma queda de energia não podem ser retidos, e a próxima execução reconhece o resto e imprime o mesmo reparo.
+
+O veredicto são os contadores da própria máquina: **pass** é exatamente um `success` a mais e nenhum `fail` a mais. Uma falha contada é **fail**; uma execução que não conseguiu armar ou disparar o teste, sem nenhum contador se mexer, é **error**. O relatório traz os contadores antes e depois, a diferença, os horários de início e fim e as mensagens do kernel surgidas durante a execução. Ele é salvo como `pm-test.json` e `kernel/delta.log`, com o manifesto e o registro de evidência. Um **fail** ou **error** também é salvo e então o comando termina com `HOST_FAILED` e o relatório nos detalhes do erro.
+
 ## Limites
 
 - As tabelas são as que o kernel publicou nesta inicialização. O firmware altera tabelas durante o POST e o sistema pode carregar tabelas dinâmicas, então elas podem diferir das tabelas guardadas na imagem do chip.
 - As mensagens do kernel cobrem o que o buffer circular ainda guarda; um uptime longo pode ter descartado uma suspensão anterior.
 - A leitura do Super I/O é um instantâneo: temperaturas, velocidades e ciclos de trabalho das ventoinhas mudam. O significado dos registradores vem do mapa do chip, não da fiação desta placa; qual conector uma ventoinha aciona não fica estabelecido. A sondagem grava a chave de entrada nas portas 2Eh e 4Eh, como todo driver de Super I/O; outro dispositivo que decodifique essas portas a veria.
+- Um pm-test aprovado diz que as etapas do kernel até aquele estágio funcionaram. Não diz que a máquina consegue entrar no estado de suspensão e sair dele: nenhuma suspensão real acontece e o caminho de retomada da própria plataforma não é exercitado. Falhas intermitentes pedem várias execuções. Os estágios e as proteções foram escritos a partir do comportamento documentado do kernel e testados contra um falso em memória de `/sys/power`; nenhuma execução em hardware real os respalda ainda.
 - O recibo mostra o que uma máquina informou em uma inicialização. Uma observação não muda a confiança geral de um patch.

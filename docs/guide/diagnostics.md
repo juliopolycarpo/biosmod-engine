@@ -2,15 +2,15 @@
 
 English | [Brazilian Portuguese](../pt-BR/guide/diagnostics.md)
 
-Several findings rest on what the running machine reports, such as the ACPI tables the kernel published, the sleep states it offers and the registers of the fan controller. `bme diag` reads those facts, hashes them and writes a receipt, so someone else can check a claim from the files alone. The MRC checkpoint reader has [its own guide](breadcrumbs.md).
+Several findings rest on what the running machine reports, such as the ACPI tables the kernel published, the sleep states it offers and the registers of the fan controller and how far a suspend gets. `bme diag` reads those facts, hashes them and writes a receipt, so someone else can check a claim from the files alone. The MRC checkpoint reader has [its own guide](breadcrumbs.md).
 
 All of it needs Linux. Commands that read protected files or ports need root; run them with `sudo` or `pkexec`.
 
 ## Shared rules
 
-- **Read-only unless the command says otherwise.** The only file a read-only command creates is its new output directory. `diag superio read` also writes the chip's access selectors, and nothing else.
+- **Read-only unless the command says otherwise.** The only file a read-only command creates is its new output directory. `diag superio read` also writes the chip's access selectors and `diag suspend pm-test` writes `/sys/power/pm_test` and `/sys/power/state`; nothing else is written.
 - **New outputs only.** A capture directory that exists, even empty, is refused before the host is read. Nothing is overwritten or merged into.
-- **A refusal is an error, not a guess.** `HOST_REFUSED` means the user, the detected chip or the requested mode is outside what the command's safety rules cover; no configuration was changed, and at most a chip probe wrote its access selectors.
+- **A refusal is an error, not a guess.** `HOST_REFUSED` means the user, the detected chip or the requested mode is outside what the command's safety rules cover; no configuration was changed, and at most a chip probe wrote its access selectors. `HOST_FAILED` is the other way round: the command ran, the result is a failure, and the evidence was saved anyway.
 - **A receipt for every reading.** A `bme.evidence/1` record of kind `hardware-observation` names the command, the boot ID (`/proc/sys/kernel/random/boot_id`), the kernel release and the SHA-256 of the artifacts, in its `host` object. Board and firmware come from DMI and are not resolved against a catalog, so `bme catalog validate` does not accept these records as catalog evidence; they are receipts.
 - **No identity beyond the model.** Serial numbers, UUIDs and asset tags are never copied.
 - **Hardware access goes through traits.** The code reads files, the kernel log and ports through `biosmod-host` traits and the tests use named fakes (`FakeSysfs`, `FakeKernelLog`, `FakePrivilege`); no test touches the machine it runs on.
@@ -63,9 +63,40 @@ The chips are data in `crates/biosmod-host/data/superio.json`: configuration por
 
 It needs root and `/dev/port` (Linux); `--device` names another file for testing.
 
+## Suspend test stages
+
+```sh
+sudo bme diag suspend pm-test --stage freezer -o pm-freezer-2026-11-12 --i-understand-this-suspends
+```
+
+Runs one stage of the kernel's suspend test. `/sys/power/pm_test` makes the next suspend stop at a checkpoint, wait five seconds and unwind, so the stages up to that point run without the machine sleeping. The stages, in the order the kernel reaches them:
+
+| Stage | What has run when it stops |
+| --- | --- |
+| `freezer` | user space and kernel threads are frozen |
+| `devices` | every device driver suspended |
+| `platform` | the firmware's suspend preparation (ACPI `_PTS`) |
+| `processors` | the non-boot processors are offline |
+| `core` | the system core devices are suspended |
+
+The command takes `--stage` and `--i-understand-this-suspends`, which is required: the desktop freezes for several seconds and a stage that goes wrong can leave the machine hung. Save your work first. It runs one stage per run, so a failure names its stage.
+
+What it checks, in order, and refuses with `HOST_REFUSED` before writing anything:
+
+1. The user is root.
+2. The stage is not `none`: that is a real sleep, and a command that cannot wake the machine is not a diagnostic.
+3. `/sys/power/pm_test` lists the stage and currently selects `none`. A test somebody else armed is not touched. A leftover from a killed run looks the same, so the refusal names the repair: `echo none > /sys/power/pm_test`, to run once nothing else is testing.
+4. `/sys/power/state` lists `mem`.
+5. For `platform`, `processors` and `core`, `/sys/power/mem_sleep` selects `deep`. With `s2idle` the kernel never reaches those checkpoints, and the write would be a real sleep. `freezer` and `devices` stop before the mode matters, so they run under `s2idle`, which is what the MR9A boots with.
+
+Then it reads `/sys/power/suspend_stats` and the kernel log, flushes file buffers (`sync`), writes the stage, **reads it back** and only then writes `mem`. If the selection did not take effect, `mem` is never written. Whatever happens next, it writes `none` back and reads that back too; if that fails, the run is still sealed and published, with `restored_pm_test: false` in `pm-test.json`, and the command exits with `HOST_FAILED` and the repair, `echo none > /sys/power/pm_test`, because the stage is still armed and the next suspend of any kind would stop there. `SIGINT`, `SIGTERM` and `SIGHUP` are held from arming until the restore is read back; `SIGKILL` and a power cut cannot be held, and the next run recognises the leftover and prints the same repair.
+
+The verdict is the machine's own counters: **pass** is exactly one more `success` and no more `fail`. A counted failure is **fail**; a run that could not arm or trigger the test, with no counter moving, is **error**. The report has the counters before and after, their delta, the start and finish times and the kernel messages that appeared during the run. It is saved as `pm-test.json` and `kernel/delta.log` with the manifest and the evidence record. A **fail** or **error** is still saved, and then the command exits with `HOST_FAILED` and the report in the error details.
+
 ## Limits
 
 - The tables are what the kernel published at this boot. Firmware patches tables during POST and the OS may load dynamic ones, so they can differ from the tables stored in the image on the chip.
 - The kernel messages cover what the ring buffer still holds; a long uptime may have dropped an earlier suspend.
 - The Super I/O reading is a snapshot: temperatures, fan speeds and duty cycles move. Register meanings come from the chip's map, not from this board's wiring; which header a fan channel drives is not established. Probing writes the entry key to ports 2Eh and 4Eh, as every Super I/O driver does; a different device decoding those ports would see it.
+- A pm-test pass says the kernel's steps up to that stage worked. It does not say the machine can enter and leave the sleep state: no real sleep happens, and the platform's own resume path is not exercised. Intermittent failures need repeated runs. The stages and the guards were written from the kernel's documented behavior and tested against an in-memory fake of `/sys/power`; no run on real hardware backs them yet.
 - The receipt shows what one machine reported at one boot. One observation does not change a patch's general confidence.
