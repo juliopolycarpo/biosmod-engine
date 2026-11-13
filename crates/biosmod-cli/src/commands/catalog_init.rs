@@ -12,7 +12,7 @@ use crate::config::io_error;
 use crate::output::{Reply, display_path};
 use crate::publish::{publish_directory, remove_failed_directory};
 use crate::sources::OFFICIAL;
-use biosmod_core::catalog::{CATALOG_SCHEMA, Manifest, index_files};
+use biosmod_core::catalog::{CATALOG_SCHEMA, CatalogSource, Manifest, index_files};
 use biosmod_core::json::pretty;
 use biosmod_core::validation::{engine_version, identifier};
 use biosmod_core::{Code, Error, Result};
@@ -53,7 +53,13 @@ pub struct Repository {
 
 /// Scaffold the device repository at `dir`.
 pub fn init(dir: &Path, id: &str, title: Option<&str>) -> Result<Reply> {
-    let repository = write_repository(dir, id, title, Vec::new())?;
+    let repository = write_repository(
+        dir,
+        id,
+        title,
+        engine_requirement(&engine_version()),
+        Vec::new(),
+    )?;
     let shown = &repository.directory;
     let text = format!(
         "Created device repository {id} {INITIAL_VERSION} in {shown}\n\
@@ -85,20 +91,21 @@ pub fn init(dir: &Path, id: &str, title: Option<&str>) -> Result<Reply> {
 
 /// Write the scaffold at `dir` with `records` (`(relative path, bytes)` below
 /// `boards/`, `findings/`, `patches/`, `evidence/` or `provenance/`) indexed in
-/// its `catalog.json` at [`INITIAL_VERSION`].
+/// its `catalog.json` at [`INITIAL_VERSION`] with the `engine` requirement.
 ///
 /// Checks the id and title first, refuses an existing `dir` and removes the new
 /// directory if a write fails.
 ///
-/// Example: `write_repository(Path::new("acme"), "acme-x99", None, Vec::new())?`.
+/// Example: `write_repository(Path::new("acme"), "acme-x99", None, engine, Vec::new())?`.
 pub fn write_repository(
     dir: &Path,
     id: &str,
     title: Option<&str>,
+    engine: VersionReq,
     records: Vec<(String, Vec<u8>)>,
 ) -> Result<Repository> {
     let title = checked_title(id, title)?;
-    let files = scaffold(id, title, records)?;
+    let files = scaffold(id, title, engine, records)?;
     let files: Vec<(&str, &[u8])> = files
         .iter()
         .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
@@ -123,6 +130,16 @@ pub fn write_repository(
 pub fn checked_title<'a>(id: &'a str, title: Option<&'a str>) -> Result<&'a str> {
     check_catalog_id(id)?;
     let title = title.unwrap_or(id);
+    check_title(title)?;
+    Ok(title)
+}
+
+/// The title of the catalog bundled with `bme`. Its id is the reserved `official`, which
+/// only `catalog merge --bundled` may write.
+///
+/// Example: `bundled_title(None)? == "official"`.
+pub fn bundled_title(title: Option<&str>) -> Result<&str> {
+    let title = title.unwrap_or(OFFICIAL);
     check_title(title)?;
     Ok(title)
 }
@@ -177,13 +194,29 @@ pub fn manifest_bytes(
     engine: VersionReq,
     records: &[(String, Vec<u8>)],
 ) -> Result<Vec<u8>> {
+    manifest_bytes_with(id, title, version, engine, None, Vec::new(), records)
+}
+
+/// [`manifest_bytes`] with a `description` and the `sources` a merge built the catalog from.
+///
+/// Example: `sources` holds one pin per merged catalog, in merge order.
+pub fn manifest_bytes_with(
+    id: &str,
+    title: &str,
+    version: Version,
+    engine: VersionReq,
+    description: Option<&str>,
+    sources: Vec<CatalogSource>,
+    records: &[(String, Vec<u8>)],
+) -> Result<Vec<u8>> {
     Ok(pretty(&Manifest {
         schema: CATALOG_SCHEMA.to_string(),
         id: id.to_string(),
         version,
         title: title.to_string(),
         engine,
-        description: None,
+        description: description.map(str::to_string),
+        sources,
         files: index_files(records)?,
     }))
 }
@@ -202,15 +235,10 @@ fn render_readme(id: &str, title: &str) -> String {
 fn scaffold(
     id: &str,
     title: &str,
+    engine: VersionReq,
     mut records: Vec<(String, Vec<u8>)>,
 ) -> Result<Vec<(String, Vec<u8>)>> {
-    let manifest = manifest_bytes(
-        id,
-        title,
-        INITIAL_VERSION,
-        engine_requirement(&engine_version()),
-        &records,
-    )?;
+    let manifest = manifest_bytes(id, title, INITIAL_VERSION, engine, &records)?;
     let mut files = vec![
         (
             "README.md".to_string(),
@@ -353,7 +381,13 @@ mod tests {
     #[test]
     fn scaffold_puts_catalog_json_last_and_records_between() {
         let record = ("patches/P.json".to_string(), b"{}".to_vec());
-        let files = scaffold("acme-x99", "Acme X99", vec![record]).unwrap();
+        let files = scaffold(
+            "acme-x99",
+            "Acme X99",
+            engine_requirement(&engine_version()),
+            vec![record],
+        )
+        .unwrap();
         let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(
             names,
@@ -387,6 +421,46 @@ mod tests {
     }
 
     #[test]
+    fn manifest_bytes_with_writes_the_description_and_sources_and_round_trips() {
+        let source = CatalogSource {
+            id: "pr9-b85".into(),
+            version: Version::new(0, 1, 0),
+            manifest_sha256: biosmod_core::util::Digest256::of(b"catalog.json"),
+        };
+        let bytes = manifest_bytes_with(
+            "both",
+            "Both",
+            INITIAL_VERSION,
+            engine_requirement(&engine_version()),
+            Some("Two boards"),
+            vec![source.clone()],
+            &[],
+        )
+        .unwrap();
+        let manifest: Manifest = parse_strict(&bytes, "catalog.json").unwrap();
+        assert_eq!(manifest.description.as_deref(), Some("Two boards"));
+        assert_eq!(manifest.sources, [source]);
+        assert_eq!(pretty(&manifest), bytes);
+    }
+
+    #[test]
+    fn manifest_bytes_leave_out_sources_and_description_when_empty() {
+        let bytes = manifest_bytes(
+            "acme",
+            "Acme",
+            INITIAL_VERSION,
+            engine_requirement(&engine_version()),
+            &[],
+        )
+        .unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(
+            !text.contains("sources") && !text.contains("description"),
+            "(catalog.json): expected neither key | received {text}"
+        );
+    }
+
+    #[test]
     fn manifest_bytes_reject_a_record_outside_the_layout() {
         let records = vec![("notes/x.md".to_string(), Vec::new())];
         let error = manifest_bytes(
@@ -405,7 +479,14 @@ mod tests {
         let parent = tempfile::tempdir().unwrap();
         let dir = parent.path().join("repo");
         let records = vec![("patches/P.json".to_string(), b"{}\n".to_vec())];
-        write_repository(&dir, "acme-x99", None, records).unwrap();
+        write_repository(
+            &dir,
+            "acme-x99",
+            None,
+            engine_requirement(&engine_version()),
+            records,
+        )
+        .unwrap();
         assert_eq!(fs::read(dir.join("patches/P.json")).unwrap(), b"{}\n");
         for name in DIRECTORIES {
             assert!(dir.join(name).is_dir(), "{name}");
@@ -413,6 +494,21 @@ mod tests {
         let manifest: Manifest =
             parse_strict(&fs::read(dir.join("catalog.json")).unwrap(), "catalog.json").unwrap();
         assert_eq!(manifest.files.len(), 1);
+    }
+
+    #[test]
+    fn bundled_title_defaults_to_the_reserved_id_and_checks_the_title() {
+        assert_eq!(bundled_title(None).unwrap(), "official");
+        assert_eq!(
+            bundled_title(Some("Official catalog")).unwrap(),
+            "Official catalog"
+        );
+        let error = bundled_title(Some("two\nlines")).unwrap_err();
+        assert!(
+            error.message.contains("title: expected one non-empty line"),
+            "{}",
+            error.message
+        );
     }
 
     #[test]

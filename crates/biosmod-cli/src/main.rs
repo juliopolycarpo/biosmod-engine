@@ -358,9 +358,11 @@ pub enum CatalogCommand {
     /// Write the device repository of one board, cut from a catalog.
     ///
     /// Keeps the board's records and cuts each to the board's firmware builds:
-    /// a patch stays when a build of the board has an applicable variant; a finding
-    /// stays when it affects a build of the board; evidence stays when it names the
-    /// board. The reply lists what was dropped.
+    /// a patch stays when a build of the board has a variant, applicable or
+    /// not-applicable; a finding stays when it affects a build of the board or a
+    /// kept patch lists it (then it may affect no build); evidence stays when it
+    /// names the board. The catalog keeps the source's engine requirement. The reply
+    /// lists what was dropped.
     Split {
         /// Catalog directory, or `official` for the bundled catalog.
         source: String,
@@ -382,26 +384,35 @@ pub enum CatalogCommand {
     /// Records match by id. Board lists, patch variants, finding builds, code
     /// references and evidence are unioned; every other field of a shared record
     /// must be equal, and a difference is an error naming the record, field, both
-    /// values and both catalogs.
+    /// values and both catalogs. A catalog written with -o lists its sources (id,
+    /// version and the SHA-256 of each catalog.json). With --check, a source that
+    /// lists sources reports whether each pinned digest still matches the given
+    /// source with that id.
     Merge {
         /// Catalog directories or `official`, at least two.
         #[arg(value_name = "SOURCE", required = true)]
         sources: Vec<String>,
         /// Write nothing; report whether the catalogs agree.
-        #[arg(long, conflicts_with_all = ["output", "id", "title", "version"], required_unless_present = "output")]
+        #[arg(long, conflicts_with_all = ["output", "id", "bundled", "title", "version", "description"], required_unless_present = "output")]
         check: bool,
         /// New catalog directory (must not exist).
-        #[arg(short, long, value_name = "DIR", requires = "id")]
+        #[arg(short, long, value_name = "DIR")]
         output: Option<PathBuf>,
         /// Catalog id: 1-64 characters [A-Za-z0-9._-] starting alphanumeric; not `official`.
         #[arg(long, requires = "output")]
         id: Option<String>,
+        /// Write the catalog bundled with bme, whose id is the reserved `official` (engine maintainers).
+        #[arg(long, requires = "output", conflicts_with = "id")]
+        bundled: bool,
         /// Catalog title (default: the id).
         #[arg(long, requires = "output")]
         title: Option<String>,
         /// Catalog version (default: 0.1.0).
         #[arg(long, value_name = "SEMVER", requires = "output")]
         version: Option<String>,
+        /// Catalog description, written to catalog.json.
+        #[arg(long, value_name = "TEXT", requires = "output")]
+        description: Option<String>,
     },
     /// Validate a catalog directory (or board file) without registering it.
     Validate { path: PathBuf },

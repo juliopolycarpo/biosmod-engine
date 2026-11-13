@@ -35,21 +35,27 @@ pub fn run(ctx: &mut Ctx, command: CatalogCommand) -> Result<Reply> {
             check,
             output,
             id,
+            bundled,
             title,
             version,
+            description,
         } => {
-            let target = match (check, &output, &id) {
-                (true, None, None) => MergeOutput::Check,
-                (false, Some(dir), Some(id)) => MergeOutput::Write {
-                    dir,
-                    id,
-                    title: title.as_deref(),
-                    version: version.as_deref(),
-                },
+            let target = match (check, &output, id.as_deref(), bundled) {
+                (true, None, None, false) => MergeOutput::Check,
+                // `--bundled` stands for the reserved id, so exactly one of the two is given.
+                (false, Some(dir), id @ Some(_), false) | (false, Some(dir), id @ None, true) => {
+                    MergeOutput::Write {
+                        dir,
+                        id,
+                        title: title.as_deref(),
+                        version: version.as_deref(),
+                        description: description.as_deref(),
+                    }
+                }
                 _ => {
                     return Err(Error::new(
                         Code::Usage,
-                        "merge: expected --check or -o DIR with --id ID | received neither or both",
+                        "merge: expected --check, or -o DIR with --id ID or --bundled | received another combination",
                     ));
                 }
             };

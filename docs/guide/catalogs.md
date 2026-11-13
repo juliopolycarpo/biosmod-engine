@@ -5,7 +5,7 @@ English | [Brazilian Portuguese](../pt-BR/guide/catalogs.md)
 A catalog is a directory with a fixed layout:
 
 ```
-catalog.json            index: id, version, engine requirement, every file's path, kind, length and sha256
+catalog.json            index: id, version, engine requirement, optional `sources`, every file's path, kind, length and sha256
 boards/<id>.json        board and revision profile (bme.board/1)
 patches/<id>.json       one patch record (bme.patch/1)
 findings/<id>.json      one defect or observation, with or without a patch (bme.finding/1)
@@ -47,13 +47,13 @@ bme catalog merge . ../other-board --check
 bme catalog merge . ../other-board -o both-boards --id both-boards
 ```
 
-- `split SOURCE --board BOARD_ID -o DIR --id ID` starts a board repository from a catalog directory or `official`. It writes the `catalog init` scaffold plus the board's records, and lists every patch, finding, evidence record and provenance file it left out. A patch stays when one of the board's builds has an `applicable` variant. A finding stays when it affects one of the board's builds, and a `fixed-by-patch` finding left with no patch becomes `open`. Evidence stays when it names the board. Provenance stays under the id of a kept record. It fails when a kept patch requires a dropped patch or names a dropped finding.
-- `merge --check SOURCE SOURCE...` writes nothing. It exits 0 with the count of shared records when the catalogs agree, and fails with the record, field, both values and both catalog ids when a shared record drifted.
-- `merge SOURCE SOURCE... -o DIR --id ID` writes a catalog directory with the union, at version `0.1.0` unless `--version` says otherwise. Run it with `official` first to rebuild the bundled records.
+- `split SOURCE --board BOARD_ID -o DIR --id ID` starts a board repository from a catalog directory or `official`. It writes the `catalog init` scaffold plus the board's records, and lists every patch, finding, evidence record and provenance file it left out. A patch stays when one of the board's builds has a variant, `applicable` or `not-applicable`. A finding stays when it affects one of the board's builds or a kept patch lists it in `findings`; the second kind may end with no affected build. A `fixed-by-patch` finding left with no patch in `patches` becomes `open`. Evidence stays when it names the board. Provenance stays under the id of a kept record. The catalog keeps the `engine` requirement of its source. It fails when a kept patch requires a dropped patch, or when a patch with an applicable variant lists a finding that affects none of the board's builds.
+- `merge --check SOURCE SOURCE...` writes nothing. It exits 0 with the count of shared records when the catalogs agree, and fails with the record, field, both values and both catalog ids when a shared record drifted. Sources with one catalog id are named `id (#1)`, `id (#2)` by their position. When a source lists `sources` and another given source has the id of one entry, it prints one `pin` line per entry: `pinned`, or `moved` with the pinned and the current digest. A moved pin does not fail the check, because the records can still agree.
+- `merge SOURCE SOURCE... -o DIR --id ID` writes a catalog directory with the union, at version `0.1.0` unless `--version` says otherwise. `--description TEXT` sets its description. `--bundled` replaces `--id` and writes the reserved id `official`: the engine repository regenerates `catalog/` with it.
 
 Records match by id. Board lists, patch variants, finding builds, code references and evidence are unioned in the order the sources are given. A finding that is `open` in one catalog and `fixed-by-patch` in another becomes `fixed-by-patch`. Every other field must be equal, and so must the `engine` requirement and the bytes of a provenance file. Patch relations (`requires`, `supersedes`, `conflicts`) and a finding's `patches` must agree on every patch both catalogs define. Code references of a build both catalogs list, and those without a build, must be equal too.
 
-A `not-applicable` variant for another board's build lives only in a catalog that defines both builds. A board catalog cannot carry it, so `split` drops it and a merge of board catalogs does not bring it back.
+A board catalog records "this patch does not apply here" as a `not-applicable` variant with its reason, next to the finding of that defect with no affected build. `catalog validate` accepts a finding with an empty `affects.builds` only when a patch lists it in `findings` and no patch that lists it has an `applicable` variant. The board does not list that finding in its own `findings`. `split` keeps these records, so merging the board catalogs alone rebuilds a multi-board catalog. `merge -o` writes `sources`: one entry per merged catalog, in order, with its `id`, `version` and `manifest_sha256`, the SHA-256 of its `catalog.json`.
 
 ## Boards and firmware builds
 

@@ -10,20 +10,30 @@ use biosmod_core::synthetic::{self, Fixture};
 use biosmod_core::{Code, Error};
 use serde_json::{Value, json};
 
+/// An edit to one JSON document of the synthetic catalog.
+type Edit<'a> = (&'a str, &'a dyn Fn(&mut Value));
+
 /// Synthetic catalog files with `edit` applied to one JSON document and the index rebuilt.
-fn load_edited(path: &str, scope: Scope, edit: impl FnOnce(&mut Value)) -> Result<Catalog, Error> {
+fn load_edited(path: &str, scope: Scope, edit: impl Fn(&mut Value)) -> Result<Catalog, Error> {
+    load_edits(scope, &[(path, &edit)])
+}
+
+/// Synthetic catalog files with each of `edits` applied and the index rebuilt.
+fn load_edits(scope: Scope, edits: &[Edit<'_>]) -> Result<Catalog, Error> {
     let mut files: Vec<(String, Vec<u8>)> = Fixture::new(7)
         .catalog_files()
         .into_iter()
         .filter(|(p, _)| p != "catalog.json")
         .collect();
-    let entry = files
-        .iter_mut()
-        .find(|(p, _)| p == path)
-        .unwrap_or_else(|| panic!("{path}: not a synthetic catalog file"));
-    let mut doc: Value = serde_json::from_slice(&entry.1).unwrap();
-    edit(&mut doc);
-    entry.1 = serde_json::to_vec_pretty(&doc).unwrap();
+    for (path, edit) in edits {
+        let entry = files
+            .iter_mut()
+            .find(|(p, _)| p == path)
+            .unwrap_or_else(|| panic!("{path}: not a synthetic catalog file"));
+        let mut doc: Value = serde_json::from_slice(&entry.1).unwrap();
+        edit(&mut doc);
+        entry.1 = serde_json::to_vec_pretty(&doc).unwrap();
+    }
     let manifest = Manifest {
         schema: CATALOG_SCHEMA.into(),
         id: "synthetic".into(),
@@ -31,6 +41,7 @@ fn load_edited(path: &str, scope: Scope, edit: impl FnOnce(&mut Value)) -> Resul
         title: "edited".into(),
         engine: semver::VersionReq::parse(">=0.1.0").unwrap(),
         description: None,
+        sources: vec![],
         files: index_files(&files).unwrap(),
     };
     files.push(("catalog.json".into(), pretty(&manifest)));
@@ -146,7 +157,7 @@ fn patch_fixing_a_finding_outside_its_findings_is_refused() {
 fn patch_fixing_a_finding_that_does_not_list_it_is_refused() {
     rejects(
         load_edited("patches/PB.json", Scope::All, |doc| {
-            doc["findings"] = json!(["PB", "OPEN1"]);
+            doc["findings"] = json!(["OPEN1"]);
             doc["fixes"] = json!(["OPEN1"]);
         }),
         "patch PB: fixes OPEN1, but finding OPEN1 does not list PB in patches",
@@ -272,7 +283,7 @@ fn open_findings_sort_by_priority_then_id() {
 }
 
 /// Edit the first detector of OPEN1 and expect the catalog to be refused with `expected`.
-fn rejects_detector(edit: impl FnOnce(&mut Value), expected: &str) {
+fn rejects_detector(edit: impl Fn(&mut Value), expected: &str) {
     rejects(
         load_edited("findings/OPEN1.json", Scope::All, |doc| {
             edit(&mut doc["detectors"][0])
@@ -374,4 +385,157 @@ fn detector_ids_and_signature_labels_must_be_unique_identifiers() {
 fn detector_with_unknown_field_or_anchor_is_refused_at_parse() {
     rejects_detector(|d| d["surprise"] = json!(1), "surprise");
     rejects_detector(|d| d["anchor"] = json!({"in": "heap"}), "heap");
+}
+
+// ---- findings with no affected build: the verdict of a patch that does not apply here ----
+
+const BOARD_FILE: &str = "boards/synthetic-board.json";
+
+fn board_without_the_verdict_finding(doc: &mut Value) {
+    doc["findings"] = json!(["PA"]);
+}
+
+/// OPEN1 as another board's defect: no build and no code reference of a build.
+fn open1_without_a_build(doc: &mut Value) {
+    doc["affects"]["builds"] = json!([]);
+    doc["owner"]["references"] = json!([]);
+}
+
+/// PB names OPEN1 and does not apply to the synthetic build.
+fn pb_not_applicable_naming_open1(doc: &mut Value) {
+    doc["findings"] = json!(["OPEN1"]);
+    doc["variants"] = json!({
+        synthetic::FIRMWARE: {"status": "not-applicable", "reason": "the other board's build has the defect"}
+    });
+}
+
+#[test]
+fn finding_without_a_build_is_accepted_when_a_patch_that_does_not_apply_names_it() {
+    let catalog = load_edits(
+        Scope::All,
+        &[
+            ("findings/OPEN1.json", &open1_without_a_build),
+            ("patches/PB.json", &pb_not_applicable_naming_open1),
+            (BOARD_FILE, &board_without_the_verdict_finding),
+        ],
+    )
+    .unwrap();
+    assert!(catalog.findings["OPEN1"].affects.builds.is_empty());
+}
+
+#[test]
+fn finding_without_a_build_and_without_a_patch_is_refused_naming_the_finding_and_the_shape() {
+    rejects(
+        load_edits(
+            Scope::All,
+            &[
+                ("findings/OPEN1.json", &open1_without_a_build),
+                (BOARD_FILE, &board_without_the_verdict_finding),
+            ],
+        ),
+        "finding OPEN1: affects.builds expected at least one firmware build, or a patch that lists OPEN1 in findings and has no applicable variant in this catalog | received no build and no such patch",
+    );
+}
+
+#[test]
+fn finding_without_a_build_named_by_an_applicable_patch_is_refused() {
+    rejects(
+        load_edits(
+            Scope::All,
+            &[
+                ("findings/OPEN1.json", &open1_without_a_build),
+                ("patches/PB.json", &|doc| {
+                    doc["findings"] = json!(["OPEN1"]);
+                }),
+                (BOARD_FILE, &board_without_the_verdict_finding),
+            ],
+        ),
+        "finding OPEN1: affects.builds expected at least one firmware build",
+    );
+}
+
+#[test]
+fn finding_without_a_build_is_refused_while_any_naming_patch_is_applicable() {
+    // PB does not apply, but PA names OPEN1 too and does.
+    rejects(
+        load_edits(
+            Scope::All,
+            &[
+                ("findings/OPEN1.json", &open1_without_a_build),
+                ("patches/PB.json", &pb_not_applicable_naming_open1),
+                ("patches/PA.json", &|doc| {
+                    doc["findings"] = json!(["PA", "OPEN1"]);
+                }),
+                (BOARD_FILE, &board_without_the_verdict_finding),
+            ],
+        ),
+        "finding OPEN1: affects.builds expected at least one firmware build",
+    );
+}
+
+#[test]
+fn board_listing_a_finding_without_a_build_is_still_refused() {
+    rejects(
+        load_edits(
+            Scope::All,
+            &[
+                ("findings/OPEN1.json", &open1_without_a_build),
+                ("patches/PB.json", &pb_not_applicable_naming_open1),
+            ],
+        ),
+        "lists finding OPEN1, which affects none of its firmware builds",
+    );
+}
+
+#[test]
+fn board_scope_loads_a_verdict_finding_through_the_fixes_of_a_patch_that_does_not_apply() {
+    // The shape `bme catalog split` writes: the finding stays fixed-by-patch and lists the
+    // patch whose only variant says it does not apply to this board's build.
+    let catalog = load_edits(
+        Scope::Board(BOARD_FILE.into()),
+        &[
+            ("findings/OPEN1.json", &|doc| {
+                open1_without_a_build(doc);
+                doc["status"] = json!("fixed-by-patch");
+                doc["patches"] = json!(["PB"]);
+            }),
+            ("patches/PB.json", &|doc| {
+                pb_not_applicable_naming_open1(doc);
+                doc["fixes"] = json!(["OPEN1"]);
+            }),
+            (BOARD_FILE, &board_without_the_verdict_finding),
+        ],
+    )
+    .unwrap();
+    assert!(catalog.findings["OPEN1"].affects.builds.is_empty());
+    assert_eq!(catalog.findings["OPEN1"].patches, ["PB"]);
+}
+
+#[test]
+fn scan_and_findings_for_never_list_a_finding_without_a_build() {
+    let catalog = load_edits(
+        Scope::All,
+        &[
+            ("findings/OPEN1.json", &open1_without_a_build),
+            ("patches/PB.json", &pb_not_applicable_naming_open1),
+            (BOARD_FILE, &board_without_the_verdict_finding),
+        ],
+    )
+    .unwrap();
+    let fixture = Fixture::new(7);
+    let image = Image::parse(fixture.image.clone()).unwrap();
+    let report = analysis::scan(&image, &catalog, None);
+    assert_eq!(
+        report
+            .findings
+            .iter()
+            .map(|f| f.id.as_str())
+            .collect::<Vec<_>>(),
+        Vec::<&str>::new(),
+        "(open findings of the detected build): an open finding with no build is not one"
+    );
+    assert_eq!(catalog.findings_for(synthetic::FIRMWARE).count(), 1);
+    let register = biosmod_core::register::render(&[&catalog.findings["OPEN1"]]);
+    let rows = biosmod_core::register::parse(&register).unwrap();
+    assert_eq!(rows[0].id, "OPEN1");
 }

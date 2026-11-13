@@ -2,22 +2,18 @@
 
 mod common;
 
+use biosmod_core::util::Digest256;
 use common::{Run, Sandbox, s};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// A dropped variant: patch id, firmware build, owning board.
-type DroppedVariant = (&'static str, &'static str, &'static str);
-
 /// An edit applied to one record document.
 type Edit = dyn Fn(&mut Value);
 
 const MR9A: &str = "machinist-mr9a-pro-q87-rev-1.2";
 const PR9: &str = "machinist-pr9-b85";
-const MR9A_BUILD: &str = "mnx99mr9apro-230322";
-const PR9_BUILD: &str = "x99ha00m-20221202";
 const MR9A_CATALOG: &str = "mr9a-pro-rev1.2";
 const PR9_CATALOG: &str = "pr9-b85";
 
@@ -110,7 +106,7 @@ fn assert_valid_and_indexed(sandbox: &Sandbox, dir: &Path) -> Value {
 }
 
 #[test]
-fn splitting_the_mr9a_board_keeps_17_patches_38_findings_and_6_evidence_records() {
+fn splitting_the_mr9a_board_keeps_19_patches_40_findings_and_6_evidence_records() {
     let sandbox = Sandbox::new();
     let (dir, reply) = split(&sandbox, MR9A, "mr9a", MR9A_CATALOG);
     let summary = assert_valid_and_indexed(&sandbox, &dir);
@@ -121,10 +117,30 @@ fn splitting_the_mr9a_board_keeps_17_patches_38_findings_and_6_evidence_records(
             summary["findings"].clone(),
             summary["evidence"].clone()
         ),
-        (json!(17), json!(38), json!(6))
+        (json!(19), json!(40), json!(6))
     );
-    assert_eq!(reply["dropped"]["patches"], json!(["S01", "S02"]));
-    assert_eq!(reply["dropped"]["findings"], json!(["S01", "S02"]));
+    // S01 and S02 do not apply to the MR9A build: the board keeps each verdict and its finding.
+    assert_eq!(reply["dropped"]["patches"], json!([]));
+    assert_eq!(reply["dropped"]["findings"], json!([]));
+    for id in ["S01", "S02"] {
+        let finding = json_file(&dir.join(format!("findings/{id}.json")));
+        assert_eq!(
+            finding["affects"]["builds"],
+            json!([]),
+            "(finding {id} affects.builds in the MR9A split)"
+        );
+        let patch = json_file(&dir.join(format!("patches/{id}.json")));
+        assert_eq!(
+            patch["variants"]["mnx99mr9apro-230322"]["status"], "not-applicable",
+            "(patch {id} variant for the MR9A build)"
+        );
+        let board = json_file(&dir.join(format!("boards/{MR9A}.json")));
+        assert!(
+            board["patches"].as_array().unwrap().contains(&json!(id))
+                && !board["findings"].as_array().unwrap().contains(&json!(id)),
+            "(board {MR9A}): expected patch {id} listed and finding {id} not listed"
+        );
+    }
     assert_eq!(reply["dropped"]["evidence"], json!([]));
     assert_eq!(reply["dropped"]["provenance"], json!([]));
     assert_eq!(
@@ -134,7 +150,7 @@ fn splitting_the_mr9a_board_keeps_17_patches_38_findings_and_6_evidence_records(
 }
 
 #[test]
-fn splitting_the_pr9_board_keeps_17_patches_27_findings_and_no_evidence() {
+fn splitting_the_pr9_board_keeps_19_patches_28_findings_and_no_evidence() {
     let sandbox = Sandbox::new();
     let (dir, reply) = split(&sandbox, PR9, "pr9", PR9_CATALOG);
     let summary = assert_valid_and_indexed(&sandbox, &dir);
@@ -145,28 +161,25 @@ fn splitting_the_pr9_board_keeps_17_patches_27_findings_and_no_evidence() {
             summary["findings"].clone(),
             summary["evidence"].clone()
         ),
-        (json!(17), json!(27), json!(0))
+        (json!(19), json!(28), json!(0))
     );
-    assert_eq!(
-        reply["dropped"]["patches"],
-        json!(["H01", "MRC-BREADCRUMBS"])
-    );
+    // H01 and MRC-BREADCRUMBS do not apply to the PR9 build: the board keeps both verdicts.
+    assert_eq!(reply["dropped"]["patches"], json!([]));
     assert_eq!(
         reply["dropped"]["findings"],
         json!([
-            "A01", "A04", "A05", "A06", "B12", "H01", "H03", "H04", "H06", "H13", "H14", "H15",
-            "R02"
+            "A01", "A04", "A05", "A06", "B12", "H03", "H04", "H06", "H13", "H14", "H15", "R02"
         ])
     );
     assert_eq!(reply["dropped"]["evidence"].as_array().unwrap().len(), 6);
-    assert_eq!(
-        reply["dropped"]["provenance"],
-        json!(["provenance/MRC-BREADCRUMBS/mrc-breadcrumbs.asm"])
-    );
+    assert_eq!(reply["dropped"]["provenance"], json!([]));
     assert!(
-        !dir.join("provenance/MRC-BREADCRUMBS").exists(),
-        "(PR9 split): expected the dropped patch's provenance directory absent"
+        dir.join("provenance/MRC-BREADCRUMBS/mrc-breadcrumbs.asm")
+            .is_file(),
+        "(PR9 split): expected the provenance of the kept MRC-BREADCRUMBS verdict"
     );
+    let h01 = json_file(&dir.join("findings/H01.json"));
+    assert_eq!(h01["affects"]["builds"], json!([]), "(finding H01 builds)");
 }
 
 #[test]
@@ -187,9 +200,10 @@ fn split_text_lists_what_it_dropped() {
     let first = format!("Split board {PR9} of official 1.3.0 into {}", s(&dir));
     for expected in [
         first.as_str(),
-        "kept      17 patches, 27 findings, 0 evidence records, 0 provenance files",
-        "dropped   patches: H01 MRC-BREADCRUMBS",
-        "dropped   provenance files: provenance/MRC-BREADCRUMBS/mrc-breadcrumbs.asm",
+        "kept      19 patches, 28 findings, 0 evidence records, 1 provenance files",
+        "dropped   patches: none",
+        "dropped   findings: A01 A04 A05 A06 B12 H03 H04 H06 H13 H14 H15 R02",
+        "dropped   provenance files: none",
     ] {
         assert!(
             run.stdout.contains(expected),
@@ -286,20 +300,23 @@ fn merging_the_two_splits_agrees_and_reports_the_shared_records() {
         json!({"boards": 2, "patches": 19, "findings": 40, "evidence": 6, "provenance": 1})
     );
     assert_eq!(data["shared"]["boards"], json!([]));
-    assert_eq!(data["shared"]["patches"].as_array().unwrap().len(), 15);
-    assert_eq!(data["shared"]["findings"].as_array().unwrap().len(), 25);
+    // Both splits keep all 19 patches, and 28 of the 40 findings are in both.
+    assert_eq!(data["shared"]["patches"].as_array().unwrap().len(), 19);
+    assert_eq!(data["shared"]["findings"].as_array().unwrap().len(), 28);
     let patches = strings(&data["shared"]["patches"]);
-    assert!(
-        patches.contains(&"B02-B03"),
-        "(shared patches): expected B02-B03 | received {patches:?}"
-    );
-    assert!(!patches.contains(&"H01") && !patches.contains(&"S01"));
+    for id in ["B02-B03", "H01", "S01", "MRC-BREADCRUMBS"] {
+        assert!(
+            patches.contains(&id),
+            "(shared patches): expected {id} | received {patches:?}"
+        );
+    }
+    assert_eq!(data["pins"], json!([]));
 
     let text = ok(sandbox.run(["catalog", "merge", s(&pr9), s(&mr9a), "--check"]));
     assert_eq!(
         text.stdout,
         format!(
-            "The catalogs agree: {PR9_CATALOG}, {MR9A_CATALOG}\n  merged   2 boards, 19 patches, 40 findings, 6 evidence records, 1 provenance files\n  shared   0 boards, 15 patches, 25 findings, 0 evidence records, 0 provenance files\n"
+            "The catalogs agree: {PR9_CATALOG}, {MR9A_CATALOG}\n  merged   2 boards, 19 patches, 40 findings, 6 evidence records, 1 provenance files\n  shared   0 boards, 19 patches, 28 findings, 0 evidence records, 1 provenance files\n"
         )
     );
 }
@@ -381,7 +398,7 @@ fn merging_official_with_both_splits_reproduces_every_bundled_record() {
             .iter()
             .map(|f| f["path"].clone())
             .collect();
-        for key in ["id", "title", "version", "description"] {
+        for key in ["id", "title", "version", "description", "sources"] {
             object.remove(key);
         }
         (manifest, files)
@@ -389,7 +406,7 @@ fn merging_official_with_both_splits_reproduces_every_bundled_record() {
     assert_eq!(
         identity(new.clone()),
         identity(old),
-        "(catalog.json): expected only id, title, version and description to differ"
+        "(catalog.json): expected only id, title, version, description and sources to differ"
     );
     assert_eq!(
         (
@@ -400,6 +417,13 @@ fn merging_official_with_both_splits_reproduces_every_bundled_record() {
         (Some("rebuilt"), Some("Rebuilt"), Some("2.0.0"))
     );
     assert!(new.get("description").is_none());
+    let source_ids: Vec<&str> = new["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|source| source["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(source_ids, ["official", MR9A_CATALOG, PR9_CATALOG]);
 }
 
 /// Findings whose code references the bundled catalog lists PR9 build first. A merge keeps
@@ -416,7 +440,7 @@ fn references_sorted(mut document: Value) -> Value {
 }
 
 #[test]
-fn merging_only_the_splits_loses_exactly_the_four_not_applicable_variants() {
+fn merging_only_the_board_splits_rebuilds_the_bundled_catalog() {
     let sandbox = Sandbox::new();
     let (mr9a, pr9) = both_splits(&sandbox);
     let merged = sandbox.path("merged");
@@ -432,43 +456,15 @@ fn merging_only_the_splits_loses_exactly_the_four_not_applicable_variants() {
     ]));
     assert_valid_and_indexed(&sandbox, &merged);
 
-    // The expectation: the bundled catalog minus the four variants and their board entries.
-    let dropped: [DroppedVariant; 4] = [
-        ("S01", MR9A_BUILD, MR9A),
-        ("S02", MR9A_BUILD, MR9A),
-        ("H01", PR9_BUILD, PR9),
-        ("MRC-BREADCRUMBS", PR9_BUILD, PR9),
-    ];
-    let mut expected = documents(&bundled());
-    for (patch, build, board) in dropped {
-        let record = expected.get_mut(&format!("patches/{patch}.json")).unwrap();
-        let variant = record["variants"]
-            .as_object_mut()
-            .unwrap()
-            .remove(build)
-            .unwrap();
-        assert_eq!(
-            variant["status"], "not-applicable",
-            "(patch {patch} variant {build}): expected a not-applicable variant"
-        );
-        let patches = expected.get_mut(&format!("boards/{board}.json")).unwrap()["patches"]
-            .as_array_mut()
-            .unwrap();
-        let before = patches.len();
-        patches.retain(|id| id != patch);
-        assert_eq!(
-            patches.len(),
-            before - 1,
-            "(board {board} patches): expected {patch} listed once"
-        );
-    }
+    let expected = documents(&bundled());
     let merged_documents = documents(&merged);
     assert_eq!(
         merged_documents.keys().collect::<Vec<_>>(),
         expected.keys().collect::<Vec<_>>(),
         "(merged record files)"
     );
-    // Everything else is equal; only first-seen order may differ, in five findings.
+    // Every record is equal except the order of owner.references in five findings: the merge
+    // lists the MR9A reference first, the bundled catalog lists the PR9 one first.
     let reordered: Vec<&str> = expected
         .iter()
         .filter(|(path, document)| merged_documents[*path] != **document)
@@ -495,6 +491,225 @@ fn merging_only_the_splits_loses_exactly_the_four_not_applicable_variants() {
             .count(),
         1
     );
+}
+
+#[test]
+fn split_writes_the_engine_requirement_of_its_source() {
+    let sandbox = Sandbox::new();
+    let (mr9a, _) = both_splits(&sandbox);
+    // A requirement `catalog init` would never derive from this engine.
+    let wide = edited_copy(
+        &sandbox,
+        &mr9a,
+        "mr9a-wide",
+        &[("catalog.json", &|d| {
+            d["engine"] = json!(">=0.1.0");
+        })],
+    );
+    let (again, _) = split_from(&sandbox, &wide, "again");
+    assert_eq!(
+        json_file(&again.join("catalog.json"))["engine"],
+        ">=0.1.0",
+        "(engine of a split of a catalog that declares >=0.1.0)"
+    );
+    let run = ok(sandbox.run(["catalog", "merge", s(&wide), s(&again), "--check"]));
+    assert!(
+        run.stdout.starts_with("The catalogs agree"),
+        "{}",
+        run.stdout
+    );
+}
+
+/// Split the only board of `source`, a catalog directory, into `name`.
+fn split_from(sandbox: &Sandbox, source: &Path, name: &str) -> (PathBuf, Value) {
+    let dir = sandbox.path(name);
+    let run = ok(sandbox.run([
+        "catalog",
+        "split",
+        s(source),
+        "--board",
+        MR9A,
+        "-o",
+        s(&dir),
+        "--id",
+        name,
+        "--json",
+    ]));
+    (dir, run.json()["data"].clone())
+}
+
+#[test]
+fn merge_output_records_its_sources_and_the_description() {
+    let sandbox = Sandbox::new();
+    let (mr9a, pr9) = both_splits(&sandbox);
+    let merged = sandbox.path("merged");
+    let run = ok(sandbox.run([
+        "catalog",
+        "merge",
+        s(&mr9a),
+        s(&pr9),
+        "-o",
+        s(&merged),
+        "--id",
+        "two-boards",
+        "--description",
+        "Two board catalogs, merged.",
+        "--json",
+    ]));
+    let digest = |dir: &Path| Digest256::of(&fs::read(dir.join("catalog.json")).unwrap());
+    let expected = json!([
+        {"id": MR9A_CATALOG, "version": "0.1.0", "manifest_sha256": digest(&mr9a).to_string()},
+        {"id": PR9_CATALOG, "version": "0.1.0", "manifest_sha256": digest(&pr9).to_string()},
+    ]);
+    let manifest = json_file(&merged.join("catalog.json"));
+    assert_eq!(manifest["sources"], expected, "(catalog.json sources)");
+    assert_eq!(manifest["description"], "Two board catalogs, merged.");
+    assert_eq!(run.json()["data"]["sources"], expected, "(reply sources)");
+
+    // `catalog index` keeps the block and rewrites the same bytes.
+    let before = fs::read(merged.join("catalog.json")).unwrap();
+    ok(sandbox.run(["catalog", "index", s(&merged)]));
+    assert_eq!(fs::read(merged.join("catalog.json")).unwrap(), before);
+    assert_valid_and_indexed(&sandbox, &merged);
+
+    // A split keeps the old shape: no sources, no description.
+    let split = json_file(&mr9a.join("catalog.json"));
+    assert!(split.get("sources").is_none() && split.get("description").is_none());
+}
+
+#[test]
+fn merge_check_reports_whether_each_pinned_source_still_matches() {
+    let sandbox = Sandbox::new();
+    let (mr9a, pr9) = both_splits(&sandbox);
+    let merged = sandbox.path("merged");
+    ok(sandbox.run([
+        "catalog",
+        "merge",
+        s(&mr9a),
+        s(&pr9),
+        "-o",
+        s(&merged),
+        "--id",
+        "two-boards",
+    ]));
+    let pinned = ok(sandbox.run(["catalog", "merge", s(&merged), s(&mr9a), s(&pr9), "--check"]));
+    assert_eq!(
+        pinned.stdout,
+        format!(
+            "The catalogs agree: two-boards, {MR9A_CATALOG}, {PR9_CATALOG}\n  merged   2 boards, 19 patches, 40 findings, 6 evidence records, 1 provenance files\n  shared   2 boards, 19 patches, 40 findings, 6 evidence records, 1 provenance files\n  pin      two-boards lists {MR9A_CATALOG} 0.1.0: pinned\n  pin      two-boards lists {PR9_CATALOG} 0.1.0: pinned\n"
+        )
+    );
+
+    // A new version of the PR9 catalog moves its digest; the records still agree.
+    let pinned_digest = Digest256::of(&fs::read(pr9.join("catalog.json")).unwrap());
+    let moved = edited_copy(
+        &sandbox,
+        &pr9,
+        "pr9-moved",
+        &[("catalog.json", &|d| {
+            d["version"] = json!("0.2.0");
+        })],
+    );
+    let current_digest = Digest256::of(&fs::read(moved.join("catalog.json")).unwrap());
+    let run = ok(sandbox.run([
+        "catalog",
+        "merge",
+        s(&merged),
+        s(&mr9a),
+        s(&moved),
+        "--check",
+    ]));
+    assert!(
+        run.stdout.ends_with(&format!(
+            "  pin      two-boards lists {MR9A_CATALOG} 0.1.0: pinned\n  pin      two-boards lists {PR9_CATALOG} 0.1.0: moved (pinned {pinned_digest}, current {current_digest})\n"
+        )),
+        "(merge --check pin lines) | received:\n{}",
+        run.stdout
+    );
+    let json = ok(sandbox.run([
+        "catalog",
+        "merge",
+        s(&merged),
+        s(&mr9a),
+        s(&moved),
+        "--check",
+        "--json",
+    ]))
+    .json();
+    let pins = json["data"]["pins"].as_array().unwrap();
+    assert_eq!(
+        pins.iter()
+            .map(|p| p["state"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["pinned", "moved"]
+    );
+    assert_eq!(pins[1]["pinned"], pinned_digest.to_string());
+    assert_eq!(pins[1]["current"], current_digest.to_string());
+}
+
+#[test]
+fn merge_names_sources_with_one_catalog_id_by_position() {
+    let sandbox = Sandbox::new();
+    let (mr9a, _) = both_splits(&sandbox);
+    let twin = edited_copy(
+        &sandbox,
+        &mr9a,
+        "mr9a-twin",
+        &[("patches/B02-B03.json", &|d| {
+            d["title"] = json!("Twin title");
+        })],
+    );
+    let run = sandbox.run(["catalog", "merge", s(&mr9a), s(&twin), "--check", "--json"]);
+    assert_eq!(
+        (run.code, run.error_code().as_str()),
+        (1, "CATALOG_INVALID")
+    );
+    let message = run.json()["error"]["message"].as_str().unwrap().to_string();
+    assert!(
+        message.starts_with(
+            "patch B02-B03: title: expected the same value in every catalog | received "
+        ) && message.ends_with(&format!(
+            "({MR9A_CATALOG} (#1)) and \"Twin title\" ({MR9A_CATALOG} (#2))"
+        )),
+        "(merge --check): expected both sources named by position | received {message}"
+    );
+}
+
+#[test]
+fn merge_description_must_not_be_blank_and_needs_an_output() {
+    let sandbox = Sandbox::new();
+    let (mr9a, pr9) = both_splits(&sandbox);
+    let out = sandbox.path("out");
+    let blank = sandbox.run([
+        "catalog",
+        "merge",
+        s(&mr9a),
+        s(&pr9),
+        "-o",
+        s(&out),
+        "--id",
+        "x",
+        "--description",
+        " ",
+        "--json",
+    ]);
+    assert_eq!((blank.code, blank.error_code().as_str()), (2, "USAGE"));
+    assert_eq!(
+        blank.json()["error"]["message"],
+        "description: expected non-empty text | received an empty value"
+    );
+    let check = sandbox.run([
+        "catalog",
+        "merge",
+        s(&mr9a),
+        s(&pr9),
+        "--check",
+        "--description",
+        "x",
+        "--json",
+    ]);
+    assert_eq!((check.code, check.error_code().as_str()), (2, "USAGE"));
+    assert!(!out.exists());
 }
 
 /// Copy `source` to `name`, edit `edit(path, document)` for the records it names, and re-index it.
@@ -709,6 +924,119 @@ fn split_applies_the_catalog_id_rules_before_writing() {
         "catalog id: expected an id other than the reserved \"official\" | received: official"
     );
     assert!(!dir.exists());
+}
+
+#[test]
+fn merge_bundled_writes_the_reserved_id_and_refuses_an_id_next_to_it() {
+    let sandbox = Sandbox::new();
+    let (mr9a, pr9) = both_splits(&sandbox);
+    let out = sandbox.path("bundled");
+    ok(sandbox.run([
+        "catalog",
+        "merge",
+        s(&mr9a),
+        s(&pr9),
+        "-o",
+        s(&out),
+        "--bundled",
+        "--version",
+        "1.4.0",
+        "--description",
+        "Both boards",
+    ]));
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(out.join("catalog.json")).unwrap()).unwrap();
+    assert_eq!(
+        (&manifest["id"], &manifest["title"], &manifest["version"]),
+        (&json!("official"), &json!("official"), &json!("1.4.0"))
+    );
+    ok(sandbox.run(["catalog", "validate", s(&out)]));
+
+    let other = sandbox.path("other");
+    let both = sandbox.run([
+        "catalog",
+        "merge",
+        s(&mr9a),
+        s(&pr9),
+        "-o",
+        s(&other),
+        "--bundled",
+        "--id",
+        "x",
+        "--json",
+    ]);
+    assert_eq!((both.code, both.error_code().as_str()), (2, "USAGE"));
+    let message = both.json()["error"]["message"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        message.contains("--bundled") && message.contains("--id"),
+        "(clap message): expected a --bundled/--id conflict | received {message}"
+    );
+    let neither = sandbox.run([
+        "catalog",
+        "merge",
+        s(&mr9a),
+        s(&pr9),
+        "-o",
+        s(&other),
+        "--json",
+    ]);
+    assert_eq!((neither.code, neither.error_code().as_str()), (2, "USAGE"));
+    assert_eq!(
+        neither.json()["error"]["message"],
+        "merge: expected --check, or -o DIR with --id ID or --bundled | received another combination"
+    );
+    assert!(!other.exists());
+}
+
+#[test]
+fn pin_lines_tell_apart_two_sources_with_one_catalog_id() {
+    let sandbox = Sandbox::new();
+    let (mr9a, pr9) = both_splits(&sandbox);
+    let merged = sandbox.path("merged");
+    ok(sandbox.run([
+        "catalog",
+        "merge",
+        s(&mr9a),
+        s(&pr9),
+        "-o",
+        s(&merged),
+        "--id",
+        "two-boards",
+    ]));
+    // The same catalog id twice: the original, and a copy whose manifest moved.
+    let moved = edited_copy(
+        &sandbox,
+        &pr9,
+        "pr9-moved",
+        &[("catalog.json", &|d| {
+            d["version"] = json!("0.2.0");
+        })],
+    );
+    let run = ok(sandbox.run([
+        "catalog",
+        "merge",
+        s(&merged),
+        s(&pr9),
+        s(&moved),
+        "--check",
+    ]));
+    assert!(
+        run.stdout.contains(&format!(
+            "  pin      two-boards lists {PR9_CATALOG} (#2) 0.1.0: pinned\n"
+        )),
+        "(pin line of the unchanged source) | received:\n{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains(&format!(
+            "  pin      two-boards lists {PR9_CATALOG} (#3) 0.1.0: moved (pinned "
+        )),
+        "(pin line of the moved source) | received:\n{}",
+        run.stdout
+    );
 }
 
 #[test]

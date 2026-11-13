@@ -78,6 +78,9 @@ pub fn manifest(manifest: &Manifest) -> Result<()> {
             ),
         ));
     }
+    for source in &manifest.sources {
+        identifier(&source.id, "source catalog id")?;
+    }
     if manifest.files.len() > MAX_FILES {
         return Err(invalid(format!(
             "catalog.json: {} files exceed the limit of {MAX_FILES}",
@@ -215,6 +218,29 @@ fn board_profile(board: &Board, catalog: &Catalog) -> Result<()> {
     Ok(())
 }
 
+/// Whether a finding with no affected build is a known defect of another board, recorded
+/// here only for the `not-applicable` verdict of a patch.
+///
+/// That holds when a patch of the catalog lists the finding in `findings` and no patch that
+/// lists it has an `applicable` variant here.
+///
+/// Example: finding `S01` with no build, named by patch `S01` whose only variant is
+/// `not-applicable`, is a verdict; once that patch gains an applicable variant it is not.
+fn is_recorded_verdict(finding: &Finding, catalog: &Catalog) -> bool {
+    let mut naming = catalog
+        .patches
+        .values()
+        .filter(|patch| patch.findings.contains(&finding.id))
+        .peekable();
+    naming.peek().is_some()
+        && naming.all(|patch| {
+            !patch
+                .variants
+                .values()
+                .any(|variant| matches!(variant, Variant::Applicable(_)))
+        })
+}
+
 /// A confidence grade: `C0` (established) to `C3` (speculative).
 fn grade(value: &Grade, what: &str) -> Result<()> {
     let ok = matches!(value.grade.as_bytes(), [b'C', b'0'..=b'3']);
@@ -260,9 +286,10 @@ fn finding_record(
     if let Some(condition) = &finding.confidence.condition {
         grade(condition, &format!("{at} condition confidence"))?;
     }
-    if finding.affects.builds.is_empty() {
+    if finding.affects.builds.is_empty() && !is_recorded_verdict(finding, catalog) {
         return Err(invalid(format!(
-            "{at}: affects.builds expects at least one firmware build"
+            "{at}: affects.builds expected at least one firmware build, or a patch that lists {} in findings and has no applicable variant in this catalog | received no build and no such patch",
+            finding.id
         )));
     }
     unique(
@@ -890,6 +917,43 @@ mod tests {
             assert!(relative_path(bad).is_err(), "{bad} should be rejected");
         }
         assert!(relative_path("patches/B02-B03.json").is_ok());
+    }
+
+    /// A manifest with no files and the given `sources`.
+    fn manifest_with_sources(sources: Vec<CatalogSource>) -> Manifest {
+        Manifest {
+            schema: CATALOG_SCHEMA.into(),
+            id: "merged".into(),
+            version: semver::Version::new(0, 1, 0),
+            title: "Merged".into(),
+            engine: semver::VersionReq::parse(">=0.1.0").unwrap(),
+            description: None,
+            sources,
+            files: vec![],
+        }
+    }
+
+    fn pin(id: &str) -> CatalogSource {
+        CatalogSource {
+            id: id.into(),
+            version: semver::Version::new(0, 1, 0),
+            manifest_sha256: crate::util::Digest256::of(id.as_bytes()),
+        }
+    }
+
+    #[test]
+    fn a_source_with_a_valid_id_is_accepted_even_when_listed_twice() {
+        manifest(&manifest_with_sources(vec![pin("dev"), pin("dev")])).unwrap();
+    }
+
+    #[test]
+    fn a_source_with_an_invalid_id_is_refused_naming_the_value() {
+        let error = manifest(&manifest_with_sources(vec![pin("dev"), pin("a b")])).unwrap_err();
+        assert_eq!(error.code, Code::CatalogInvalid);
+        assert_eq!(
+            error.message,
+            "source catalog id \"a b\": expected 1-64 characters [A-Za-z0-9._-] starting alphanumeric"
+        );
     }
 
     #[test]

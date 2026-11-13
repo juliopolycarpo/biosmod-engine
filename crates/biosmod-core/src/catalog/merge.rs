@@ -6,10 +6,12 @@
 //! becomes one line that names the record, the field, both values and both
 //! catalog ids, and [`merge_catalogs`] reports all of them at once.
 
-use super::{Board, CodeReference, Evidence, Finding, FindingStatus, Patch, records::Records};
+use super::{
+    Board, CatalogSource, CodeReference, Evidence, Finding, FindingStatus, Patch, records::Records,
+};
 use crate::error::{Code, Error, Result};
 use crate::util::Digest256;
-use semver::VersionReq;
+use semver::{Version, VersionReq};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,11 +21,85 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct MergeInput<'a> {
     /// The id in the catalog's `catalog.json`; named in disagreements.
     pub catalog_id: &'a str,
+    /// The `version` in the catalog's `catalog.json`.
+    pub version: &'a Version,
+    /// SHA-256 of the exact bytes of the catalog's `catalog.json`.
+    pub manifest_sha256: Digest256,
+    /// The `sources` the catalog's `catalog.json` lists, empty unless it is itself a merge.
+    pub sources: &'a [CatalogSource],
     /// The `engine` requirement in the catalog's `catalog.json`.
     pub engine: &'a VersionReq,
     pub records: &'a Records,
     /// Provenance files as `(path below the catalog root, bytes)`.
     pub provenance: &'a [(String, Vec<u8>)],
+}
+
+/// Whether a pinned source still has the `catalog.json` it was merged from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PinState {
+    /// The source's current `catalog.json` has the pinned digest.
+    Pinned,
+    /// The source's current `catalog.json` has another digest.
+    Moved,
+}
+
+impl PinState {
+    pub fn label(self) -> &'static str {
+        match self {
+            PinState::Pinned => "pinned",
+            PinState::Moved => "moved",
+        }
+    }
+}
+
+/// One entry of a catalog's `sources`, compared with the given source it names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PinCheck {
+    /// Display name of the catalog that lists the entry.
+    pub listed_by: String,
+    /// Display name of the given source with the entry's id.
+    pub source: String,
+    /// The entry's `id` and `version`.
+    pub id: String,
+    pub version: Version,
+    pub pinned: Digest256,
+    pub current: Digest256,
+    pub state: PinState,
+}
+
+/// Compare every `sources` entry of each input with the other inputs that have its id.
+///
+/// An entry gets one check per other input with the same id, in input order. A moved pin
+/// does not stop a merge: the records can still agree.
+///
+/// Example: `check_pins(&inputs)` is empty when no input lists `sources`.
+pub fn check_pins(inputs: &[MergeInput<'_>]) -> Vec<PinCheck> {
+    let names = display_names(inputs);
+    let mut checks = Vec::new();
+    for (holder, input) in inputs.iter().enumerate() {
+        for entry in input.sources {
+            for (index, other) in inputs.iter().enumerate() {
+                if index == holder || other.catalog_id != entry.id {
+                    continue;
+                }
+                checks.push(PinCheck {
+                    listed_by: names[holder].clone(),
+                    source: names[index].clone(),
+                    id: entry.id.clone(),
+                    version: entry.version.clone(),
+                    pinned: entry.manifest_sha256,
+                    current: other.manifest_sha256,
+                    state: if entry.manifest_sha256 == other.manifest_sha256 {
+                        PinState::Pinned
+                    } else {
+                        PinState::Moved
+                    },
+                });
+            }
+        }
+    }
+    checks
 }
 
 /// The ids two or more catalogs define, per kind, in id order.
@@ -44,6 +120,8 @@ pub struct Merged {
     pub provenance: Vec<(String, Vec<u8>)>,
     /// The `engine` requirement every catalog declares.
     pub engine: VersionReq,
+    /// One pin per merged catalog, in input order, for the `sources` of the written `catalog.json`.
+    pub sources: Vec<CatalogSource>,
     pub shared: Shared,
 }
 
@@ -58,6 +136,9 @@ pub struct Merged {
 ///   every other field is equal.
 /// - Evidence and provenance files with one id or path are identical.
 /// - The `engine` requirements are equal.
+/// - `sources` pins every input by id, version and `manifest_sha256`, in input order.
+///
+/// A disagreement names a catalog by its id, or `id (#N)` by position when another input has the same id.
 ///
 /// Unions keep first-seen order, so `merge(A, B)` keeps A's order and appends B's new entries.
 /// Fails with `USAGE` for no input, and with `CATALOG_INVALID` for disagreements; the message has one line per disagreement and
@@ -71,7 +152,7 @@ pub fn merge_catalogs(inputs: &[MergeInput<'_>]) -> Result<Merged> {
             "catalogs: expected at least 1 catalog to merge | received none",
         ));
     }
-    let mut report = Report::default();
+    let mut report = Report::new(inputs);
     let engine = merge_engine(inputs, &mut report);
     let mut records = Records::default();
     let mut shared = Shared::default();
@@ -79,7 +160,7 @@ pub fn merge_catalogs(inputs: &[MergeInput<'_>]) -> Result<Merged> {
         note_shared(&mut shared.boards, &id, &entries);
         records
             .boards
-            .insert(id.clone(), merge_board(&id, &entries, inputs, &mut report));
+            .insert(id.clone(), merge_board(&id, &entries, &mut report));
     }
     for (id, entries) in gather(inputs, |r| &r.patches) {
         note_shared(&mut shared.patches, &id, &entries);
@@ -96,10 +177,9 @@ pub fn merge_catalogs(inputs: &[MergeInput<'_>]) -> Result<Merged> {
     }
     for (id, entries) in gather(inputs, |r| &r.evidence) {
         note_shared(&mut shared.evidence, &id, &entries);
-        records.evidence.insert(
-            id.clone(),
-            merge_evidence(&id, &entries, inputs, &mut report),
-        );
+        records
+            .evidence
+            .insert(id.clone(), merge_evidence(&id, &entries, &mut report));
     }
     let provenance = merge_provenance(inputs, &mut shared, &mut report);
     report.finish()?;
@@ -107,8 +187,39 @@ pub fn merge_catalogs(inputs: &[MergeInput<'_>]) -> Result<Merged> {
         records,
         provenance,
         engine: engine.expect("at least one input"),
+        sources: inputs
+            .iter()
+            .map(|input| CatalogSource {
+                id: input.catalog_id.to_string(),
+                version: input.version.clone(),
+                manifest_sha256: input.manifest_sha256,
+            })
+            .collect(),
         shared,
     })
+}
+
+/// How each input is named in a disagreement: its catalog id, or `id (#N)` with `N` the
+/// 1-based position among the sources when another source has the same id.
+///
+/// Example: sources `dev`, `other`, `dev` are named `dev (#1)`, `other`, `dev (#3)`.
+pub fn display_names(inputs: &[MergeInput<'_>]) -> Vec<String> {
+    inputs
+        .iter()
+        .enumerate()
+        .map(|(index, input)| {
+            let repeated = inputs
+                .iter()
+                .filter(|other| other.catalog_id == input.catalog_id)
+                .count()
+                > 1;
+            if repeated {
+                format!("{} (#{})", input.catalog_id, index + 1)
+            } else {
+                input.catalog_id.to_string()
+            }
+        })
+        .collect()
 }
 
 /// A record and the index of the input that holds it.
@@ -138,21 +249,32 @@ fn note_shared<T>(shared: &mut Vec<String>, id: &str, entries: &Entries<'_, T>) 
 #[derive(Debug, Default)]
 struct Report {
     lines: Vec<String>,
+    /// Display name of each input, by position.
+    names: Vec<String>,
 }
 
 impl Report {
+    fn new(inputs: &[MergeInput<'_>]) -> Report {
+        Report {
+            lines: Vec::new(),
+            names: display_names(inputs),
+        }
+    }
+
     /// Record `record: field: expected ... | received <a> (<catalog>) and <b> (<catalog>)`.
+    ///
+    /// Each side is `(input index, value)`; the index selects the catalog's display name.
     fn disagree(
         &mut self,
         record: &str,
         field: &str,
         expected: &str,
-        first: (&str, &str),
-        other: (&str, &str),
+        first: (usize, &str),
+        other: (usize, &str),
     ) {
         self.lines.push(format!(
             "{record}: {field}: expected {expected} | received {} ({}) and {} ({})",
-            first.1, first.0, other.1, other.0
+            first.1, self.names[first.0], other.1, self.names[other.0]
         ));
     }
 
@@ -221,7 +343,6 @@ fn show(value: &Option<Value>) -> String {
 fn require_equal_fields<T: Serialize>(
     label: &str,
     entries: &Entries<'_, T>,
-    inputs: &[MergeInput<'_>],
     merged_apart: &[&str],
     report: &mut Report,
 ) {
@@ -243,8 +364,8 @@ fn require_equal_fields<T: Serialize>(
                 label,
                 &field,
                 SAME_VALUE,
-                (inputs[entries[0].0].catalog_id, &show(&first)),
-                (inputs[entries[position].0].catalog_id, &show(&other)),
+                (entries[0].0, &show(&first)),
+                (entries[position].0, &show(&other)),
             );
         }
     }
@@ -289,14 +410,8 @@ fn merge_relation<T>(
                     label,
                     field,
                     "the same ids among the patches both catalogs define",
-                    (
-                        inputs[*first_index].catalog_id,
-                        &json!(in_first).to_string(),
-                    ),
-                    (
-                        inputs[*other_index].catalog_id,
-                        &json!(in_other).to_string(),
-                    ),
+                    (*first_index, &json!(in_first).to_string()),
+                    (*other_index, &json!(in_other).to_string()),
                 );
             }
         }
@@ -305,17 +420,11 @@ fn merge_relation<T>(
 }
 
 /// Merge the board profiles of one id.
-fn merge_board(
-    id: &str,
-    entries: &Entries<'_, Board>,
-    inputs: &[MergeInput<'_>],
-    report: &mut Report,
-) -> Board {
+fn merge_board(id: &str, entries: &Entries<'_, Board>, report: &mut Report) -> Board {
     let label = format!("board {id}");
     require_equal_fields(
         &label,
         entries,
-        inputs,
         &["patches", "findings", "evidence"],
         report,
     );
@@ -337,7 +446,6 @@ fn merge_patch(
     require_equal_fields(
         &label,
         entries,
-        inputs,
         &["variants", "requires", "supersedes", "conflicts"],
         report,
     );
@@ -382,8 +490,8 @@ fn merge_patch(
                             &label,
                             &field,
                             SAME_VALUE,
-                            (inputs[*origin].catalog_id, &show(&a)),
-                            (inputs[*index].catalog_id, &show(&b)),
+                            (*origin, &show(&a)),
+                            (*index, &show(&b)),
                         );
                     }
                 }
@@ -404,7 +512,6 @@ fn merge_finding(
     require_equal_fields(
         &label,
         entries,
-        inputs,
         &[
             "status",
             "affects.builds",
@@ -417,10 +524,10 @@ fn merge_finding(
     let mut merged = entries[0].1.clone();
     merged.affects.builds =
         union_in_order(entries.iter().map(|(_, f)| f.affects.builds.as_slice()));
-    merged.owner.references = merge_references(&label, entries, inputs, report);
+    merged.owner.references = merge_references(&label, entries, report);
     merged.evidence = union_in_order(entries.iter().map(|(_, f)| f.evidence.as_slice()));
     merged.patches = merge_relation(&label, "patches", entries, inputs, |f| &f.patches, report);
-    merged.status = merge_status(&label, entries, inputs, report);
+    merged.status = merge_status(&label, entries, report);
     merged
 }
 
@@ -433,7 +540,6 @@ fn merge_finding(
 fn merge_references(
     label: &str,
     entries: &Entries<'_, Finding>,
-    inputs: &[MergeInput<'_>],
     report: &mut Report,
 ) -> Vec<CodeReference> {
     let of_build = |finding: &Finding, build: Option<&str>| -> Vec<CodeReference> {
@@ -475,8 +581,8 @@ fn merge_references(
                     label,
                     &field,
                     SAME_VALUE,
-                    (inputs[*origin].catalog_id, &to_value(&expected).to_string()),
-                    (inputs[*index].catalog_id, &to_value(&received).to_string()),
+                    (*origin, &to_value(&expected).to_string()),
+                    (*index, &to_value(&received).to_string()),
                 );
             }
         }
@@ -486,12 +592,7 @@ fn merge_references(
 
 /// Equal statuses stay; `open` against `fixed-by-patch` becomes `fixed-by-patch`,
 /// because a board whose build has no variant sees the finding as open.
-fn merge_status(
-    label: &str,
-    entries: &Entries<'_, Finding>,
-    inputs: &[MergeInput<'_>],
-    report: &mut Report,
-) -> FindingStatus {
+fn merge_status(label: &str, entries: &Entries<'_, Finding>, report: &mut Report) -> FindingStatus {
     let first = entries[0].1.status;
     let Some((position, other)) = entries
         .iter()
@@ -509,40 +610,29 @@ fn merge_status(
         label,
         "status",
         "the same value in every catalog, or open and fixed-by-patch",
-        (
-            inputs[entries[0].0].catalog_id,
-            &format!("{:?}", first.label()),
-        ),
-        (
-            inputs[entries[position].0].catalog_id,
-            &format!("{:?}", other.label()),
-        ),
+        (entries[0].0, &format!("{:?}", first.label())),
+        (entries[position].0, &format!("{:?}", other.label())),
     );
     first
 }
 
 /// Merge evidence records of one id: they must be identical.
-fn merge_evidence(
-    id: &str,
-    entries: &Entries<'_, Evidence>,
-    inputs: &[MergeInput<'_>],
-    report: &mut Report,
-) -> Evidence {
-    require_equal_fields(&format!("evidence {id}"), entries, inputs, &[], report);
+fn merge_evidence(id: &str, entries: &Entries<'_, Evidence>, report: &mut Report) -> Evidence {
+    require_equal_fields(&format!("evidence {id}"), entries, &[], report);
     entries[0].1.clone()
 }
 
 /// The `engine` requirement all catalogs declare; reports the first catalog that differs.
 fn merge_engine(inputs: &[MergeInput<'_>], report: &mut Report) -> Option<VersionReq> {
     let first = inputs.first()?;
-    for other in &inputs[1..] {
+    for (index, other) in inputs.iter().enumerate().skip(1) {
         if other.engine != first.engine {
             report.disagree(
                 "catalog.json",
                 "engine",
                 "the same requirement in every catalog",
-                (first.catalog_id, &format!("{:?}", first.engine.to_string())),
-                (other.catalog_id, &format!("{:?}", other.engine.to_string())),
+                (0, &format!("{:?}", first.engine.to_string())),
+                (index, &format!("{:?}", other.engine.to_string())),
             );
         }
     }
@@ -576,8 +666,8 @@ fn merge_provenance(
                     &format!("provenance {path}"),
                     "content",
                     "the same bytes in every catalog",
-                    (inputs[first].catalog_id, &describe(kept)),
-                    (input.catalog_id, &describe(bytes)),
+                    (first, &describe(kept)),
+                    (index, &describe(bytes)),
                 );
             }
         }
@@ -589,11 +679,32 @@ fn merge_provenance(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::Variant;
     use crate::catalog::fixtures::{board, evidence, finding, fixed_finding, patch};
     use crate::catalog::split::split_board;
 
     const A: &str = "build-a";
     const B: &str = "build-b";
+
+    static ONE: Version = Version::new(1, 0, 0);
+
+    /// A merge input at version 1.0.0 with no provenance and no sources; its manifest
+    /// digest is the SHA-256 of its id.
+    fn input<'a>(
+        catalog_id: &'a str,
+        engine: &'a VersionReq,
+        records: &'a Records,
+    ) -> MergeInput<'a> {
+        MergeInput {
+            catalog_id,
+            version: &ONE,
+            manifest_sha256: Digest256::of(catalog_id.as_bytes()),
+            sources: &[],
+            engine,
+            records,
+            provenance: &[],
+        }
+    }
 
     fn engine() -> VersionReq {
         VersionReq::parse("^0.1").unwrap()
@@ -604,12 +715,7 @@ mod tests {
         let engine = engine();
         let inputs: Vec<MergeInput<'_>> = catalogs
             .iter()
-            .map(|(catalog_id, records)| MergeInput {
-                catalog_id,
-                engine: &engine,
-                records,
-                provenance: &[],
-            })
+            .map(|(catalog_id, records)| input(catalog_id, &engine, records))
             .collect();
         merge_catalogs(&inputs)
     }
@@ -623,7 +729,7 @@ mod tests {
                 "board-a",
                 &[A],
                 &["S", "PA", "PB"],
-                &["F-S", "F-A", "F-B"],
+                &["F-S", "F-A"],
                 &["E-A"],
             ),
         );
@@ -643,6 +749,10 @@ mod tests {
             .insert("PA".into(), patch("PA", &[(A, true), (B, false)]));
         r.patches
             .insert("PB".into(), patch("PB", &[(A, false), (B, true)]));
+        // Each patch names the finding it fixes, so a board that cannot run it keeps the verdict.
+        for (patch, finding) in [("S", "F-S"), ("PA", "F-A"), ("PB", "F-B")] {
+            r.patches.get_mut(patch).unwrap().findings = vec![finding.into()];
+        }
         r.findings
             .insert("F-S".into(), fixed_finding("F-S", &[A, B], &["S"]));
         r.findings
@@ -667,11 +777,11 @@ mod tests {
     }
 
     #[test]
-    fn splitting_both_boards_and_merging_restores_every_record() {
+    fn merging_the_board_splits_alone_restores_every_record() {
         let whole = both_boards();
         let a = split_board(&whole, "board-a").unwrap().records;
         let b = split_board(&whole, "board-b").unwrap().records;
-        let merged = merge(&[("whole", &whole), ("a", &a), ("b", &b)]).unwrap();
+        let merged = merge(&[("a", &a), ("b", &b)]).unwrap();
         assert_eq!(json_of(&merged.records.boards), json_of(&whole.boards));
         assert_eq!(json_of(&merged.records.patches), json_of(&whole.patches));
         assert_eq!(json_of(&merged.records.findings), json_of(&whole.findings));
@@ -679,11 +789,34 @@ mod tests {
     }
 
     #[test]
+    fn not_applicable_verdicts_come_back_in_the_merge_of_board_splits() {
+        let whole = both_boards();
+        let a = split_board(&whole, "board-a").unwrap().records;
+        let b = split_board(&whole, "board-b").unwrap().records;
+        let merged = merge(&[("a", &a), ("b", &b)]).unwrap();
+        // PB does not apply to build-a, and the board-a split recorded that with F-B.
+        assert_eq!(
+            a.findings["F-B"].affects.builds,
+            Vec::<String>::new(),
+            "(F-B in the board-a split)"
+        );
+        let variants: Vec<(&str, bool)> = merged.records.patches["PB"]
+            .variants
+            .iter()
+            .map(|(build, variant)| (build.as_str(), matches!(variant, Variant::Applicable(_))))
+            .collect();
+        assert_eq!(variants, [(A, false), (B, true)]);
+        assert_eq!(merged.records.findings["F-B"].affects.builds, [B]);
+        assert_eq!(merged.records.findings["F-B"].owner.references.len(), 1);
+    }
+
+    #[test]
     fn finding_fixed_for_one_board_and_open_for_the_other_merges_to_fixed() {
         let mut whole = both_boards();
+        whole.patches.insert("PX".into(), patch("PX", &[(B, true)]));
         whole
             .findings
-            .insert("F-X".into(), fixed_finding("F-X", &[A, B], &["PB"]));
+            .insert("F-X".into(), fixed_finding("F-X", &[A, B], &["PX"]));
         let a = split_board(&whole, "board-a").unwrap().records;
         let b = split_board(&whole, "board-b").unwrap().records;
         assert_eq!(
@@ -694,7 +827,7 @@ mod tests {
         let merged = merge(&[("a", &a), ("b", &b)]).unwrap();
         let finding = &merged.records.findings["F-X"];
         assert_eq!(finding.status, FindingStatus::FixedByPatch);
-        assert_eq!(finding.patches, ["PB"]);
+        assert_eq!(finding.patches, ["PX"]);
         assert_eq!(finding.affects.builds, [A, B]);
         assert_eq!(finding.owner.references.len(), 2);
     }
@@ -721,8 +854,9 @@ mod tests {
         let a = split_board(&whole, "board-a").unwrap().records;
         let b = split_board(&whole, "board-b").unwrap().records;
         let merged = merge(&[("a", &a), ("b", &b)]).unwrap();
-        assert_eq!(merged.shared.patches, ["S"]);
-        assert_eq!(merged.shared.findings, ["F-S"]);
+        // Both splits keep every patch and the finding of each patch.
+        assert_eq!(merged.shared.patches, ["PA", "PB", "S"]);
+        assert_eq!(merged.shared.findings, ["F-A", "F-B", "F-S"]);
         assert!(merged.shared.boards.is_empty() && merged.shared.evidence.is_empty());
     }
 
@@ -1165,10 +1299,8 @@ mod tests {
         let other = vec![("provenance/P/x.asm".to_string(), b"nop".to_vec())];
         let extra = vec![("provenance/Q/y.asm".to_string(), b"ret".to_vec())];
         let input = |catalog_id, provenance| MergeInput {
-            catalog_id,
-            engine: &engine,
-            records: &records,
             provenance,
+            ..input(catalog_id, &engine, &records)
         };
         let merged =
             merge_catalogs(&[input("a", &same), input("b", &same), input("c", &extra)]).unwrap();
@@ -1193,12 +1325,7 @@ mod tests {
             VersionReq::parse("^0.1").unwrap(),
             VersionReq::parse("^0.2").unwrap(),
         );
-        let input = |catalog_id, engine| MergeInput {
-            catalog_id,
-            engine,
-            records: &records,
-            provenance: &[],
-        };
+        let input = |catalog_id, engine| input(catalog_id, engine, &records);
         let error = merge_catalogs(&[input("a", &first), input("b", &second)]).unwrap_err();
         assert_eq!(
             error.message,
@@ -1206,6 +1333,153 @@ mod tests {
         );
         let merged = merge_catalogs(&[input("a", &first), input("b", &first)]).unwrap();
         assert_eq!(merged.engine, first);
+    }
+
+    #[test]
+    fn sources_with_one_id_are_named_by_position_in_a_disagreement() {
+        let mut first = one("P");
+        let mut second = one("P");
+        first.patches.get_mut("P").unwrap().title = "x".into();
+        second.patches.get_mut("P").unwrap().title = "y".into();
+        let other = Records::default();
+        let error = merge(&[("dev", &first), ("other", &other), ("dev", &second)]).unwrap_err();
+        assert_eq!(
+            error.message,
+            "patch P: title: expected the same value in every catalog | received \"x\" (dev (#1)) and \"y\" (dev (#3))"
+        );
+    }
+
+    #[test]
+    fn engine_disagreement_between_sources_with_one_id_names_both_by_position() {
+        let records = Records::default();
+        let (first, second) = (
+            VersionReq::parse("^0.1").unwrap(),
+            VersionReq::parse("^0.2").unwrap(),
+        );
+        let error = merge_catalogs(&[
+            input("dev", &first, &records),
+            input("dev", &second, &records),
+        ])
+        .unwrap_err();
+        assert_eq!(
+            error.message,
+            "catalog.json: engine: expected the same requirement in every catalog | received \"^0.1\" (dev (#1)) and \"^0.2\" (dev (#2))"
+        );
+    }
+
+    #[test]
+    fn display_names_add_a_position_only_to_ids_that_repeat() {
+        let (engine, records) = (engine(), Records::default());
+        let inputs = [
+            input("dev", &engine, &records),
+            input("other", &engine, &records),
+            input("dev", &engine, &records),
+        ];
+        assert_eq!(display_names(&inputs), ["dev (#1)", "other", "dev (#3)"]);
+        assert_eq!(display_names(&inputs[..2]), ["dev", "other"]);
+    }
+
+    #[test]
+    fn merged_sources_pin_every_input_in_order() {
+        let (engine, records) = (engine(), Records::default());
+        let version = Version::new(2, 3, 4);
+        let first = MergeInput {
+            version: &version,
+            ..input("a", &engine, &records)
+        };
+        let merged = merge_catalogs(&[first, input("b", &engine, &records)]).unwrap();
+        assert_eq!(
+            merged.sources,
+            [
+                CatalogSource {
+                    id: "a".into(),
+                    version,
+                    manifest_sha256: Digest256::of(b"a"),
+                },
+                CatalogSource {
+                    id: "b".into(),
+                    version: ONE.clone(),
+                    manifest_sha256: Digest256::of(b"b"),
+                },
+            ]
+        );
+    }
+
+    /// The pin of `id` as a catalog that merged it would record it.
+    fn pin(id: &str, manifest: &[u8]) -> CatalogSource {
+        CatalogSource {
+            id: id.into(),
+            version: ONE.clone(),
+            manifest_sha256: Digest256::of(manifest),
+        }
+    }
+
+    #[test]
+    fn a_pin_is_current_when_the_source_manifest_has_the_pinned_digest() {
+        let (engine, records) = (engine(), Records::default());
+        // `input` digests the id as the manifest bytes, so "b" matches a pin made over b"b".
+        let listed = [pin("b", b"b")];
+        let merge_of = MergeInput {
+            sources: &listed,
+            ..input("merged", &engine, &records)
+        };
+        let checks = check_pins(&[merge_of, input("b", &engine, &records)]);
+        assert_eq!(checks.len(), 1);
+        let check = &checks[0];
+        assert_eq!(
+            (check.listed_by.as_str(), check.source.as_str(), check.state),
+            ("merged", "b", PinState::Pinned)
+        );
+        assert_eq!(check.pinned, check.current);
+    }
+
+    #[test]
+    fn a_pin_moved_when_the_source_manifest_changed_and_both_digests_are_kept() {
+        let (engine, records) = (engine(), Records::default());
+        let listed = [pin("b", b"older manifest")];
+        let merge_of = MergeInput {
+            sources: &listed,
+            ..input("merged", &engine, &records)
+        };
+        let checks = check_pins(&[input("b", &engine, &records), merge_of]);
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].state, PinState::Moved);
+        assert_eq!(checks[0].pinned, Digest256::of(b"older manifest"));
+        assert_eq!(checks[0].current, Digest256::of(b"b"));
+    }
+
+    #[test]
+    fn a_pin_without_a_source_of_that_id_gives_no_check_and_a_missing_list_gives_none() {
+        let (engine, records) = (engine(), Records::default());
+        let listed = [pin("gone", b"x")];
+        let merge_of = MergeInput {
+            sources: &listed,
+            ..input("merged", &engine, &records)
+        };
+        assert!(check_pins(&[merge_of, input("b", &engine, &records)]).is_empty());
+        assert!(
+            check_pins(&[input("a", &engine, &records), input("b", &engine, &records)]).is_empty()
+        );
+    }
+
+    #[test]
+    fn a_pin_is_checked_against_each_source_with_its_id_and_never_against_its_own_catalog() {
+        let (engine, records) = (engine(), Records::default());
+        let listed = [pin("dev", b"dev"), pin("merged", b"merged")];
+        let merge_of = MergeInput {
+            sources: &listed,
+            ..input("merged", &engine, &records)
+        };
+        let checks = check_pins(&[
+            input("dev", &engine, &records),
+            merge_of,
+            input("dev", &engine, &records),
+        ]);
+        let names: Vec<(&str, &str)> = checks
+            .iter()
+            .map(|c| (c.listed_by.as_str(), c.source.as_str()))
+            .collect();
+        assert_eq!(names, [("merged", "dev (#1)"), ("merged", "dev (#3)")]);
     }
 
     #[test]

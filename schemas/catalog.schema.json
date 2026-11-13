@@ -1,5 +1,28 @@
 {
   "$defs": {
+    "CatalogSource": {
+      "additionalProperties": false,
+      "description": "A source catalog of a merge, pinned by the digest of its `catalog.json`.",
+      "properties": {
+        "id": {
+          "description": "The `id` in the source's `catalog.json`.",
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/Digest256",
+          "description": "SHA-256 of the exact bytes of the source's `catalog.json`."
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "manifest_sha256"
+      ],
+      "type": "object"
+    },
     "Digest256": {
       "description": "SHA-256 digest, lowercase hexadecimal",
       "pattern": "^[0-9a-f]{64}$",
@@ -81,6 +104,13 @@
     "schema": {
       "const": "bme.catalog/1",
       "type": "string"
+    },
+    "sources": {
+      "description": "The catalogs a merge built this one from, in merge order. Omitted when empty.",
+      "items": {
+        "$ref": "#/$defs/CatalogSource"
+      },
+      "type": "array"
     },
     "title": {
       "type": "string"
