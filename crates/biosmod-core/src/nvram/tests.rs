@@ -297,6 +297,50 @@ fn nvar_link_loops_are_cut_and_reported() {
 }
 
 #[test]
+fn nvar_data_only_record_linking_to_itself_is_cut_at_the_loop() {
+    // `next` 0 points at the record itself; the chain must stop there with one issue.
+    let store = nvar_store(
+        &[variable("Self", 0, &[1], Some(1)), update(&[2], Some(1))],
+        &[SETUP_VARSTORE_GUID],
+        STORE_LENGTH,
+    );
+    let report = scan_bytes(&store);
+    assert_eq!(
+        states(&report, "nvar@0x0", "Self"),
+        [RecordState::Superseded, RecordState::Active],
+        "(self loop chain)"
+    );
+    assert_eq!(report.issues.len(), 1, "(issues): {:?}", report.issues);
+    assert!(
+        report.issues[0]
+            .message
+            .contains("expected an unvisited record | received a loop"),
+        "(self loop message): {:?}",
+        report.issues
+    );
+}
+
+#[test]
+fn nvar_long_update_chain_is_followed_in_linear_time() {
+    const UPDATES: usize = 120_000;
+    let mut specs = vec![variable("Long", 0, &[0], Some(1))];
+    for position in 1..=UPDATES {
+        let link = (position < UPDATES).then_some(position + 1);
+        specs.push(update(&[7], link));
+    }
+    let store = nvar_store(&specs, &[SETUP_VARSTORE_GUID], 0x20_0000);
+    let started = std::time::Instant::now();
+    let report = scan_bytes(&store);
+    let elapsed = started.elapsed();
+    assert_eq!(report.variables.len(), UPDATES + 1, "(record count)");
+    assert!(report.issues.is_empty(), "(issues): {:?}", report.issues);
+    assert!(
+        elapsed < std::time::Duration::from_secs(3),
+        "(scan time of a {UPDATES}-record chain): expected < 3s | received {elapsed:?}"
+    );
+}
+
+#[test]
 fn nvar_link_to_a_variable_record_is_not_followed() {
     let store = nvar_store(
         &[

@@ -455,7 +455,9 @@ fn follow_chain(
                     "next record at {target:#x}: expected a data-only record | received a variable record"
                 )
             }
-            Some(&index) if chain.contains(&index) || claimed[index] => {
+            // Every chain member after the head is claimed and the head is a variable record,
+            // which the arm above rejects, so `claimed` alone detects every loop in O(1).
+            Some(&index) if claimed[index] => {
                 format!(
                     "next record at {target:#x}: expected an unvisited record | received a loop"
                 )
