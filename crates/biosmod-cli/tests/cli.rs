@@ -2278,7 +2278,7 @@ fn extract_json_shape_is_the_same_with_and_without_a_table_selector() {
     );
     assert_eq!(picked["data"]["table"]["oem_table_id"], "InPe");
     assert_eq!(picked["data"]["compressed"], false);
-    // file_offset is the owning file's offset within its volume, as `inspect --files` reports.
+    // file_offset is the owning file's image offset, as `inspect --files` reports.
     let listed = sandbox
         .run(["inspect", s(&image), "--files", "--json"])
         .json();
