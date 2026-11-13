@@ -299,8 +299,15 @@ pub fn pm_test(host: &HostSurfaces, power: &dyn HostWrite, stage: Stage) -> Resu
         )
     });
 
+    // Whatever fails from here on, an armed pm_test is the loudest problem: an early error
+    // carries its repair instead of dropping it.
+    let keep_repair = |error: Error| match &restore_failure {
+        Some(failure) => error.context(failure),
+        None => error,
+    };
+
     let finished = host.clock.now();
-    let after = suspend_stats(host.files)?;
+    let after = suspend_stats(host.files).map_err(keep_repair)?;
     let delta: BTreeMap<String, i64> = after
         .keys()
         .filter(|name| is_counter(name))
@@ -321,12 +328,12 @@ pub fn pm_test(host: &HostSurfaces, power: &dyn HostWrite, stage: Stage) -> Resu
         }
         Ok(()) => (Status::Fail, None),
     };
-    if let Some(failure) = restore_failure {
+    if let Some(failure) = &restore_failure {
         // Whatever the counters said, the machine is left armed: the run is an error.
         status = Status::Error;
         error = Some(match error {
             Some(earlier) => format!("{failure}; earlier: {earlier}"),
-            None => failure,
+            None => failure.clone(),
         });
     }
     let new_messages: Vec<String> = match host.kernel_log.records() {
@@ -355,7 +362,7 @@ pub fn pm_test(host: &HostSurfaces, power: &dyn HostWrite, stage: Stage) -> Resu
         error,
         kernel_log_error,
     };
-    let bundle = seal(&identity, finished, &report, &new_messages)?;
+    let bundle = seal(&identity, finished, &report, &new_messages).map_err(keep_repair)?;
     Ok(PmTestRun { report, bundle })
 }
 
@@ -705,6 +712,57 @@ mod tests {
             serde_json::from_slice(run.bundle.get("pm-test.json").unwrap()).unwrap();
         assert_eq!(saved["restored_pm_test"], false);
         assert!(run.bundle.get("evidence.json").is_some());
+    }
+
+    /// Forwards to the fake, but `suspend_stats` cannot be listed after its first read, as
+    /// when sysfs goes away while the test suspend unwinds.
+    struct StatsGoneAfterArming<'a> {
+        inner: &'a FakePowerSysfs,
+        stats_reads: std::cell::Cell<usize>,
+    }
+
+    impl HostFiles for StatsGoneAfterArming<'_> {
+        fn read(&self, path: &str) -> std::io::Result<Vec<u8>> {
+            self.inner.read(path)
+        }
+
+        fn entries(&self, path: &str) -> std::io::Result<Vec<crate::files::DirEntry>> {
+            if path == SUSPEND_STATS_PATH {
+                let reads = self.stats_reads.get() + 1;
+                self.stats_reads.set(reads);
+                if reads > 1 {
+                    return Err(std::io::Error::other("stats gone"));
+                }
+            }
+            self.inner.entries(path)
+        }
+    }
+
+    #[test]
+    fn an_error_after_a_failed_restore_still_names_the_manual_fix() {
+        let fake = FakePowerSysfs::mr9a_deep().failing_pm_test_restore();
+        let files = StatsGoneAfterArming {
+            inner: &fake,
+            stats_reads: std::cell::Cell::new(0),
+        };
+        let error = pm_test(
+            &HostSurfaces {
+                files: &files,
+                kernel_log: &fake,
+                privilege: &FakePrivilege::root(),
+                clock: &FixedClock,
+            },
+            &fake,
+            Stage::Freezer,
+        )
+        .map(|run| run.report.status)
+        .unwrap_err();
+        assert_eq!(fake.pm_test(), "freezer");
+        assert!(
+            error.message.contains("echo none > /sys/power/pm_test"),
+            "(suspend_stats error after a failed restore): expected the repair | received {error}"
+        );
+        assert!(error.message.contains("stats gone"), "{error}");
     }
 
     /// Forwards to the fake and notes whether the stop signals were held at each write.
