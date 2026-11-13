@@ -78,13 +78,19 @@
     "H09",
     "H10",
     "H11",
-    "R01"
+    "H12",
+    "H13",
+    "H14",
+    "H15",
+    "R01",
+    "R02"
   ],
   "evidence": [
     "mr9a-stage1-2026-11-08",
     "mr9a-stage2-2026-11-08",
     "mr9a-breadcrumbs-rev2-2026-11-08",
     "mr9a-breadcrumbs-no-ram-2026-11-08",
-    "mr9a-breadcrumbs-no-gpu-2026-11-08"
+    "mr9a-breadcrumbs-no-gpu-2026-11-08",
+    "mr9a-sensor-capture-2026-11-13"
   ]
 }

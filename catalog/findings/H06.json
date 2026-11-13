@@ -24,6 +24,9 @@
       "grade": "C2"
     }
   },
-  "description": "The routine selects PECI Agent1 for SYSFAN; its validity on the one-socket board is unverified. The hidden SYSFAN mode defaults to Full On and all seven saved records have Full On, which limits present relevance.",
-  "remediation": "Validate agent presence, the source/header relationship and the automatic mode before a one-byte Agent0 substitution. No candidate, C2."
+  "description": "The routine selects PECI Agent1 for SYSFAN. Live reads on 2026-11-09 and 2026-11-13 show only Agent0 alive (bank 7, 1F=01). The hidden SYSFAN mode defaults to Full On and all seven saved records have Full On, which limits present relevance.",
+  "remediation": "Validate agent presence, the source/header relationship and the automatic mode before a one-byte Agent0 substitution. No candidate, C2.",
+  "evidence": [
+    "mr9a-sensor-capture-2026-11-13"
+  ]
 }

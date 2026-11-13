@@ -1,0 +1,38 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H14",
+  "title": "NCT5532D analog inputs and the SMIOVT1 source report stuck values",
+  "priority": "P3",
+  "status": "open",
+  "affects": {
+    "label": "MR9A measured",
+    "builds": [
+      "mnx99mr9apro-230322"
+    ]
+  },
+  "owner": {
+    "description": "NCT5532D analog inputs and SMIOVT1 source",
+    "modules": [
+      {
+        "ui_name": "SioDxeInit",
+        "ffs_guid": "4E82091E-32A1-4689-8A00-CDE41ED63CDD"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "observation"
+    },
+    "condition": {
+      "grade": "C2",
+      "note": "cause"
+    }
+  },
+  "description": "CPUTIN reads 131 and AUXTIN0 about 197 at idle and under load. The CPUVCORE pin holds 0.264 V while MSR 198 moves between 0.73 and 0.98 V. VIN2 and VIN4 saturate (255, 253). The SMIOVT1 source (bank 6, 21) is 01, a value the datasheet marks Reserved, and its reading stays 50. 3VCC, AVCC, 3VSB, VBAT and VTT are correct. MR9A sets diode mode for CPUTIN (5D=47, 5E=04).",
+  "not_established": "Stuck values alone do not separate an empty pin from a wrong sensor mode.",
+  "remediation": "Unwired pins need no firmware change. Separating an unwired CPUTIN from a thermistor read in diode mode (5D=47) needs board inspection or a reversible mode-bit test. No candidate, C3.",
+  "evidence": [
+    "mr9a-sensor-capture-2026-11-13"
+  ]
+}
