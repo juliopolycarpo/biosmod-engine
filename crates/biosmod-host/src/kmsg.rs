@@ -6,7 +6,9 @@
 //! by root otherwise). A read from a non-blocking descriptor returns one record
 //! at a time and `EAGAIN` at the end, so the snapshot never waits.
 
-use biosmod_core::{Code, Error, Result};
+use biosmod_core::Result;
+#[cfg(target_os = "linux")]
+use biosmod_core::{Code, Error};
 
 /// One kernel message.
 #[derive(Debug, Clone, PartialEq, Eq)]
