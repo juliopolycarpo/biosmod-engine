@@ -1,5 +1,6 @@
 //! `compare --acpi`: per-object ACPI table comparison, with optional `iasl` method diffs.
 
+use super::capture_input::read_capture_tables;
 use super::{MAX_IMAGE_BYTES, read_bounded};
 use crate::CompareArgs;
 use crate::output::{Reply, display_path};
@@ -40,11 +41,10 @@ pub struct Disassembly {
 ///
 /// Example: `compare_acpi(&args, &System)?` prints the per-table method changes.
 pub fn compare_acpi(args: &CompareArgs, runner: &dyn Runner) -> Result<Reply> {
-    let load = |path: &Path| -> Result<Vec<FoundTable>> {
-        let bytes = read_bounded(path, MAX_IMAGE_BYTES)?;
-        tables_from_input(bytes).map_err(|e| e.context(path.display()))
-    };
-    let (a, b) = (load(&args.a)?, load(&args.b)?);
+    let (a, b) = (load_input(&args.a)?, load_input(&args.b)?);
+    let (skipped_a, skipped_b) = (a.skipped, b.skipped);
+    let (kind_a, kind_b) = (a.kind, b.kind);
+    let (a, b) = (a.tables, b.tables);
     let report = compare_tables(&a, &b);
     let disassembly = match &args.disassemble {
         Some(dir) => Some(disassemble_changed_methods(runner, &report, &a, &b, dir)?),
@@ -74,14 +74,43 @@ pub fn compare_acpi(args: &CompareArgs, runner: &dyn Runner) -> Result<Reply> {
         }
     }
     let data = json!({
-        "a": {"path": display_path(&args.a), "tables": a.len()},
-        "b": {"path": display_path(&args.b), "tables": b.len()},
+        "a": {"path": display_path(&args.a), "kind": kind_a, "tables": a.len(), "skipped": skipped_a},
+        "b": {"path": display_path(&args.b), "kind": kind_b, "tables": b.len(), "skipped": skipped_b},
         "pairs": pairs,
         "only_in_a": report.only_in_a,
         "only_in_b": report.only_in_b,
         "disassembly": disassembly,
     });
     Ok(Reply::new(data, text))
+}
+
+/// The tables of one `compare --acpi` side and where they came from.
+struct Input {
+    tables: Vec<FoundTable>,
+    /// `capture` for a `bme diag acpi capture` directory, `table-or-image` otherwise.
+    kind: &'static str,
+    /// Captured table files that are not DSDT or SSDT, so were not compared.
+    skipped: Vec<String>,
+}
+
+/// Read one side: a capture directory, a bare table or a firmware image.
+///
+/// Example: `load_input(Path::new("capture-2026-11-12"))?` yields the capture's DSDT and SSDTs.
+fn load_input(path: &Path) -> Result<Input> {
+    if path.is_dir() {
+        let found = read_capture_tables(path)?;
+        return Ok(Input {
+            tables: found.tables,
+            kind: "capture",
+            skipped: found.skipped,
+        });
+    }
+    let bytes = read_bounded(path, MAX_IMAGE_BYTES)?;
+    Ok(Input {
+        tables: tables_from_input(bytes).map_err(|e| e.context(path.display()))?,
+        kind: "table-or-image",
+        skipped: Vec::new(),
+    })
 }
 
 fn tag(pair: &TablePair) -> String {

@@ -44,7 +44,7 @@
     {
       "source": "docs/guide/diagnostics.md",
       "translation": "docs/pt-BR/guide/diagnostics.md",
-      "sha256": "f779552476d5ce9253fb5988e49978242047ba34fd1ccc6eacee13853a73bd7e"
+      "sha256": "e70e908077d0827d37814158f01b21b8305d1e777eb12fdd80f9b2c78f8be338"
     },
     {
       "source": "docs/guide/flashing.md",
@@ -64,7 +64,7 @@
     {
       "source": "docs/guide/porting.md",
       "translation": "docs/pt-BR/guide/porting.md",
-      "sha256": "e7087d6a131d59a32ab52c2f42d23545a5a5415dcf0857cf738b9cf7b39c1e50"
+      "sha256": "87c157949b476511c9df73c8703a66d21d0f8d503577f9b8709b91717639fc1b"
     },
     {
       "source": "docs/guide/recovery.md",

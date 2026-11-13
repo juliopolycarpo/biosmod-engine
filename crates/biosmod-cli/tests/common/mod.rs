@@ -91,3 +91,31 @@ impl Sandbox {
 pub fn s(path: &Path) -> &str {
     path.to_str().unwrap()
 }
+
+/// Write a directory shaped like a `bme diag acpi capture`: each `(name, bytes)` under
+/// `acpi/tables/`, a `bme.host-capture/1` manifest listing them with their SHA-256, and
+/// `evidence.json` last. `name` may hold a subdirectory such as `dynamic/SSDT3`.
+///
+/// Example: `write_capture_directory(&dir, &[("DSDT", dsdt_bytes)]);`
+pub fn write_capture_directory(dir: &Path, tables: &[(&str, Vec<u8>)]) {
+    let mut listed = Vec::new();
+    for (name, bytes) in tables {
+        let relative = format!("acpi/tables/{name}");
+        let target = dir.join(&relative);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, bytes).unwrap();
+        listed.push(serde_json::json!({
+            "path": relative,
+            "bytes": bytes.len(),
+            "sha256": biosmod_core::util::sha256_hex(bytes),
+        }));
+    }
+    let manifest = serde_json::json!({
+        "schema": "bme.host-capture/1",
+        "command": "diag acpi capture",
+        "files": listed,
+        "skipped": [],
+    });
+    std::fs::write(dir.join("manifest.json"), manifest.to_string()).unwrap();
+    std::fs::write(dir.join("evidence.json"), "{}").unwrap();
+}

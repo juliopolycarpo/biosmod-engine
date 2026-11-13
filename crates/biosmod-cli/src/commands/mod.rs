@@ -1,5 +1,6 @@
 //! Command implementations. Each returns a [`Reply`] or a typed error; printing happens in `main`.
 
+mod capture_input;
 mod case;
 mod catalog;
 mod compare;

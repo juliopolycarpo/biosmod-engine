@@ -104,7 +104,7 @@ fn commands() -> Value {
         {"name": "derive", "writes": [], "network": false, "summary": "draft a variant by unique signature matching"},
         {"name": "compare", "writes": [], "network": false, "summary": "pair two images' modules by GUID; identical, identical after relocation, or different with changed ranges"},
         {"name": "compare --functions", "writes": [], "network": false, "summary": "pair the functions of two tools analyze exports; identical, normalized-identical, changed with instruction ranges, unmatched; heuristic pairs are candidates"},
-        {"name": "compare --acpi", "writes": [], "network": false, "summary": "pair ACPI tables of two ROMs or .aml files by signature and OEM table ID; added, removed and changed methods and names"},
+        {"name": "compare --acpi", "writes": [], "network": false, "summary": "pair ACPI tables of two ROMs, .aml files or diag acpi capture directories by signature and OEM table ID; added, removed and changed methods and names"},
         {"name": "compare --acpi --disassemble", "writes": ["method diffs"], "network": false, "summary": "also run iasl (optional) and write one unified ASL diff per changed method"},
         {"name": "catalog validate|index|show|import-x99fix", "writes": ["catalog files (index, import)"], "network": false},
         {"name": "catalog add|list|remove", "writes": ["config"], "network": false},
