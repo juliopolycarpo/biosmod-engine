@@ -545,6 +545,140 @@ fn extract_replace_and_inspect() {
 }
 
 #[test]
+fn decode_only_encodings_are_inspected_extracted_and_never_rebuilt() {
+    use biosmod_core::synthetic::{DXE_GUID, brotli_section, ffs, module, section, volume};
+    let sandbox = Sandbox::new();
+    let driver = module(2, 512);
+    let image = sandbox.path("brotli.bin");
+    let file = ffs(DXE_GUID, 0x07, &brotli_section(&section(0x10, &driver)), 0);
+    fs::write(&image, volume(&[file], 0x4000)).unwrap();
+
+    let inspect = sandbox
+        .run(["inspect", s(&image), "--files", "--json"])
+        .json();
+    let row = &inspect["data"]["volumes"][0]["files"][0];
+    assert_eq!(row["encodings"], serde_json::json!(["brotli"]));
+    assert_eq!(row["compressed"], true, "{row}");
+    assert_eq!(row["opaque"], false, "{row}");
+    let text = sandbox.run(["inspect", s(&image), "--files"]).stdout;
+    assert!(
+        text.contains(&format!("{DXE_GUID} type 0x07")) && text.contains(" brotli"),
+        "expected a brotli flag on the file row | received {text}"
+    );
+
+    let guid = DXE_GUID.to_string();
+    let module_path = sandbox.path("driver.pe");
+    let extracted = sandbox.run([
+        "extract",
+        s(&image),
+        "--guid",
+        &guid,
+        "-o",
+        s(&module_path),
+        "--json",
+    ]);
+    assert_eq!(extracted.code, 0, "{}", extracted.stdout);
+    assert_eq!(fs::read(&module_path).unwrap(), driver);
+
+    let mut edited = driver.clone();
+    edited[0x40] ^= 1;
+    let input = sandbox.path("edited.pe");
+    fs::write(&input, &edited).unwrap();
+    let replaced = sandbox.run([
+        "replace",
+        s(&image),
+        "--guid",
+        &guid,
+        "--input",
+        s(&input),
+        "-o",
+        s(&sandbox.path("out.bin")),
+        "--json",
+    ]);
+    assert_eq!(replaced.error_code(), "FORMAT_UNSUPPORTED");
+    let message = replaced.json()["error"]["message"].to_string();
+    assert!(
+        message.contains("Brotli section at 0x60: rebuild expected an LZMA or CRC32 encapsulation"),
+        "{message}"
+    );
+}
+
+#[test]
+fn opaque_sections_are_reported_with_guid_and_offset() {
+    use biosmod_core::synthetic::{DXE_GUID, ffs, guid_defined_section, volume};
+    let sandbox = Sandbox::new();
+    let unknown = biosmod_core::util::Guid::constant("01234567-89AB-CDEF-0123-456789ABCDEF");
+    let image = sandbox.path("opaque.bin");
+    let file = ffs(
+        DXE_GUID,
+        0x07,
+        &guid_defined_section(unknown, &[1, 2, 3, 4]),
+        0,
+    );
+    fs::write(&image, volume(&[file], 0x4000)).unwrap();
+    let reason = "GUID-defined section 01234567-89AB-CDEF-0123-456789ABCDEF at 0x60: expected an LZMA, LZMA F86, Brotli or CRC32 GUID | received an unsupported encoding";
+
+    let inspect = sandbox
+        .run(["inspect", s(&image), "--files", "--json"])
+        .json();
+    let row = &inspect["data"]["volumes"][0]["files"][0];
+    assert_eq!(row["opaque"], true, "{row}");
+    assert_eq!(row["opaque_sections"], serde_json::json!([reason]), "{row}");
+    let text = sandbox.run(["inspect", s(&image), "--files"]).stdout;
+    assert!(text.contains(reason), "expected the reason in {text}");
+
+    let extracted = sandbox.run([
+        "extract",
+        s(&image),
+        "--guid",
+        &DXE_GUID.to_string(),
+        "-o",
+        s(&sandbox.path("out.pe")),
+        "--json",
+    ]);
+    assert_eq!(extracted.error_code(), "FORMAT_UNSUPPORTED");
+    let message = extracted.json()["error"]["message"].to_string();
+    assert!(message.contains(reason), "{message}");
+}
+
+#[test]
+fn capabilities_list_decode_only_encodings() {
+    let sandbox = Sandbox::new();
+    let formats = sandbox.run(["capabilities", "--json"]).json()["data"]["formats"].clone();
+    let listed = |key: &str, needle: &str| {
+        formats[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str().unwrap().contains(needle))
+    };
+    for needle in ["EFI 1.1 and Tiano", "Brotli", "LZMA F86"] {
+        assert!(
+            listed("sections", needle),
+            "sections: expected {needle} | {formats}"
+        );
+    }
+    assert!(
+        listed("unsupported", "rebuilding modules inside"),
+        "{formats}"
+    );
+}
+
+#[test]
+fn capabilities_name_the_crc32_guid_the_parser_matches() {
+    let sandbox = Sandbox::new();
+    let formats = sandbox.run(["capabilities", "--json"]).json()["data"]["formats"].clone();
+    let sections = formats["sections"].to_string();
+    assert!(
+        sections.contains(&format!(
+            "CRC32 ({})",
+            &biosmod_core::firmware::CRC32_GUID.to_string()[..8]
+        )),
+        "(sections): expected the CRC32 GUID prefix of CRC32_GUID | received {sections}"
+    );
+}
+
+#[test]
 fn local_sources_and_breadcrumbs() {
     let sandbox = Sandbox::new();
     let (image, catalog) = sandbox.synthetic();

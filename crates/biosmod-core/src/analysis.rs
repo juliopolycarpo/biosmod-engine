@@ -568,6 +568,16 @@ pub(crate) fn patch_state_indexed(
         }
         match match_component(image, catalog, firmware, component) {
             Some(m) => {
+                if let Some((encoding, place)) = image.decode_only_encapsulation(&m.leaf) {
+                    return (
+                        State::Unsupported,
+                        format!(
+                            "{} sits inside a decode-only {} section at {place}; rebuild supports LZMA only",
+                            component.name,
+                            encoding.label()
+                        ),
+                    );
+                }
                 if let Some(message) = offsets.extent_error(component, m.current.len()) {
                     return (State::Unsupported, message);
                 }
@@ -582,7 +592,11 @@ pub(crate) fn patch_state_indexed(
                     .flat_map(|v| &v.files)
                     .any(|f| f.guid == component.ffs_guid && f.opaque);
                 if hidden && in_opaque {
-                    opaque.push(component.name.as_str());
+                    opaque.push(format!(
+                        "{} ({})",
+                        component.name,
+                        image.opaque_sections_of(component.ffs_guid).join("; ")
+                    ));
                 }
                 missing.push(component.name.as_str());
             }

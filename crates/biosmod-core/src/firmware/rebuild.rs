@@ -7,8 +7,8 @@
 //! reference packer exactly, so identical inputs produce identical images.
 
 use super::{
-    CRC32_GUID, FFS_ATTRIB_CHECKSUM, FFS_ATTRIB_DATA_ALIGNMENT_2, FFS_ATTRIB_FIXED,
-    FFS_ATTRIB_LARGE_FILE, FILE_PAD, FfsFile, Image, LZMA_GUID, LeafRef, SECTION_PE32, SECTION_RAW,
+    Encoding, FFS_ATTRIB_CHECKSUM, FFS_ATTRIB_DATA_ALIGNMENT_2, FFS_ATTRIB_FIXED,
+    FFS_ATTRIB_LARGE_FILE, FILE_PAD, FfsFile, Image, LeafRef, SECTION_PE32, SECTION_RAW,
     SECTION_TE, Section, VTF_GUID, Volume, pe, walk,
 };
 use crate::codec;
@@ -124,14 +124,30 @@ fn rebuild_encapsulation(
         .decoded
         .as_ref()
         .ok_or_else(|| Error::new(Code::Internal, "rebuild path enters an undecoded section"))?;
+    let encoding = section.encoding.ok_or_else(|| {
+        Error::new(
+            Code::Internal,
+            "rebuild path enters a section without an encoding",
+        )
+    })?;
+    // Decode-only encodings fail before any re-encoding work.
+    if !encoding.is_rebuildable() {
+        return Err(Error::new(
+            Code::FormatUnsupported,
+            format!(
+                "{} section at {}: rebuild expected an LZMA or CRC32 encapsulation | received a decode-only {} section",
+                encoding.label(),
+                section.place,
+                encoding.label()
+            ),
+        ));
+    }
     let inner = rebuild_stream(&decoded.children, &decoded.bytes, path, body)?;
     let raw = section.raw(stream);
     let mut extra = raw[section.header_size..section.data_offset].to_vec();
-    let payload = match section.guid {
-        Some(guid) if guid == LZMA_GUID => {
-            codec::compress_like(&inner, &raw[section.data_offset..])?
-        }
-        Some(guid) if guid == CRC32_GUID => {
+    let payload = match encoding {
+        Encoding::Lzma => codec::compress_like(&inner, &raw[section.data_offset..])?,
+        _ => {
             if extra.len() < 24 {
                 return Err(Error::new(
                     Code::FormatUnsupported,
@@ -140,12 +156,6 @@ fn rebuild_encapsulation(
             }
             extra[20..24].copy_from_slice(&codec::crc32(&inner).to_le_bytes());
             inner
-        }
-        other => {
-            return Err(Error::new(
-                Code::FormatUnsupported,
-                format!("GUID section {other:?}: rebuilding is not supported"),
-            ));
         }
     };
     extra.extend(payload);
@@ -290,7 +300,7 @@ fn holds_uncompressed_volume(sections: &[Section]) -> bool {
         {
             return true;
         }
-        let compressed = section.guid == Some(LZMA_GUID);
+        let compressed = section.encoding.is_some_and(Encoding::is_compressed);
         !compressed
             && section
                 .decoded
@@ -424,6 +434,7 @@ pub fn write_in_place(out: &mut [u8], volume: &Volume, replaced: &[Replacement])
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::firmware::CRC32_GUID;
 
     /// A 64 KiB descriptor dump whose BIOS region ends at 0xd000, holding one
     /// uncompressed DXE driver linked at `base`.

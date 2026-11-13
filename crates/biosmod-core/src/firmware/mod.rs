@@ -1,10 +1,12 @@
 //! Parse UEFI PI firmware volumes, FFS files and sections.
 //!
 //! Supported: FFSv2/FFSv3 volumes, ordinary and extended section headers,
-//! LZMA and CRC32 GUID-defined sections and nested firmware-volume sections,
-//! the subset exercised by the reference AMI Aptio images. Other
-//! encapsulations (EFI/Tiano compression, unknown GUID-defined sections) are
-//! kept as opaque leaves, flagged, and never rewritten.
+//! nested firmware-volume sections and these encapsulations (see [`Encoding`]):
+//! LZMA, CRC32, EFI 1.1 and Tiano compression sections, Brotli and LZMA F86
+//! GUID-defined sections. Only LZMA and CRC32 content can be rebuilt; the
+//! other encodings are decode-only. Remaining encapsulations (other
+//! compression types, unknown GUID-defined sections) are kept as opaque
+//! leaves, flagged, and never rewritten.
 //!
 //! Example:
 //! ```no_run
@@ -28,6 +30,10 @@ pub const FFS2_GUID: Guid = Guid::constant("8C8CE578-8A3D-4F1C-9935-896185C32DD3
 pub const FFS3_GUID: Guid = Guid::constant("5473C07A-3DCB-4DCA-BD6F-1E9689E7349A");
 pub const LZMA_GUID: Guid = Guid::constant("EE4E5898-3914-4259-9D6E-DC7BD79403CF");
 pub const CRC32_GUID: Guid = Guid::constant("FC1BCDB0-7D31-49AA-936A-A4600D9DD083");
+/// EDK II `BrotliCustomDecompress` GUID-defined section.
+pub const BROTLI_GUID: Guid = Guid::constant("3D532050-5CDA-4FD0-879E-0F7F630D5AFB");
+/// LZMA followed by the x86 BCJ filter (`LzmaF86Decompress`).
+pub const LZMA_F86_GUID: Guid = Guid::constant("D42AE6BD-1352-4BFB-909A-CA72A6EAE889");
 pub const VTF_GUID: Guid = Guid::constant("1BA0062E-C779-4582-8566-336AE8F78F09");
 
 pub const SECTION_COMPRESSION: u8 = 0x01;
@@ -47,8 +53,97 @@ pub const FFS_ATTRIB_CHECKSUM: u8 = 0x40;
 
 /// Maximum combined nesting of sections and volumes.
 pub const MAX_DEPTH: usize = 16;
-/// Maximum bytes decoded from all LZMA sections of one image.
+/// Maximum bytes decoded from all encapsulated sections of one image.
 pub const MAX_TOTAL_DECODED: usize = 512 << 20;
+
+/// How an encapsulating section stores its content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Encoding {
+    /// GUID-defined LZMA.
+    Lzma,
+    /// GUID-defined LZMA followed by the x86 BCJ filter.
+    LzmaX86,
+    /// GUID-defined CRC32 wrapper; the content is stored as is.
+    Crc32,
+    /// GUID-defined Brotli with the EDK II 16-byte header.
+    Brotli,
+    /// Compression section (type 01), EFI 1.1 bitstream.
+    EfiCompression,
+    /// Compression section (type 01), Tiano bitstream.
+    TianoCompression,
+}
+
+impl Encoding {
+    /// Short stable name, as reported in `bme inspect`.
+    pub fn tag(self) -> &'static str {
+        match self {
+            Encoding::Lzma => "lzma",
+            Encoding::LzmaX86 => "lzma-f86",
+            Encoding::Crc32 => "crc32",
+            Encoding::Brotli => "brotli",
+            Encoding::EfiCompression => "efi",
+            Encoding::TianoCompression => "tiano",
+        }
+    }
+
+    /// Human-readable name used in error messages.
+    pub fn label(self) -> &'static str {
+        match self {
+            Encoding::Lzma => "LZMA",
+            Encoding::LzmaX86 => "LZMA F86",
+            Encoding::Crc32 => "CRC32",
+            Encoding::Brotli => "Brotli",
+            Encoding::EfiCompression => "EFI 1.1 compression",
+            Encoding::TianoCompression => "Tiano compression",
+        }
+    }
+
+    /// True when the content is stored compressed (everything but CRC32).
+    pub fn is_compressed(self) -> bool {
+        self != Encoding::Crc32
+    }
+
+    /// True when rebuild can re-encode the content; the rest is decode-only.
+    pub fn is_rebuildable(self) -> bool {
+        matches!(self, Encoding::Lzma | Encoding::Crc32)
+    }
+}
+
+/// Where a buffer being parsed lives, for error messages and [`Section::place`].
+///
+/// A buffer cut from the image has a fixed image offset. Decoded content has
+/// none, so its offsets are relative and name the section they were decoded from.
+#[derive(Debug, Clone)]
+enum Origin {
+    /// `buffer[0]` sits at this image offset.
+    Image(usize),
+    /// The buffer holds content decoded from the section at `parent`; `base` is
+    /// the offset of `buffer[0]` inside that content.
+    Decoded { parent: String, base: usize },
+}
+
+impl Origin {
+    /// Describe `offset` within the buffer: absolute, or relative with its parent.
+    fn at(&self, offset: usize) -> String {
+        match self {
+            Origin::Image(base) => format!("{:#x}", base + offset),
+            Origin::Decoded { parent, base } => {
+                format!("{:#x} in the stream decoded from {parent}", base + offset)
+            }
+        }
+    }
+
+    /// Origin of a sub-buffer that starts at `offset` of this one.
+    fn child(&self, offset: usize) -> Origin {
+        match self {
+            Origin::Image(base) => Origin::Image(base + offset),
+            Origin::Decoded { parent, base } => Origin::Decoded {
+                parent: parent.clone(),
+                base: base + offset,
+            },
+        }
+    }
+}
 
 /// A decoded encapsulation: its plain stream and the sections inside it.
 #[derive(Debug, Clone)]
@@ -64,12 +159,20 @@ pub struct Section {
     pub size: usize,
     pub kind: u8,
     pub header_size: usize,
+    /// Where the section is: its image offset (hex) when it lies in the image
+    /// bytes, otherwise its offset in decoded content plus the section that content
+    /// came from. Error messages use this text.
+    pub place: String,
     /// GUID of a GUID-defined section.
     pub guid: Option<Guid>,
-    /// Payload start, relative to the section, for GUID-defined sections.
+    /// Why an encapsulation was left opaque, as `expected X | received Y`.
+    pub diagnostic: Option<String>,
+    /// Payload start, relative to the section, for GUID-defined and compression sections.
     pub data_offset: usize,
-    /// Set for LZMA and CRC32 GUID-defined sections.
+    /// Set for every encapsulation this engine decodes.
     pub decoded: Option<Decoded>,
+    /// How `decoded` is stored; `Some` exactly when `decoded` is.
+    pub encoding: Option<Encoding>,
     /// Set for firmware-volume image sections.
     pub volumes: Option<Vec<Volume>>,
     /// For CRC32 sections: whether the stored CRC matched.
@@ -94,8 +197,23 @@ impl Section {
 
     /// True for encapsulations this engine cannot see into.
     pub fn is_opaque(&self) -> bool {
-        self.kind == SECTION_COMPRESSION
-            || (self.kind == SECTION_GUID_DEFINED && self.decoded.is_none())
+        self.decoded.is_none()
+            && (self.kind == SECTION_COMPRESSION || self.kind == SECTION_GUID_DEFINED)
+    }
+
+    /// One line naming an opaque section, its GUID, its place and why it is opaque.
+    ///
+    /// Example: `if let Some(line) = section.opaque_description() { eprintln!("{line}"); }`
+    pub fn opaque_description(&self) -> Option<String> {
+        if !self.is_opaque() {
+            return None;
+        }
+        let what = match self.guid {
+            Some(guid) => format!("GUID-defined section {guid}"),
+            None => "compression section".to_string(),
+        };
+        let why = self.diagnostic.as_deref().unwrap_or("not decoded");
+        Some(format!("{what} at {}: {why}", self.place))
     }
 }
 
@@ -117,6 +235,32 @@ impl FfsFile {
     /// Size rounded up to the 8-byte file alignment.
     pub fn extent(&self) -> usize {
         align(self.size, 8)
+    }
+
+    /// Encodings of the encapsulating sections in the file's tree, once each, in first-seen order.
+    ///
+    /// Example: `let tags: Vec<_> = file.encodings().iter().map(|e| e.tag()).collect();`
+    pub fn encodings(&self) -> Vec<Encoding> {
+        let mut found = Vec::new();
+        visit(&self.sections, &[], &mut |section, _| {
+            if let Some(encoding) = section.encoding
+                && !found.contains(&encoding)
+            {
+                found.push(encoding);
+            }
+        });
+        found
+    }
+
+    /// Descriptions of the file's opaque sections (see [`Section::opaque_description`]).
+    ///
+    /// Example: `for line in file.opaque_sections() { println!("{line}"); }`
+    pub fn opaque_sections(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        visit(&self.sections, &[], &mut |section, _| {
+            lines.extend(section.opaque_description());
+        });
+        lines
     }
 
     /// Header bytes, given the containing buffer.
@@ -155,7 +299,7 @@ pub struct LeafRef {
     pub volume: usize,
     pub file: usize,
     pub path: Vec<usize>,
-    /// True when the path passes through an LZMA section.
+    /// True when the path passes through a compressed section (any [`Encoding`] but CRC32).
     pub compressed: bool,
 }
 
@@ -168,15 +312,35 @@ pub struct Image {
     pub leaves: BTreeMap<Guid, Vec<LeafRef>>,
 }
 
+/// Decoded bytes spent so far across one image.
 struct Budget {
     decoded: usize,
+}
+
+impl Budget {
+    /// Largest decoded size the next section may produce.
+    fn section_limit(&self) -> usize {
+        codec::MAX_DECODED.min(MAX_TOTAL_DECODED.saturating_sub(self.decoded))
+    }
+
+    /// Record `bytes` of decoded content, failing past the image-wide cap.
+    fn charge(&mut self, bytes: usize) -> Result<()> {
+        self.decoded = self.decoded.saturating_add(bytes);
+        if self.decoded > MAX_TOTAL_DECODED {
+            return Err(Error::new(
+                Code::FormatUnsupported,
+                format!("image: decoded sections exceed {MAX_TOTAL_DECODED:#x} bytes"),
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Image {
     /// Parse an image, validating every volume header and FFS checksum.
     pub fn parse(bytes: Vec<u8>) -> Result<Image> {
         let mut budget = Budget { decoded: 0 };
-        let volumes = find_volumes(&bytes, false, 0, &mut budget)?;
+        let volumes = find_volumes(&bytes, false, 0, &mut budget, &Origin::Image(0))?;
         if volumes.is_empty() {
             return Err(Error::new(
                 Code::FormatUnsupported,
@@ -217,6 +381,36 @@ impl Image {
     pub fn section(&self, leaf: &LeafRef) -> (&Section, &[u8]) {
         let file = self.file(leaf);
         locate(&file.sections, file.body(&self.bytes), &leaf.path)
+    }
+
+    /// The first decode-only encapsulation (and its [`Section::place`]) a leaf sits inside.
+    ///
+    /// Rebuild refuses such leaves; callers can report that before planning.
+    /// Example: `if let Some((encoding, place)) = image.decode_only_encapsulation(&leaf) { /* refuse */ }`
+    pub fn decode_only_encapsulation(&self, leaf: &LeafRef) -> Option<(Encoding, String)> {
+        let file = self.file(leaf);
+        let mut sections = &file.sections[..];
+        for index in &leaf.path[..leaf.path.len() - 1] {
+            let section = &sections[*index];
+            let encoding = section.encoding?;
+            if !encoding.is_rebuildable() {
+                return Some((encoding, section.place.clone()));
+            }
+            sections = &section.decoded.as_ref()?.children;
+        }
+        None
+    }
+
+    /// Opaque-section descriptions of every file with `guid`.
+    ///
+    /// Example: `for line in image.opaque_sections_of(guid) { eprintln!("{line}"); }`
+    pub fn opaque_sections_of(&self, guid: Guid) -> Vec<String> {
+        self.volumes
+            .iter()
+            .flat_map(|volume| &volume.files)
+            .filter(|file| file.guid == guid)
+            .flat_map(FfsFile::opaque_sections)
+            .collect()
     }
 
     /// The leaf section's body.
@@ -301,7 +495,7 @@ pub fn walk(
     for (index, section) in sections.iter().enumerate() {
         prefix.push(index);
         if let Some(decoded) = &section.decoded {
-            let inner = compressed || section.guid == Some(LZMA_GUID);
+            let inner = compressed || section.encoding.is_some_and(Encoding::is_compressed);
             walk(&decoded.children, prefix, inner, visit);
         } else if section.is_leaf() {
             visit(prefix, section, compressed);
@@ -338,12 +532,13 @@ fn find_volumes(
     nested: bool,
     depth: usize,
     budget: &mut Budget,
+    origin: &Origin,
 ) -> Result<Vec<Volume>> {
     let mut volumes = Vec::new();
     let mut cursor = 0usize;
     while let Some(hit) = find(buffer, b"_FVH", cursor) {
         let parsed = if hit >= 40 {
-            parse_volume(buffer, hit - 40, depth, budget)?
+            parse_volume(buffer, hit - 40, depth, budget, origin)?
         } else {
             None
         };
@@ -376,6 +571,7 @@ fn parse_volume(
     offset: usize,
     depth: usize,
     budget: &mut Budget,
+    origin: &Origin,
 ) -> Result<Option<Volume>> {
     if offset + 56 > buffer.len() || &buffer[offset + 40..offset + 44] != b"_FVH" {
         return Ok(None);
@@ -429,8 +625,15 @@ fn parse_volume(
         };
         start = start.max(ext_end);
     }
-    let (files, free_start) =
-        parse_files(buffer, offset, start, offset + length, depth + 1, budget)?;
+    let (files, free_start) = parse_files(
+        buffer,
+        offset,
+        start,
+        offset + length,
+        depth + 1,
+        budget,
+        origin,
+    )?;
     Ok(Some(Volume {
         offset,
         length,
@@ -449,6 +652,7 @@ fn parse_files(
     end: usize,
     depth: usize,
     budget: &mut Budget,
+    origin: &Origin,
 ) -> Result<(Vec<FfsFile>, usize)> {
     let mut files = Vec::new();
     let mut cursor = base + align(start - base, 8);
@@ -505,7 +709,7 @@ fn parse_files(
         }
         let kind = header[18];
         let sections = if kind != FILE_PAD && kind != FILE_RAW {
-            parse_stream(body, depth, budget)?
+            parse_stream(body, depth, budget, &origin.child(cursor + header_size))?
         } else {
             Vec::new()
         };
@@ -527,7 +731,12 @@ fn parse_files(
 }
 
 /// Split a section stream, decoding LZMA, CRC32 and FV-image sections.
-fn parse_stream(stream: &[u8], depth: usize, budget: &mut Budget) -> Result<Vec<Section>> {
+fn parse_stream(
+    stream: &[u8],
+    depth: usize,
+    budget: &mut Budget,
+    origin: &Origin,
+) -> Result<Vec<Section>> {
     if depth > MAX_DEPTH {
         return Err(Error::new(
             Code::FormatUnsupported,
@@ -551,7 +760,8 @@ fn parse_stream(stream: &[u8], depth: usize, budget: &mut Budget) -> Result<Vec<
             return Err(Error::new(
                 Code::FormatInvalid,
                 format!(
-                    "section at {offset:#x}: size {size:#x} exceeds stream {:#x}",
+                    "section at {}: size {size:#x} exceeds stream {:#x}",
+                    origin.at(offset),
                     stream.len()
                 ),
             ));
@@ -561,17 +771,26 @@ fn parse_stream(stream: &[u8], depth: usize, budget: &mut Budget) -> Result<Vec<
             size,
             kind: stream[offset + 3],
             header_size,
+            place: origin.at(offset),
             guid: None,
+            diagnostic: None,
             data_offset: 0,
             decoded: None,
+            encoding: None,
             volumes: None,
             crc_valid: None,
         };
-        decode_section(&mut section, stream, depth, budget)?;
+        decode_section(&mut section, stream, depth, budget, origin)?;
         result.push(section);
         offset = align(offset + size, 4);
     }
     Ok(result)
+}
+
+/// An encapsulation that decoded: how it is stored and what it holds.
+struct Found {
+    encoding: Encoding,
+    decoded: Decoded,
 }
 
 fn decode_section(
@@ -579,6 +798,7 @@ fn decode_section(
     stream: &[u8],
     depth: usize,
     budget: &mut Budget,
+    origin: &Origin,
 ) -> Result<()> {
     let raw = section.raw(stream);
     if section.kind == SECTION_FV_IMAGE {
@@ -587,19 +807,215 @@ fn decode_section(
             true,
             depth + 1,
             budget,
+            &origin.child(section.offset + section.header_size),
         )?);
         return Ok(());
     }
-    if section.kind != SECTION_GUID_DEFINED {
-        return Ok(());
+    let found = match section.kind {
+        SECTION_COMPRESSION => decode_compression_section(section, raw, depth, budget),
+        SECTION_GUID_DEFINED => decode_guid_defined_section(section, raw, depth, budget),
+        _ => return Ok(()),
+    }?;
+    if let Some(Found { encoding, decoded }) = found {
+        section.encoding = Some(encoding);
+        section.decoded = Some(decoded);
     }
+    Ok(())
+}
+
+/// Keep a section opaque when a decode-only encoding fails on corrupt or foreign data.
+///
+/// The error text becomes the section's diagnostic. Only `FormatInvalid` degrades:
+/// a size-limit failure (`FormatUnsupported`) still aborts the parse, as it does for LZMA.
+fn degrade(section: &mut Section, error: Error) -> Result<Option<Found>> {
+    if error.code != Code::FormatInvalid {
+        return Err(error);
+    }
+    section.diagnostic = Some(error.message);
+    Ok(None)
+}
+
+/// Parse the stream decoded from the section at `place`.
+fn parse_decoded(
+    bytes: &[u8],
+    place: &str,
+    depth: usize,
+    budget: &mut Budget,
+) -> Result<Vec<Section>> {
+    let origin = Origin::Decoded {
+        parent: place.to_string(),
+        base: 0,
+    };
+    parse_stream(bytes, depth + 1, budget, &origin)
+}
+
+/// Run `decode` with the largest size this image's budget still allows.
+///
+/// Failures name `label` and the section place.
+fn decode_within_budget(
+    place: &str,
+    label: &str,
+    budget: &Budget,
+    decode: impl FnOnce(usize) -> Result<Vec<u8>>,
+) -> Result<Vec<u8>> {
+    let limit = budget.section_limit();
+    decode(limit).map_err(|error| {
+        let error = error.context(format!("{label} section at {place}"));
+        if limit < codec::MAX_DECODED {
+            error.context(format!(
+                "image budget {MAX_TOTAL_DECODED:#x} bytes, {limit:#x} left"
+            ))
+        } else {
+            error
+        }
+    })
+}
+
+/// Compression section (type 01): only compression type 1 (EFI 1.1 or Tiano) is decoded.
+///
+/// The stream has no checksum, so the wrong variant can decode to garbage. Each
+/// variant is decoded in turn (Tiano first) and the first whose output parses as a
+/// section stream wins. The second is still tried after a first success: when both
+/// parse to different content the section is ambiguous and stays opaque. Every
+/// decoded byte counts against the image budget, kept or not. The second variant is
+/// only decoded after the first one's result is complete, so a first failure frees
+/// its bytes before the next decode.
+fn decode_compression_section(
+    section: &mut Section,
+    raw: &[u8],
+    depth: usize,
+    budget: &mut Budget,
+) -> Result<Option<Found>> {
+    let h = section.header_size;
+    if raw.len() < h + 5 {
+        let error = Error::new(
+            Code::FormatInvalid,
+            format!(
+                "compression section at {}: shorter than its {}-byte header",
+                section.place,
+                h + 5
+            ),
+        );
+        return degrade(section, error);
+    }
+    let declared = le32(raw, h, "compression section decoded length")? as usize;
+    if raw[h + 4] != 1 {
+        section.diagnostic = Some(format!(
+            "expected compression type 1 | received type {}",
+            raw[h + 4]
+        ));
+        return Ok(None);
+    }
+    section.data_offset = h + 5;
+    let payload = &raw[h + 5..];
+    let place = section.place.clone();
+    let decode = |variant, limit| codec::efi_decompress_as(payload, variant, limit);
+    match decode_efi_variants(payload, declared, &place, depth, budget, decode) {
+        Ok(found) => Ok(Some(found)),
+        Err(error) => degrade(section, error),
+    }
+}
+
+/// Try the Tiano then EFI 1.1 decoders (`decode`) on `payload`; see [`decode_compression_section`].
+fn decode_efi_variants(
+    payload: &[u8],
+    declared: usize,
+    place: &str,
+    depth: usize,
+    budget: &mut Budget,
+    decode: impl Fn(codec::tiano::Variant, usize) -> Result<Vec<u8>>,
+) -> Result<Found> {
+    use codec::tiano::Variant;
+    // Both variants read the same header; check it once, before any decoding.
+    if payload.len() >= 8 {
+        let original = le32(payload, 4, "EFI compression original size")? as usize;
+        if original != declared {
+            return Err(Error::new(
+                Code::FormatInvalid,
+                format!(
+                    "EFI compression section at {place}: expected decoded length {declared:#x} from the section header | received {original:#x}"
+                ),
+            ));
+        }
+    }
+    let mut accepted: Option<Found> = None;
+    let mut failures = Vec::new();
+    for variant in [Variant::Tiano, Variant::Efi] {
+        let encoding = match variant {
+            Variant::Tiano => Encoding::TianoCompression,
+            Variant::Efi => Encoding::EfiCompression,
+        };
+        let label = encoding.label();
+        let plain = match decode_within_budget(place, "EFI compression", budget, |limit| {
+            decode(variant, limit)
+        }) {
+            Ok(plain) => plain,
+            // A header error is the same for both variants; a size limit aborts.
+            Err(error) if error.code == Code::FormatInvalid && payload.len() >= 8 => {
+                failures.push(format!("{label}: {}", error.message));
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        budget.charge(plain.len())?;
+        // A wrong variant's garbage fails to parse: that rejects it, whatever the error.
+        let children = match parse_decoded(&plain, place, depth, budget) {
+            Ok(children) => children,
+            Err(error) => {
+                failures.push(format!("{label}: {}", error.message));
+                continue;
+            }
+        };
+        match &accepted {
+            None => {
+                accepted = Some(Found {
+                    encoding,
+                    decoded: Decoded {
+                        bytes: plain,
+                        children,
+                    },
+                })
+            }
+            Some(first) if first.decoded.bytes == plain => {}
+            Some(first) => {
+                return Err(Error::new(
+                    Code::FormatInvalid,
+                    format!(
+                        "EFI compression section at {place}: expected one variant to parse | received {} and {label} with different content",
+                        first.encoding.label()
+                    ),
+                ));
+            }
+        }
+    }
+    accepted.ok_or_else(|| {
+        Error::new(
+            Code::FormatInvalid,
+            format!(
+                "EFI compression section at {place}: expected a variant that yields a section stream | received {}",
+                failures.join(" | ")
+            ),
+        )
+    })
+}
+
+/// GUID-defined section: LZMA, LZMA F86, Brotli and CRC32 are decoded.
+///
+/// A damaged LZMA or CRC32 section fails the parse. The decode-only encodings
+/// (F86, Brotli) degrade to opaque sections with a diagnostic instead.
+fn decode_guid_defined_section(
+    section: &mut Section,
+    raw: &[u8],
+    depth: usize,
+    budget: &mut Budget,
+) -> Result<Option<Found>> {
     let h = section.header_size;
     if raw.len() < h + 20 {
         return Err(Error::new(
             Code::FormatInvalid,
             format!(
-                "GUID section at {:#x}: shorter than its 20-byte header",
-                section.offset
+                "GUID section at {}: shorter than its 20-byte header",
+                section.place
             ),
         ));
     }
@@ -607,39 +1023,59 @@ fn decode_section(
     let data_offset = usize::from(le16(raw, h + 16, "GUID section data offset")?);
     section.guid = Some(guid);
     section.data_offset = data_offset;
-    if guid != LZMA_GUID && guid != CRC32_GUID {
-        return Ok(());
+    let encoding = match guid {
+        LZMA_GUID => Encoding::Lzma,
+        LZMA_F86_GUID => Encoding::LzmaX86,
+        BROTLI_GUID => Encoding::Brotli,
+        CRC32_GUID => Encoding::Crc32,
+        _ => {
+            section.diagnostic = Some(
+                "expected an LZMA, LZMA F86, Brotli or CRC32 GUID | received an unsupported encoding"
+                    .to_string(),
+            );
+            return Ok(None);
+        }
+    };
+    let found = decode_guid_content(section, raw, encoding, depth, budget);
+    if encoding.is_rebuildable() {
+        found.map(Some)
+    } else {
+        match found {
+            Ok(found) => Ok(Some(found)),
+            Err(error) => degrade(section, error),
+        }
     }
+}
+
+/// Decode the payload of a recognised GUID-defined section.
+fn decode_guid_content(
+    section: &mut Section,
+    raw: &[u8],
+    encoding: Encoding,
+    depth: usize,
+    budget: &mut Budget,
+) -> Result<Found> {
+    let h = section.header_size;
+    let data_offset = section.data_offset;
     if data_offset < h + 20 || data_offset > raw.len() {
         return Err(Error::new(
             Code::FormatInvalid,
             format!(
-                "GUID section at {:#x}: data offset {data_offset:#x} outside {:#x}..={:#x}",
-                section.offset,
+                "GUID section at {}: data offset {data_offset:#x} outside {:#x}..={:#x}",
+                section.place,
                 h + 20,
                 raw.len()
             ),
         ));
     }
     let payload = &raw[data_offset..];
-    let decoded = if guid == LZMA_GUID {
-        let plain = codec::decompress(payload)
-            .map_err(|e| e.context(format!("LZMA section at {:#x}", section.offset)))?;
-        budget.decoded = budget.decoded.saturating_add(plain.len());
-        if budget.decoded > MAX_TOTAL_DECODED {
-            return Err(Error::new(
-                Code::FormatUnsupported,
-                format!("image: decoded sections exceed {MAX_TOTAL_DECODED:#x} bytes"),
-            ));
-        }
-        plain
-    } else {
+    let plain = if encoding == Encoding::Crc32 {
         if data_offset < h + 24 {
             return Err(Error::new(
                 Code::FormatInvalid,
                 format!(
-                    "CRC32 section at {:#x}: data offset {data_offset:#x} leaves no CRC32 field",
-                    section.offset
+                    "CRC32 section at {}: data offset {data_offset:#x} leaves no CRC32 field",
+                    section.place
                 ),
             ));
         }
@@ -649,20 +1085,36 @@ fn decode_section(
             return Err(Error::new(
                 Code::FormatInvalid,
                 format!(
-                    "CRC32 section at {:#x}: expected checksum {actual:#010x} | received {stored:#010x}",
-                    section.offset
+                    "CRC32 section at {}: expected checksum {actual:#010x} | received {stored:#010x}",
+                    section.place
                 ),
             ));
         }
         section.crc_valid = Some(true);
         payload.to_vec()
+    } else {
+        let plain =
+            decode_within_budget(
+                &section.place,
+                encoding.label(),
+                budget,
+                |limit| match encoding {
+                    Encoding::Lzma => codec::decompress_within(payload, limit),
+                    Encoding::LzmaX86 => codec::lzma_x86_decompress(payload, limit),
+                    _ => codec::brotli_decompress(payload, limit),
+                },
+            )?;
+        budget.charge(plain.len())?;
+        plain
     };
-    let children = parse_stream(&decoded, depth + 1, budget)?;
-    section.decoded = Some(Decoded {
-        bytes: decoded,
-        children,
-    });
-    Ok(())
+    let children = parse_decoded(&plain, &section.place, depth, budget)?;
+    Ok(Found {
+        encoding,
+        decoded: Decoded {
+            bytes: plain,
+            children,
+        },
+    })
 }
 
 /// One Intel flash-descriptor region.
@@ -782,5 +1234,474 @@ mod crc_regression {
                 .contains("data offset 0x18 leaves no CRC32 field"),
             "{error}"
         );
+    }
+}
+
+#[cfg(test)]
+mod encoding_tests {
+    use super::*;
+    use crate::codec::tiano::tests::fixture_text;
+    use crate::synthetic::{
+        DXE_GUID, compression_section, ffs, guid_defined_section, lzma_f86_section, lzma_section,
+        section, volume, x86_code,
+    };
+
+    const STREAM_EFI: &[u8] = include_bytes!("../../tests/fixtures/stream.efi");
+    const STREAM_TIANO: &[u8] = include_bytes!("../../tests/fixtures/stream.tiano");
+    const STREAM_BROTLI: &[u8] = include_bytes!("../../tests/fixtures/stream.br");
+
+    /// The section stream the fixtures compress: one RAW section of fixture text.
+    fn raw_stream() -> Vec<u8> {
+        section(SECTION_RAW, &fixture_text(300, 1))
+    }
+
+    fn brotli_section(declared: u64, stream: &[u8]) -> Vec<u8> {
+        let mut payload = declared.to_le_bytes().to_vec();
+        payload.extend_from_slice(&0x1000u64.to_le_bytes());
+        payload.extend_from_slice(stream);
+        guid_defined_section(BROTLI_GUID, &payload)
+    }
+
+    fn parse_one(encapsulation: &[u8]) -> Result<Image> {
+        Image::parse(volume(&[ffs(DXE_GUID, 0x07, encapsulation, 0)], 0x1000))
+    }
+
+    /// The decoded plain stream and leaf body of the only section of the only file.
+    fn decoded_leaf(image: &Image) -> (Encoding, Vec<u8>) {
+        let section = &image.volumes[0].files[0].sections[0];
+        let leaf = &image.leaves[&DXE_GUID][0];
+        assert!(leaf.compressed, "expected a compressed leaf path");
+        assert!(!image.volumes[0].files[0].opaque, "expected a decoded file");
+        (
+            section.encoding.expect("section has an encoding"),
+            image.leaf_body(leaf).to_vec(),
+        )
+    }
+
+    #[test]
+    fn efi_and_tiano_compression_sections_decode_and_record_the_variant() {
+        for (stream, expected) in [
+            (STREAM_EFI, Encoding::EfiCompression),
+            (STREAM_TIANO, Encoding::TianoCompression),
+        ] {
+            let image = parse_one(&compression_section(1, 304, stream)).expect("parses");
+            let (encoding, body) = decoded_leaf(&image);
+            assert_eq!(encoding, expected);
+            assert_eq!(body, fixture_text(300, 1));
+            let section = &image.volumes[0].files[0].sections[0];
+            assert_eq!(section.data_offset, 9, "payload follows the 5-byte header");
+            assert!(!section.is_opaque());
+        }
+    }
+
+    /// An EFI 1.1 stream (EDK II `EfiCompress`) of one RAW section holding 39 bytes of 0x01.
+    ///
+    /// Tiano decodes it without error to a different, invalid section stream.
+    const AMBIGUOUS_EFI: &[u8] = include_bytes!("../../tests/fixtures/ambiguous.efi");
+
+    #[test]
+    fn a_variant_that_decodes_to_garbage_does_not_hide_the_valid_one() {
+        let real = section(SECTION_RAW, &[1; 39]);
+        let tiano = codec::efi_decompress_as(AMBIGUOUS_EFI, codec::tiano::Variant::Tiano, 1 << 20)
+            .expect("expected Tiano to decode this stream, to garbage");
+        let efi = codec::efi_decompress_as(AMBIGUOUS_EFI, codec::tiano::Variant::Efi, 1 << 20)
+            .expect("expected EFI 1.1 to decode this stream");
+        assert!(tiano != real, "expected Tiano to decode garbage");
+        assert!(efi == real, "expected EFI 1.1 to decode the real stream");
+
+        let image = parse_one(&compression_section(1, 43, AMBIGUOUS_EFI)).expect("parses");
+        let section = &image.volumes[0].files[0].sections[0];
+        assert_eq!(section.encoding, Some(Encoding::EfiCompression));
+        assert_eq!(section.decoded.as_ref().unwrap().bytes, real);
+        assert_eq!(image.leaf_body(&image.leaves[&DXE_GUID][0]), [1u8; 39]);
+    }
+
+    /// A payload whose 8-byte header declares `declared` decoded bytes.
+    fn header_only_payload(declared: usize) -> Vec<u8> {
+        let mut payload = vec![0u8; 4];
+        payload.extend((declared as u32).to_le_bytes());
+        payload
+    }
+
+    /// Named fake for the two EFI decoders: Tiano and EFI 1.1 return fixed bytes.
+    fn fake_variants(
+        tiano: Vec<u8>,
+        efi: Vec<u8>,
+    ) -> impl Fn(codec::tiano::Variant, usize) -> Result<Vec<u8>> {
+        move |variant, _limit| {
+            Ok(match variant {
+                codec::tiano::Variant::Tiano => tiano.clone(),
+                codec::tiano::Variant::Efi => efi.clone(),
+            })
+        }
+    }
+
+    #[test]
+    fn two_variants_that_parse_to_different_content_are_ambiguous() {
+        let tiano = section(SECTION_RAW, &[1; 8]);
+        let efi = section(SECTION_RAW, &[2; 8]);
+        let payload = header_only_payload(tiano.len());
+        let mut budget = Budget { decoded: 0 };
+        let decode = fake_variants(tiano.clone(), efi);
+        let error = decode_efi_variants(&payload, tiano.len(), "0x60", 0, &mut budget, decode)
+            .map(|found| found.encoding)
+            .unwrap_err();
+        assert_eq!(error.code, Code::FormatInvalid);
+        assert!(
+            error.message.contains(
+                "EFI compression section at 0x60: expected one variant to parse | received Tiano compression and EFI 1.1 compression with different content"
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn two_variants_that_parse_to_the_same_content_are_not_ambiguous() {
+        let content = section(SECTION_RAW, &[1; 8]);
+        let payload = header_only_payload(content.len());
+        let mut budget = Budget { decoded: 0 };
+        let decode = fake_variants(content.clone(), content.clone());
+        let found =
+            decode_efi_variants(&payload, content.len(), "0x60", 0, &mut budget, decode).unwrap();
+        assert_eq!(found.encoding, Encoding::TianoCompression);
+        assert_eq!(found.decoded.bytes, content);
+    }
+
+    #[test]
+    fn a_variant_that_fails_to_parse_does_not_make_the_other_ambiguous() {
+        let content = section(SECTION_RAW, &[1; 8]);
+        let garbage = vec![0x55; content.len()];
+        let payload = header_only_payload(content.len());
+        let mut budget = Budget { decoded: 0 };
+        let decode = fake_variants(content.clone(), garbage);
+        let found =
+            decode_efi_variants(&payload, content.len(), "0x60", 0, &mut budget, decode).unwrap();
+        assert_eq!(found.encoding, Encoding::TianoCompression);
+        assert_eq!(
+            budget.decoded,
+            2 * content.len(),
+            "both variants decode and are charged"
+        );
+    }
+
+    #[test]
+    fn a_rejected_variant_still_spends_the_image_budget() {
+        // Tiano decodes 43 bytes of garbage that fail to parse, then EFI 1.1 decodes
+        // the real 43 bytes: both count, so ambiguous nesting cannot dodge the cap.
+        let stream = compression_section(1, 43, AMBIGUOUS_EFI);
+        let mut budget = Budget { decoded: 0 };
+        let sections = parse_stream(&stream, 1, &mut budget, &Origin::Image(0)).unwrap();
+        assert_eq!(sections[0].encoding, Some(Encoding::EfiCompression));
+        assert_eq!(
+            budget.decoded, 86,
+            "(image budget) expected 43 bytes per decoded variant | received {}",
+            budget.decoded
+        );
+    }
+
+    #[test]
+    fn brotli_guid_section_decodes() {
+        let image = parse_one(&brotli_section(304, STREAM_BROTLI)).expect("parses");
+        let (encoding, body) = decoded_leaf(&image);
+        assert_eq!(encoding, Encoding::Brotli);
+        assert_eq!(body, fixture_text(300, 1));
+    }
+
+    #[test]
+    fn lzma_f86_section_decodes_with_the_x86_filter_undone() {
+        let code = x86_code(600);
+        let image = parse_one(&lzma_f86_section(&section(SECTION_RAW, &code))).expect("parses");
+        let (encoding, body) = decoded_leaf(&image);
+        assert_eq!(encoding, Encoding::LzmaX86);
+        assert!(body == code, "expected the BCJ filter to be undone");
+    }
+
+    #[test]
+    fn encodings_nest_inside_lzma() {
+        let inner = compression_section(1, 304, STREAM_TIANO);
+        let image = parse_one(&lzma_section(&inner)).expect("parses");
+        let leaf = &image.leaves[&DXE_GUID][0];
+        assert_eq!(leaf.path, [0, 0, 0]);
+        assert!(leaf.compressed);
+        assert_eq!(image.leaf_body(leaf), fixture_text(300, 1));
+        let outer = &image.volumes[0].files[0].sections[0];
+        assert_eq!(outer.encoding, Some(Encoding::Lzma));
+        let nested = &outer.decoded.as_ref().unwrap().children[0];
+        assert_eq!(nested.encoding, Some(Encoding::TianoCompression));
+    }
+
+    #[test]
+    fn other_compression_types_stay_opaque() {
+        let image = parse_one(&compression_section(0, 4, &[1, 2, 3, 4])).expect("parses");
+        let file = &image.volumes[0].files[0];
+        assert!(file.opaque);
+        assert!(file.sections[0].is_opaque());
+        assert_eq!(file.sections[0].encoding, None);
+    }
+
+    #[test]
+    fn unknown_guid_defined_sections_stay_opaque() {
+        let unknown = Guid::constant("01234567-89AB-CDEF-0123-456789ABCDEF");
+        let image = parse_one(&guid_defined_section(unknown, &[1, 2, 3, 4])).expect("parses");
+        assert!(image.volumes[0].files[0].opaque);
+    }
+
+    #[test]
+    fn opaque_sections_report_their_guid_and_image_offset() {
+        let unknown = Guid::constant("01234567-89AB-CDEF-0123-456789ABCDEF");
+        let image = parse_one(&guid_defined_section(unknown, &[1, 2, 3, 4])).expect("parses");
+        assert_eq!(
+            image.volumes[0].files[0].opaque_sections(),
+            [
+                "GUID-defined section 01234567-89AB-CDEF-0123-456789ABCDEF at 0x60: expected an LZMA, LZMA F86, Brotli or CRC32 GUID | received an unsupported encoding"
+            ]
+        );
+    }
+
+    #[test]
+    fn opaque_compression_sections_report_their_type() {
+        let image = parse_one(&compression_section(2, 4, &[0; 8])).expect("parses");
+        assert_eq!(
+            image.volumes[0].files[0].opaque_sections(),
+            ["compression section at 0x60: expected compression type 1 | received type 2"]
+        );
+    }
+
+    #[test]
+    fn decoded_sections_are_not_reported_as_opaque() {
+        let image = parse_one(&lzma_section(&raw_stream())).expect("parses");
+        assert!(image.volumes[0].files[0].opaque_sections().is_empty());
+    }
+
+    /// The diagnostic of the only section of the only file, which must be opaque.
+    fn opaque_diagnostic(image: &Image) -> String {
+        let file = &image.volumes[0].files[0];
+        assert!(file.opaque, "expected an opaque file");
+        let section = &file.sections[0];
+        assert!(section.decoded.is_none() && section.encoding.is_none());
+        section
+            .diagnostic
+            .clone()
+            .expect("opaque section has a diagnostic")
+    }
+
+    #[test]
+    fn declared_section_length_must_match_the_decoded_stream() {
+        let image = parse_one(&compression_section(1, 303, STREAM_TIANO)).expect("parses");
+        assert!(
+            opaque_diagnostic(&image).contains(
+                "EFI compression section at 0x60: expected decoded length 0x12f from the section header | received 0x130"
+            ),
+            "{}",
+            opaque_diagnostic(&image)
+        );
+    }
+
+    #[test]
+    fn corrupt_decode_only_streams_stay_opaque_with_a_diagnostic() {
+        let mut truncated = STREAM_TIANO.to_vec();
+        truncated.truncate(60);
+        let image = parse_one(&compression_section(1, 304, &truncated)).expect("parses");
+        let reason = opaque_diagnostic(&image);
+        assert!(
+            reason.starts_with("EFI compression section at 0x60"),
+            "{reason}"
+        );
+
+        let image = parse_one(&brotli_section(304, &STREAM_BROTLI[..40])).expect("parses");
+        let reason = opaque_diagnostic(&image);
+        assert!(reason.starts_with("Brotli section at 0x60"), "{reason}");
+        let line = image.volumes[0].files[0].opaque_sections().remove(0);
+        assert!(
+            line.starts_with(&format!(
+                "GUID-defined section {BROTLI_GUID} at 0x60: Brotli"
+            )),
+            "{line}"
+        );
+
+        let image = parse_one(&guid_defined_section(LZMA_F86_GUID, &[0; 5])).expect("parses");
+        let reason = opaque_diagnostic(&image);
+        assert!(reason.starts_with("LZMA F86 section at 0x60"), "{reason}");
+    }
+
+    #[test]
+    fn corrupt_lzma_and_crc32_sections_still_fail_the_parse() {
+        let error = parse_one(&guid_defined_section(LZMA_GUID, &[0; 5])).unwrap_err();
+        assert_eq!(error.code, Code::FormatInvalid, "{error}");
+        assert!(error.message.starts_with("LZMA section at 0x60"), "{error}");
+    }
+
+    #[test]
+    fn expansion_bombs_fail_on_a_named_limit() {
+        let mut efi = STREAM_TIANO.to_vec();
+        efi[4..8].copy_from_slice(&0x4000_0000u32.to_le_bytes());
+        let error = parse_one(&compression_section(1, 0x4000_0000, &efi)).unwrap_err();
+        assert_eq!(error.code, Code::FormatUnsupported);
+        assert!(
+            error
+                .message
+                .contains("declares 0x40000000 decoded bytes | expected at most 0x4000000"),
+            "{error}"
+        );
+        assert!(
+            error.message.contains("EFI compression section at 0x60"),
+            "{error}"
+        );
+
+        let error = parse_one(&brotli_section(1 << 40, STREAM_BROTLI)).unwrap_err();
+        assert_eq!(error.code, Code::FormatUnsupported);
+        assert!(
+            error.message.contains("expected at most 0x4000000"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn the_image_wide_budget_caps_what_later_sections_may_decode() {
+        let mut budget = Budget {
+            decoded: MAX_TOTAL_DECODED - 100,
+        };
+        assert_eq!(budget.section_limit(), 100);
+        let stream = compression_section(1, 304, STREAM_TIANO);
+        let error = parse_stream(&stream, 1, &mut budget, &Origin::Image(0)).unwrap_err();
+        assert_eq!(error.code, Code::FormatUnsupported);
+        assert!(
+            error
+                .message
+                .contains("image budget 0x20000000 bytes, 0x64 left"),
+            "{error}"
+        );
+        assert!(error.message.contains("expected at most 0x64"), "{error}");
+    }
+
+    #[test]
+    fn budget_charge_fails_past_the_image_cap_and_saturates() {
+        let mut budget = Budget { decoded: 0 };
+        budget
+            .charge(MAX_TOTAL_DECODED)
+            .expect("exactly at the cap");
+        assert_eq!(budget.section_limit(), 0);
+        let error = budget.charge(1).unwrap_err();
+        assert_eq!(error.code, Code::FormatUnsupported);
+        assert!(
+            error
+                .message
+                .contains("image: decoded sections exceed 0x20000000 bytes"),
+            "{error}"
+        );
+        budget.decoded = usize::MAX;
+        assert_eq!(budget.section_limit(), 0);
+    }
+
+    #[test]
+    fn rebuild_refuses_modules_inside_decode_only_encodings() {
+        let cases = [
+            (
+                compression_section(1, 304, STREAM_TIANO),
+                "Tiano compression",
+            ),
+            (
+                compression_section(1, 304, STREAM_EFI),
+                "EFI 1.1 compression",
+            ),
+            (brotli_section(304, STREAM_BROTLI), "Brotli"),
+            (
+                lzma_f86_section(&section(SECTION_RAW, &x86_code(600))),
+                "LZMA F86",
+            ),
+        ];
+        for (encapsulation, label) in cases {
+            let image = parse_one(&encapsulation).expect("parses");
+            let leaf = image.leaves[&DXE_GUID][0].clone();
+            let error = rebuild::rebuilt_file(&image, &leaf, &[0u8; 8]).unwrap_err();
+            assert_eq!(error.code, Code::FormatUnsupported, "{label}: {error}");
+            assert!(
+                error.message.contains(&format!(
+                    "{label} section at 0x60: rebuild expected an LZMA or CRC32 encapsulation | received a decode-only {label} section"
+                )),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn decode_only_encapsulation_names_the_first_blocking_section() {
+        let mut stream = lzma_section(&compression_section(1, 304, STREAM_TIANO));
+        let image = parse_one(&stream).expect("parses");
+        let leaf = &image.leaves[&DXE_GUID][0];
+        assert_eq!(
+            image.decode_only_encapsulation(leaf),
+            Some((
+                Encoding::TianoCompression,
+                "0x0 in the stream decoded from 0x60".to_string()
+            )),
+            "LZMA is rebuildable, the Tiano section inside it is not"
+        );
+        stream = lzma_section(&raw_stream());
+        let image = parse_one(&stream).expect("parses");
+        assert_eq!(
+            image.decode_only_encapsulation(&image.leaves[&DXE_GUID][0]),
+            None
+        );
+        let plain = Image::parse(volume(&[ffs(DXE_GUID, 0x07, &raw_stream(), 0)], 0x1000)).unwrap();
+        assert_eq!(
+            plain.decode_only_encapsulation(&plain.leaves[&DXE_GUID][0]),
+            None
+        );
+    }
+
+    #[test]
+    fn rebuild_still_reencodes_lzma() {
+        let image = parse_one(&lzma_section(&raw_stream())).expect("parses");
+        let leaf = image.leaves[&DXE_GUID][0].clone();
+        let body = fixture_text(300, 2);
+        let file = rebuild::rebuilt_file(&image, &leaf, &body).expect("LZMA rebuilds");
+        let rebuilt = Image::parse(volume(&[file], 0x1000)).expect("rebuilt parses");
+        assert_eq!(rebuilt.leaf_body(&rebuilt.leaves[&DXE_GUID][0]), body);
+    }
+
+    #[test]
+    fn file_encodings_list_each_encapsulation_once_in_tree_order() {
+        let inner = compression_section(1, 304, STREAM_TIANO);
+        let mut stream = lzma_section(&inner);
+        stream.resize(align(stream.len(), 4), 0);
+        stream.extend(brotli_section(304, STREAM_BROTLI));
+        let image = parse_one(&stream).expect("parses");
+        assert_eq!(
+            image.volumes[0].files[0].encodings(),
+            [Encoding::Lzma, Encoding::TianoCompression, Encoding::Brotli]
+        );
+        let plain = Image::parse(volume(&[ffs(DXE_GUID, 0x07, &raw_stream(), 0)], 0x1000)).unwrap();
+        assert!(plain.volumes[0].files[0].encodings().is_empty());
+    }
+
+    #[test]
+    fn encoding_names_and_capabilities() {
+        let all = [
+            (Encoding::Lzma, "lzma", "LZMA", true, true),
+            (Encoding::LzmaX86, "lzma-f86", "LZMA F86", true, false),
+            (Encoding::Crc32, "crc32", "CRC32", false, true),
+            (Encoding::Brotli, "brotli", "Brotli", true, false),
+            (
+                Encoding::EfiCompression,
+                "efi",
+                "EFI 1.1 compression",
+                true,
+                false,
+            ),
+            (
+                Encoding::TianoCompression,
+                "tiano",
+                "Tiano compression",
+                true,
+                false,
+            ),
+        ];
+        for (encoding, tag, label, compressed, rebuildable) in all {
+            assert_eq!(encoding.tag(), tag);
+            assert_eq!(encoding.label(), label);
+            assert_eq!(encoding.is_compressed(), compressed, "{label}");
+            assert_eq!(encoding.is_rebuildable(), rebuildable, "{label}");
+        }
     }
 }
