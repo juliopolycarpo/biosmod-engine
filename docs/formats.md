@@ -9,7 +9,7 @@ English | [Brazilian Portuguese](pt-BR/formats.md)
 | FFS files | header and data checksums verified on input and rebuilt on output; large-file headers |
 | Sections | decoded: FV image, GUID-defined LZMA, GUID-defined CRC32 (checked); leaves: PE32, TE, raw, UI and the rest. Compression sections (type 01) and other GUID-defined encodings stay opaque, so modules inside them report `unsupported` |
 | LZMA | decode bounded to 64 MiB per section and 512 MiB per image; re-encoding reproduces the original properties and is checked by decoding |
-| ACPI | DSDT inside a raw section (`leaf: acpi-table`), table checksum maintained by the hunk itself |
+| ACPI | DSDT inside a raw section (`leaf: acpi-table`), table checksum maintained by the hunk itself; `inspect --acpi` lists every checksum-valid table in PE32, TE and raw sections (stored set only) |
 | PE32/PE32+ | section tables, image base, base relocations, direct branch fields (for signature masking) |
 | HII / IFR | package lists in PE, TE or raw bytes (`bme ifr`): string packages (SCSU, UCS-2) and form packages; read-only |
 | NVRAM stores | AMI NVAR (records, `next` chains, GUID table, `StdDefaults`/`MfgDefaults` nested stores) and EDK II VSS/VSS2 and `$VSS` (plain and authenticated headers) via `bme nvram`; read-only |

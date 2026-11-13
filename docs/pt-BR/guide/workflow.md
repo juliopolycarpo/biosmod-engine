@@ -18,6 +18,20 @@ Escolha IDs de unidades de aplicação, como `B01-B06` e `B02-B03`, em vez dos I
 
 Alguns registros exigem `--assert <fact>` para hardware confirmado na placa física, `--allow-hold` para efeitos desconhecidos no hardware ou `--allow-diagnostic` para patches de diagnóstico. `bme catalog show` lista os fatos necessários.
 
+## Listar tabelas ACPI armazenadas
+
+```sh
+bme inspect dump.bin --acpi
+bme inspect dump.bin --acpi --json
+bme extract dump.bin --leaf acpi-table --guid <owning-guid> --signature SSDT --oem-table-id PmMgt -o PmMgt.aml
+```
+
+`inspect --acpi` examina toda seção PE32, TE e raw decodificada em busca de cabeçalhos ACPI cuja assinatura tem quatro caracteres imprimíveis, cujo tamanho cabe na seção, cuja revisão vai de 1 a 0x20, cujos OEM ID, OEM table ID e ID do criador são ASCII imprimível preenchido com NUL e cujos bytes somam zero módulo 256. A regra de texto evita que código e dados de PE correspondam por acaso; uma tabela real com ID binário não seria listada. Cada tabela distinta (por SHA-256) aparece uma vez, com assinatura, revisão, tamanho, OEM ID, OEM table ID, revisão OEM, criador, SHA-256 e todos os locais: GUID e nome UI do arquivo FFS dono, caminho da seção, tipo da seção e deslocamento dentro dela. Arquivos em volumes aninhados dentro de seções FV image também são examinados; seus locais nomeiam os arquivos envolventes em `nested_in`. O JSON traz a lista em `data.acpi.tables` e repete a declaração de escopo em `data.acpi.notice`.
+
+A lista é o conjunto armazenado, não o que o firmware publica em tempo de execução. FADT, MADT e tabelas semelhantes costumam ser montadas durante o boot e não têm checksum armazenado válido, por isso não aparecem. Uma tabela com checksum armazenado que o firmware altera antes de publicar é listada como armazenada.
+
+`extract --leaf acpi-table` sem seletor mantém o significado original: a DSDT no deslocamento 0 da seção raw do arquivo que começa com ela. `--signature`, `--oem-table-id` e `--sha256` escolhem qualquer tabela listada do arquivo indicado por `--guid`, inclusive tabelas dentro de seções PE32, e gravam seus bytes exatos. Um seletor que corresponde a várias tabelas distintas falha com `TARGET_AMBIGUOUS` e as nomeia; `--sha256` sempre escolhe uma. O JSON mantém as chaves da forma sem seletor (`output`, `length`, `sha256`, `compressed`, `file_offset`) e acrescenta `table`. `replace` continua tratando somente a forma da DSDT.
+
 ## Gerar e visualizar
 
 ```sh

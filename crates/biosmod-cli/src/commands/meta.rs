@@ -80,16 +80,16 @@ pub fn version() -> Reply {
 
 fn commands() -> Value {
     json!([
-        {"name": "inspect", "writes": [], "network": false, "summary": "volumes, files, descriptor regions"},
         {"name": "ifr", "writes": [], "network": false, "summary": "decode Setup forms (UEFI IFR): questions, varstore offsets, options, defaults, conditions"},
         {"name": "nvram", "writes": ["variable data (--dump -o)"], "network": false, "summary": "list NVRAM variables (AMI NVAR, EDK II VSS) with record state, GUID, size and hash; --field compares a Setup question's stored value with its IFR default"},
+        {"name": "inspect", "writes": [], "network": false, "summary": "volumes, files, descriptor regions; --acpi lists stored ACPI tables"},
         {"name": "scan", "writes": [], "network": false, "summary": "firmware detection and patch states"},
         {"name": "plan", "writes": ["plan file"], "network": false, "summary": "compatibility command for saving a plan"},
         {"name": "export", "writes": ["patch recipe"], "network": false, "summary": "save an exact recipe for patch IDs or recommendations"},
         {"name": "patch", "writes": ["image", "manifest"], "network": false, "summary": "build a verified copy from patch IDs, recommendations or a saved recipe"},
         {"name": "patch --dry-run", "writes": [], "network": false, "summary": "build and validate in memory without publishing files"},
         {"name": "verify", "writes": [], "network": false, "summary": "independent check of an input/output pair"},
-        {"name": "extract", "writes": ["module"], "network": false, "summary": "write one PE32 or ACPI module"},
+        {"name": "extract", "writes": ["module"], "network": false, "summary": "write one PE32 or ACPI module; ACPI tables can be picked by --signature, --oem-table-id or --sha256"},
         {"name": "replace", "writes": ["image", "manifest"], "network": false, "summary": "put an edited module back"},
         {"name": "derive", "writes": [], "network": false, "summary": "draft a variant by unique signature matching"},
         {"name": "catalog validate|index|show|import-x99fix", "writes": ["catalog files (index, import)"], "network": false},
@@ -128,6 +128,7 @@ pub fn capabilities() -> Reply {
             "sections": ["FV image", "GUID-defined LZMA (EE4E5898)", "GUID-defined CRC32 (FC1BCDB2)", "PE32", "TE", "raw", "UI"],
             "leaves": ["pe32", "acpi-table"],
             "variable_stores": ["AMI NVAR (records, chains, GUID table, StdDefaults/MfgDefaults)", "EDK II VSS/VSS2 and $VSS (plain and authenticated headers); read-only"],
+            "acpi_inventory": "checksum-valid ACPI tables in PE32, TE and raw sections (stored set, not the runtime-published set)",
             "rebuild": ["equal-size and appended hunks", "LZMA re-encoding byte-identical to liblzma", "free-space file reflow; XIP files never move"],
             "unsupported": ["compression sections (type 01: EFI standard, Tiano)", "other GUID-defined encodings such as Brotli", "capsule and signed update formats", "moving execute-in-place files"]
         },

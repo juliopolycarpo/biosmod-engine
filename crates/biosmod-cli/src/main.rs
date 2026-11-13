@@ -106,6 +106,9 @@ pub struct InspectArgs {
     /// List every FFS file.
     #[arg(long)]
     pub files: bool,
+    /// List every checksum-valid ACPI table stored in the image (not the runtime-published set).
+    #[arg(long)]
+    pub acpi: bool,
 }
 
 #[derive(Args)]
@@ -265,6 +268,15 @@ pub struct ExtractArgs {
     pub guid: String,
     #[arg(long, value_enum, default_value = "pe32")]
     pub leaf: commands::Leaf,
+    /// With --leaf acpi-table: table signature to pick, e.g. SSDT (see `inspect --acpi`).
+    #[arg(long)]
+    pub signature: Option<String>,
+    /// With --leaf acpi-table: OEM table ID to pick, e.g. PmMgt.
+    #[arg(long)]
+    pub oem_table_id: Option<String>,
+    /// With --leaf acpi-table: table SHA-256 to pick.
+    #[arg(long)]
+    pub sha256: Option<String>,
     #[arg(short, long)]
     pub output: PathBuf,
 }

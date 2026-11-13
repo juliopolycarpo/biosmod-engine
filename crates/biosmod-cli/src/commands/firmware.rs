@@ -29,6 +29,7 @@ use crate::{
     DeriveArgs, DirectSelection, ExportArgs, ExtractArgs, InspectArgs, PatchArgs, PlanArgs,
     ReplaceArgs, ScanArgs, SelectArgs, SnapshotExpectations, VerifyArgs,
 };
+use biosmod_core::acpi;
 use biosmod_core::analysis::{self, ScanReport, State, module_bytes};
 use biosmod_core::catalog::{LeafKind, Scope};
 use biosmod_core::firmware::{self, Image, rebuild};
@@ -115,11 +116,54 @@ pub fn inspect(args: &InspectArgs) -> Result<Reply> {
             "filesystem": volume.filesystem, "free": volume.free_bytes(), "files": files,
         }));
     }
-    let data = json!({
+    let mut data = json!({
         "path": display_path(&args.rom), "length": image.bytes.len(), "sha256": sha256_hex(&image.bytes),
         "flash_base": image.flash_base(), "descriptor_regions": regions, "volumes": volumes,
     });
+    if args.acpi {
+        let inventory = acpi::inventory(&image);
+        text += &acpi_text(&inventory);
+        data["acpi"] = json!(inventory);
+    }
     Ok(Reply::new(data, text))
+}
+
+/// Human table of an ACPI inventory: one row per distinct table, then its locations.
+fn acpi_text(inventory: &acpi::Inventory) -> String {
+    let mut text = format!(
+        "ACPI tables: {} distinct\n{}\n",
+        inventory.tables.len(),
+        inventory.notice
+    );
+    for table in &inventory.tables {
+        let _ = writeln!(
+            text,
+            "  {:<4} {:<8} rev {} {:>7} bytes  oem {} oem-rev {:#x} creator {} {:#x}  sha256 {}",
+            table.signature,
+            table.oem_table_id,
+            table.revision,
+            table.length,
+            table.oem_id,
+            table.oem_revision,
+            table.creator_id,
+            table.creator_revision,
+            table.sha256
+        );
+        for at in &table.locations {
+            let path: Vec<String> = at.section_path.iter().map(usize::to_string).collect();
+            let _ = writeln!(
+                text,
+                "       file {} {} section {} ({}{}) offset {:#x}",
+                at.file_guid,
+                at.file_name.as_deref().unwrap_or("-"),
+                path.join("/"),
+                at.section_kind,
+                if at.compressed { ", lzma" } else { "" },
+                at.offset
+            );
+        }
+    }
+    text
 }
 
 /// A patch id with the flags its selection needs, e.g. `H01 (--allow-hold --assert superio-nct5532d)`.
@@ -1071,11 +1115,46 @@ fn find_leaf(image: &Image, guid: Guid, kind: LeafKind) -> Result<(firmware::Lea
     Ok(hits.into_iter().next().expect("one hit"))
 }
 
+/// The table selector from `extract` flags; empty when none was given.
+fn table_selector(args: &ExtractArgs) -> Result<acpi::TableSelector> {
+    let selector = acpi::TableSelector {
+        signature: args.signature.clone(),
+        oem_table_id: args.oem_table_id.clone(),
+        sha256: args.sha256.as_deref().map(str::parse).transpose()?,
+    };
+    if !selector.is_empty() && !matches!(args.leaf, super::Leaf::AcpiTable) {
+        return Err(Error::new(
+            Code::SelectionInvalid,
+            format!(
+                "--signature, --oem-table-id and --sha256: expected --leaf acpi-table | received --leaf {:?}",
+                args.leaf
+            ),
+        ));
+    }
+    Ok(selector)
+}
+
 pub fn extract(args: &ExtractArgs) -> Result<Reply> {
     check_outputs(&[&args.output], &[&args.rom])?;
+    let selector = table_selector(args)?;
     let image = read_image(&args.rom)?;
     let guid: Guid = args.guid.parse()?;
-    let (leaf, data) = find_leaf(&image, guid, args.leaf.into())?;
+    // Without selectors, an ACPI leaf keeps its original meaning: the DSDT at offset 0
+    // of the file's raw section that starts with it. Selectors read any stored table, including those
+    // inside PE sections, through the same scan `inspect --acpi` lists.
+    let (data, mut record) = if selector.is_empty() {
+        let (leaf, data) = find_leaf(&image, guid, args.leaf.into())?;
+        let record =
+            json!({"compressed": leaf.compressed, "file_offset": image.file(&leaf).offset});
+        (data, record)
+    } else {
+        let (table, data) = acpi::select_table(&image, guid, &selector)?;
+        // Same keys as the selector-less form, taken from the first copy; `table` is extra.
+        let at = &table.locations[0];
+        let record =
+            json!({"compressed": at.compressed, "file_offset": at.file_offset, "table": table});
+        (data, record)
+    };
     crate::config::write_new(&args.output, &data)?;
     let digest = sha256_hex(&data);
     let text = format!(
@@ -1083,10 +1162,10 @@ pub fn extract(args: &ExtractArgs) -> Result<Reply> {
         args.output.display(),
         data.len()
     );
-    Ok(Reply::new(
-        json!({"output": display_path(&args.output), "length": data.len(), "sha256": digest, "compressed": leaf.compressed, "file_offset": image.file(&leaf).offset}),
-        text,
-    ))
+    record["output"] = json!(display_path(&args.output));
+    record["length"] = json!(data.len());
+    record["sha256"] = json!(digest);
+    Ok(Reply::new(record, text))
 }
 
 pub fn replace(args: &ReplaceArgs) -> Result<Reply> {

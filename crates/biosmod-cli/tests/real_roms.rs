@@ -603,3 +603,198 @@ fn mr9a_installed_image_sets_memory_frequency_13_against_the_auto_default() {
         "(MR9A installed defaults): expected Auto (0) | received {values:?}"
     );
 }
+
+/// One stored table of a stock dump: signature, OEM table ID, length, SHA-256 and owning GUIDs.
+type StoredRow = (String, String, u64, String, Vec<String>);
+
+/// Stored tables of the stock dump `input`, from `bme inspect --acpi --json`.
+fn stored_acpi(var: &str, input: &std::path::Path) -> Vec<StoredRow> {
+    let listed = Sandbox::new()
+        .run(["inspect", s(input), "--acpi", "--json"])
+        .json();
+    listed["data"]["acpi"]["tables"]
+        .as_array()
+        .unwrap_or_else(|| panic!("({var}): expected data.acpi.tables | received {listed}"))
+        .iter()
+        .map(|t| {
+            let guids = t["locations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|l| l["file_guid"].as_str().unwrap().to_string())
+                .collect();
+            (
+                t["signature"].as_str().unwrap().to_string(),
+                t["oem_table_id"].as_str().unwrap().to_string(),
+                t["length"].as_u64().unwrap(),
+                t["sha256"].as_str().unwrap().to_string(),
+                guids,
+            )
+        })
+        .collect()
+}
+
+/// Stored tables expected in a stock dump: signature, OEM table ID, length, SHA-256.
+///
+/// The first five of PR9 and the first four of MR9A plus `PttSsdt` come from the exploratory
+/// Python inventory of the same dumps. `NITR` passes the same checksum rule and is not in
+/// that inventory, which only kept tables it recognized.
+const PR9_TABLES: &[(&str, &str, u64, &str)] = &[
+    (
+        "DSDT",
+        "A M I",
+        208_780,
+        "f9ac4576906895417c5a272f8ff06994e34b6d3c031546a27d3c7d16e9b609f2",
+    ),
+    (
+        "SSDT",
+        "PmMgt",
+        86_651,
+        "d9e996cfc868de997317907a8bb564471ee1ea8c1a28c8c7d9b864408648b859",
+    ),
+    (
+        "SSDT",
+        "SSDT HWP",
+        166_500,
+        "cb452004729cecae32659a9e8c47d2dd14cb45708730142107cc8aea28d2b0cd",
+    ),
+    (
+        "SSDT",
+        "IdeTable",
+        1_173,
+        "6a6b1e4ef1e49cacfdd87877fad9a2608488c7f39069cc7da572e798a21e0c95",
+    ),
+    (
+        "SSDT",
+        "SataTabl",
+        877,
+        "db199e367aab6883bbbeec61aab06337ccaaaf3128d43013f7eb7cb75aeb89d4",
+    ),
+    (
+        "NITR",
+        "ACPI_OEM",
+        113,
+        "c6656d6a3f5255ced36cfe03e4e10f313638fd295546dc074df662caebbbb603",
+    ),
+];
+const MR9A_TABLES: &[(&str, &str, u64, &str)] = &[
+    (
+        "DSDT",
+        "A M I",
+        210_445,
+        "578fc629a1e4af887d54fb3f8c91fbb74fda0d84dce0a8881c67574ff6bad67e",
+    ),
+    (
+        "SSDT",
+        "PmMgt",
+        86_915,
+        "a71565d5f2cabc159f4c68e064742e38e734504937e62e8fcd2a002935a18df3",
+    ),
+    (
+        "SSDT",
+        "SSDT HWP",
+        321_636,
+        "4928101107db5db226576560345bc5d926e58eae7b01abc8cc7c62ccd5ae54e5",
+    ),
+    (
+        "SSDT",
+        "IdeTable",
+        1_173,
+        "6a6b1e4ef1e49cacfdd87877fad9a2608488c7f39069cc7da572e798a21e0c95",
+    ),
+    (
+        "SSDT",
+        "SataTabl",
+        877,
+        "db199e367aab6883bbbeec61aab06337ccaaaf3128d43013f7eb7cb75aeb89d4",
+    ),
+    (
+        "SSDT",
+        "PttSsdt",
+        65,
+        "33d3555c5a0a9b746db4349de660ba00083cff57c437bede9d7fe51a21b8b062",
+    ),
+    (
+        "NITR",
+        "ACPI_OEM",
+        113,
+        "c6656d6a3f5255ced36cfe03e4e10f313638fd295546dc074df662caebbbb603",
+    ),
+];
+
+#[test]
+fn stock_images_list_exactly_their_stored_acpi_tables() {
+    for (var, expected) in [("BME_ROM_PR9", PR9_TABLES), ("BME_ROM_MR9A", MR9A_TABLES)] {
+        let Some(input) = rom(var) else { continue };
+        let mut listed: Vec<(String, String, u64, String)> = stored_acpi(var, &input)
+            .into_iter()
+            .map(|t| (t.0, t.1, t.2, t.3))
+            .collect();
+        let mut wanted: Vec<(String, String, u64, String)> = expected
+            .iter()
+            .map(|t| (t.0.to_string(), t.1.to_string(), t.2, t.3.to_string()))
+            .collect();
+        listed.sort();
+        wanted.sort();
+        assert_eq!(
+            listed, wanted,
+            "({var} stored ACPI tables): expected exactly the reference set | received a different set"
+        );
+    }
+}
+
+#[test]
+fn every_listed_stock_acpi_table_extracts_unchanged() {
+    for var in ["BME_ROM_PR9", "BME_ROM_MR9A"] {
+        let Some(input) = rom(var) else { continue };
+        let sandbox = Sandbox::new();
+        for (n, (signature, oem_table_id, length, digest, guids)) in
+            stored_acpi(var, &input).into_iter().enumerate()
+        {
+            for (k, guid) in guids.iter().enumerate() {
+                let selectors = [
+                    vec!["--sha256", digest.as_str()],
+                    vec![
+                        "--signature",
+                        signature.as_str(),
+                        "--oem-table-id",
+                        oem_table_id.as_str(),
+                    ],
+                ];
+                for (m, by) in selectors.into_iter().enumerate() {
+                    let out = sandbox.path(&format!("table-{n}-{k}-{m}"));
+                    let mut args = vec![
+                        "extract",
+                        s(&input),
+                        "--guid",
+                        guid,
+                        "--leaf",
+                        "acpi-table",
+                        "-o",
+                        s(&out),
+                        "--json",
+                    ];
+                    args.extend(&by);
+                    let run = sandbox.run(args);
+                    let ctx = format!("({var} {signature} {oem_table_id} in {guid} via {by:?})");
+                    assert_eq!(
+                        run.code, 0,
+                        "{ctx}: expected exit 0 | received {}",
+                        run.stdout
+                    );
+                    let bytes = std::fs::read(&out).unwrap();
+                    assert_eq!(
+                        bytes.len() as u64,
+                        length,
+                        "{ctx}: expected length {length}"
+                    );
+                    assert_eq!(
+                        biosmod_core::util::sha256_hex(&bytes),
+                        digest,
+                        "{ctx}: expected extracted sha256 {digest}"
+                    );
+                }
+            }
+        }
+    }
+}

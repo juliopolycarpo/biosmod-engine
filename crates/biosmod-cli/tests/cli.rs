@@ -1881,3 +1881,201 @@ fn nvram_surfaces_the_ifr_diagnostics_of_a_module_that_failed_to_decode() {
         field.stdout
     );
 }
+
+/// Write the ACPI inventory fixture and return its path.
+fn acpi_fixture(
+    sandbox: &Sandbox,
+) -> (
+    std::path::PathBuf,
+    biosmod_core::synthetic::AcpiInventoryFixture,
+) {
+    let fixture = biosmod_core::synthetic::AcpiInventoryFixture::new();
+    let path = sandbox.path("acpi.bin");
+    fs::write(&path, &fixture.image).unwrap();
+    (path, fixture)
+}
+
+#[test]
+fn inspect_acpi_lists_stored_tables_and_states_the_scope() {
+    let sandbox = Sandbox::new();
+    let (image, fixture) = acpi_fixture(&sandbox);
+    let doc = sandbox
+        .run(["inspect", s(&image), "--acpi", "--json"])
+        .json();
+    let acpi = &doc["data"]["acpi"];
+    assert!(
+        acpi["notice"]
+            .as_str()
+            .unwrap()
+            .contains("not the set the firmware publishes"),
+        "(acpi.notice): expected the stored-set statement | received {acpi}"
+    );
+    let tables = acpi["tables"].as_array().unwrap();
+    let ids: Vec<&str> = tables
+        .iter()
+        .map(|t| t["oem_table_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        ["InPe", "InRaw"],
+        "(oem table ids): decoy must not be listed"
+    );
+    assert_eq!(tables[0]["locations"][0]["file_name"], "PeHost");
+    assert_eq!(tables[0]["locations"][0]["section_kind"], "pe32");
+    assert_eq!(tables[0]["locations"][0]["offset"], fixture.pe_offset);
+    assert_eq!(tables[1]["length"], fixture.raw_table.len());
+    let text = sandbox.run(["inspect", s(&image), "--acpi"]).stdout;
+    assert!(text.contains("ACPI tables: 2 distinct"), "{text}");
+    assert!(text.contains("InRaw"), "{text}");
+    let plain = sandbox.run(["inspect", s(&image), "--json"]).json();
+    assert!(
+        plain["data"].get("acpi").is_none(),
+        "(inspect without --acpi): expected no acpi key | received {plain}"
+    );
+}
+
+#[test]
+fn extract_picks_stored_acpi_tables_by_signature_id_or_hash() {
+    let sandbox = Sandbox::new();
+    let (image, fixture) = acpi_fixture(&sandbox);
+    let pe_guid = fixture.pe_guid.to_string();
+    let try_extract = |name: &str, guid: &str, extra: &[&str]| {
+        let out = sandbox.path(name);
+        let mut args = vec![
+            "extract",
+            s(&image),
+            "--guid",
+            guid,
+            "--leaf",
+            "acpi-table",
+            "-o",
+            s(&out),
+            "--json",
+        ];
+        args.extend(extra);
+        (sandbox.run(args), out)
+    };
+    // A table inside a PE section, picked by signature and OEM table ID.
+    let (run, out) = try_extract(
+        "pe.aml",
+        &pe_guid,
+        &["--signature", "SSDT", "--oem-table-id", "InPe"],
+    );
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    assert_eq!(fs::read(out).unwrap(), fixture.pe_table);
+    // The mixed file holds two tables: a bare signature is ambiguous, a hash is not.
+    let mixed = fixture.mixed_guid.to_string();
+    let (run, _) = try_extract("amb.aml", &mixed, &["--signature", "SSDT"]);
+    assert_eq!(run.error_code(), "TARGET_AMBIGUOUS");
+    let digest = biosmod_core::util::sha256_hex(&fixture.raw_table);
+    let (run, out) = try_extract("raw.aml", &mixed, &["--sha256", &digest]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    assert_eq!(fs::read(out).unwrap(), fixture.raw_table);
+    let (run, _) = try_extract("none.aml", &pe_guid, &["--oem-table-id", "Nope"]);
+    assert_eq!(run.error_code(), "TARGET_NOT_FOUND");
+    // The decoy sits in a valid raw section but fails its checksum.
+    let decoy_digest = biosmod_core::util::sha256_hex(&fixture.decoy);
+    let raw_guid = fixture.raw_guid.to_string();
+    let (run, _) = try_extract("decoy.aml", &raw_guid, &["--sha256", &decoy_digest]);
+    assert_eq!(run.error_code(), "TARGET_NOT_FOUND");
+}
+
+#[test]
+fn extract_table_selectors_require_the_acpi_leaf() {
+    let sandbox = Sandbox::new();
+    let (image, fixture) = acpi_fixture(&sandbox);
+    let guid = fixture.pe_guid.to_string();
+    let run = sandbox.run([
+        "extract",
+        s(&image),
+        "--guid",
+        &guid,
+        "--signature",
+        "SSDT",
+        "-o",
+        s(&sandbox.path("x")),
+        "--json",
+    ]);
+    assert_eq!(run.error_code(), "SELECTION_INVALID");
+    let bad_hash = sandbox.run([
+        "extract",
+        s(&image),
+        "--guid",
+        &guid,
+        "--leaf",
+        "acpi-table",
+        "--sha256",
+        "XYZ",
+        "-o",
+        s(&sandbox.path("y")),
+        "--json",
+    ]);
+    assert_ne!(bad_hash.code, 0, "(--sha256 XYZ): expected a rejection");
+}
+
+#[test]
+fn extract_json_shape_is_the_same_with_and_without_a_table_selector() {
+    let sandbox = Sandbox::new();
+    // Without a selector: the DSDT leaf of the synthetic image.
+    let (syn_image, _) = sandbox.synthetic();
+    let plain = sandbox
+        .run([
+            "extract",
+            s(&syn_image),
+            "--guid",
+            &biosmod_core::synthetic::TABLE_GUID.to_string(),
+            "--leaf",
+            "acpi-table",
+            "-o",
+            s(&sandbox.path("dsdt.aml")),
+            "--json",
+        ])
+        .json();
+    // With a selector: a PE-embedded table of the ACPI fixture.
+    let (image, fixture) = acpi_fixture(&sandbox);
+    let guid = fixture.pe_guid.to_string();
+    let picked = sandbox
+        .run([
+            "extract",
+            s(&image),
+            "--guid",
+            &guid,
+            "--leaf",
+            "acpi-table",
+            "--oem-table-id",
+            "InPe",
+            "-o",
+            s(&sandbox.path("pe.aml")),
+            "--json",
+        ])
+        .json();
+    for (name, doc) in [("no selector", &plain), ("selector", &picked)] {
+        for key in ["output", "length", "sha256", "compressed", "file_offset"] {
+            assert!(
+                doc["data"].get(key).is_some(),
+                "({name} extract data.{key}): expected present | received {doc}"
+            );
+        }
+    }
+    assert!(
+        plain["data"].get("table").is_none(),
+        "(no selector extract data.table): expected absent | received {plain}"
+    );
+    assert_eq!(picked["data"]["table"]["oem_table_id"], "InPe");
+    assert_eq!(picked["data"]["compressed"], false);
+    // file_offset is the owning file's offset within its volume, as `inspect --files` reports.
+    let listed = sandbox
+        .run(["inspect", s(&image), "--files", "--json"])
+        .json();
+    let expected = listed["data"]["volumes"][0]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["guid"] == guid.as_str())
+        .map(|f| f["offset"].clone())
+        .unwrap();
+    assert_eq!(
+        picked["data"]["file_offset"], expected,
+        "(selector extract data.file_offset): expected the file offset from inspect"
+    );
+}
