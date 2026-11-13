@@ -89,6 +89,24 @@ impl Default for SignalBlock {
     }
 }
 
+/// Nothing to restore, but the type has a destructor like the unix one, so a caller that
+/// releases it early with `drop(held)` is valid on every platform.
+#[cfg(not(unix))]
+impl Drop for SignalBlock {
+    fn drop(&mut self) {}
+}
+
+#[cfg(all(test, not(unix)))]
+mod tests_non_unix {
+    use super::*;
+
+    #[test]
+    fn a_block_can_be_released_early_without_effect() {
+        let held = SignalBlock::new();
+        drop(held);
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
