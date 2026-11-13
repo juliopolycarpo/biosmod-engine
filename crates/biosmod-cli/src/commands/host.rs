@@ -55,6 +55,13 @@ fn unsupported(command: &str) -> biosmod_core::Error {
 ///
 /// Example: with fake surfaces, `capture_acpi_to(&surfaces, Path::new("capture"))`
 /// writes `capture/acpi/tables/DSDT`, `capture/manifest.json` and `capture/evidence.json`.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
 pub fn capture_acpi_to(surfaces: &HostSurfaces, output: &Path) -> Result<Reply> {
     let bundle = acpi::capture(surfaces)?;
     publish_bundle(output, &bundle)?;
@@ -88,6 +95,13 @@ pub fn capture_acpi_to(surfaces: &HostSurfaces, output: &Path) -> Result<Reply> 
 }
 
 /// Publish every bundle file; `evidence.json` is last, so it marks a complete capture.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
 fn publish_bundle(output: &Path, bundle: &Bundle) -> Result<()> {
     let files: Vec<(&str, &[u8])> = bundle
         .files
