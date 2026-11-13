@@ -19,6 +19,7 @@ serde_json.workspace = true
 
 [dependencies]
 biosmod-core.workspace = true
+biosmod-host.workspace = true
 clap = { version = "4.6.7", default-features = false, features = [
   "std",
   "help",
@@ -46,6 +47,7 @@ zip = { version = "9.4.2", default-features = false, features = ["deflate-flate2
 libc = "0.2"
 
 [dev-dependencies]
+biosmod-host = { workspace = true, features = ["testkit"] }
 base64 = "0.22"
 blake2 = { version = "0.10", default-features = false, features = ["std"] }
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }

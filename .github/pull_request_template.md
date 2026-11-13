@@ -7,9 +7,9 @@
 <!-- Commands run and their results. Say which real-ROM checks ran and which were skipped. -->
 
 - [ ] `cargo fmt --all --check`
-- [ ] `cargo clippy -p biosmod-core -p biosmod-cli --all-targets -- -D warnings`
-- [ ] `cargo nextest run --locked -p biosmod-core -p biosmod-cli`
-- [ ] `cargo test --locked --doc -p biosmod-core -p biosmod-cli`
+- [ ] `cargo clippy -p biosmod-core -p biosmod-host -p biosmod-cli --all-targets -- -D warnings`
+- [ ] `cargo nextest run --locked -p biosmod-core -p biosmod-host -p biosmod-cli`
+- [ ] `cargo test --locked --doc -p biosmod-core -p biosmod-host -p biosmod-cli`
 - [ ] `cargo clippy -p biosmod-gui --all-targets -- -D warnings` (GUI changes)
 - [ ] `cargo nextest run --locked -p biosmod-gui` (GUI changes)
 - [ ] `cargo test --locked --doc -p biosmod-gui` (GUI changes)

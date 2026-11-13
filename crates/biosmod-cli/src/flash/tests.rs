@@ -8,6 +8,7 @@ use super::host::{board_matches, describe_chip};
 use super::*;
 use crate::toolchain::{Finished, Invocation, Runner};
 use biosmod_core::synthetic::Fixture;
+use biosmod_host::testkit::FakeSysfs;
 use std::cell::{Cell, RefCell};
 
 const PAGE: usize = 0x1000;
@@ -154,47 +155,15 @@ impl Runner for FakeFlashChip {
     }
 }
 
-/// A directory tree standing in for `/sys` and `/proc`.
-struct FakeSysfs {
-    root: tempfile::TempDir,
+/// The flash diagnosis view of a [`FakeSysfs`] tree.
+trait HostOf {
+    fn host(&self, euid: u32) -> Host;
 }
 
-impl FakeSysfs {
-    fn new() -> FakeSysfs {
-        FakeSysfs {
-            root: tempfile::tempdir().unwrap(),
-        }
-    }
-
-    fn file(self, path: &str, contents: impl AsRef<[u8]>) -> FakeSysfs {
-        let target = self.root.path().join(path);
-        fs::create_dir_all(target.parent().unwrap()).unwrap();
-        fs::write(target, contents).unwrap();
-        self
-    }
-
-    fn directory(self, path: &str) -> FakeSysfs {
-        fs::create_dir_all(self.root.path().join(path)).unwrap();
-        self
-    }
-
-    /// The MR9A as it identifies itself, with an unlocked kernel.
-    fn mr9a() -> FakeSysfs {
-        FakeSysfs::new()
-            .file("sys/class/dmi/id/board_vendor", "MACHINIST\n")
-            .file("sys/class/dmi/id/board_name", "E5-MR9A PRO\n")
-            .file("sys/class/dmi/id/board_version", "V1.2\n")
-            .file("sys/class/dmi/id/bios_version", "5.11\n")
-            .file(
-                "sys/kernel/security/lockdown",
-                "[none] integrity confidentiality\n",
-            )
-            .file("proc/cmdline", "ro quiet splash\n")
-    }
-
+impl HostOf for FakeSysfs {
     fn host(&self, euid: u32) -> Host {
         Host {
-            root: self.root.path().to_path_buf(),
+            root: self.root().to_path_buf(),
             os: "linux",
             euid: Some(euid),
         }

@@ -4,17 +4,17 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "732966a5cd7599a7065d8480dda051e28f24757432f0316ae990193c52ce489f"
+      "sha256": "66085fb209aa29881182fbf65f55cb099b2de31e58f505c04a4522111c3bbc11"
     },
     {
       "source": "CONTRIBUTING.md",
       "translation": "CONTRIBUTING.pt-BR.md",
-      "sha256": "877507ecf639da52e122998652a1e1bb72571d379aa2618822e67687b498bcee"
+      "sha256": "e11ca6a30b09428fdb20550fe99ea40b638d6ceda576660b50d62b7de5d59ce2"
     },
     {
       "source": "docs/architecture.md",
       "translation": "docs/pt-BR/architecture.md",
-      "sha256": "a1bf1e731bb6bc1f4a9f3d456a2628295916364d17465d80bc8a2a89ca2bc5c4"
+      "sha256": "bdcdf61ab962c999ac852e3d9de53dcc5ed25f81ed9faf49bb49b733f1b95678"
     },
     {
       "source": "docs/baseline.md",
@@ -40,6 +40,11 @@
       "source": "docs/guide/catalogs.md",
       "translation": "docs/pt-BR/guide/catalogs.md",
       "sha256": "877b2742820be146954d8ab1e506aab01ccd9a8b7dce152ccc136a2ac5cdf496"
+    },
+    {
+      "source": "docs/guide/diagnostics.md",
+      "translation": "docs/pt-BR/guide/diagnostics.md",
+      "sha256": "b639b28cb2f42d6dd32d92eb1178a21179f94ab2ac2429292bfbd4d03f8f0111"
     },
     {
       "source": "docs/guide/flashing.md",

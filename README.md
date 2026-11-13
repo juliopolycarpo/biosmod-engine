@@ -92,6 +92,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | catalog sources and maintenance                               |
 | `tools status/set/unset/doctor/setup ghidra/analyze/paths`         | see, locate and install Ghidra 12.2 with ghidra-firmware-utils |
 | `diag breadcrumbs decode/read`                                     | MR9A MRC checkpoint diagnostic (read uses ports 72h/73h only) |
+| `diag acpi capture`                                                | hashed bundle of ACPI tables, sleep state and kernel sleep messages with an evidence record (Linux, root) |
 | `flash doctor`, `flash probe`, `flash backup`, `flash write`       | diagnose, find, back up and write the chip via flashrom (Linux) |
 | `dev synthetic`                                                    | a synthetic image and catalog to try everything safely        |
 | `version`, `capabilities`, `schema`, `guide`                       | contracts and built-in documentation                          |
@@ -104,7 +105,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 - [Formats](docs/formats.md): supported firmware structures and limits
 - [Setup forms (IFR)](docs/guide/ifr.md): decode questions, offsets and defaults
 - [NVRAM variables](docs/guide/nvram.md): record states, saved defaults and stored Setup values
-- [Protocol](docs/guide/agents.md), [trust](docs/guide/trust.md), [catalogs](docs/guide/catalogs.md), [recovery](docs/guide/recovery.md)
+- [Protocol](docs/guide/agents.md), [trust](docs/guide/trust.md), [catalogs](docs/guide/catalogs.md), [recovery](docs/guide/recovery.md), [host diagnostics](docs/guide/diagnostics.md)
 - [Linux desktop qualification](docs/linux-desktop-qualification.md): tested environments and limits
 - [Desktop guide](docs/guide/gui.md): Linux setup and build workflow
 - [Contributing](CONTRIBUTING.md), including board and patch submissions

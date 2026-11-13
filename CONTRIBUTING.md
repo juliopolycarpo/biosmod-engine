@@ -10,9 +10,9 @@ across binaries in parallel. Run doctests separately with `cargo test --doc`.
 
 ```sh
 cargo fmt --all --check
-cargo clippy -p biosmod-core -p biosmod-cli --all-targets -- -D warnings
-cargo nextest run --locked -p biosmod-core -p biosmod-cli
-cargo test --locked --doc -p biosmod-core -p biosmod-cli
+cargo clippy -p biosmod-core -p biosmod-host -p biosmod-cli --all-targets -- -D warnings
+cargo nextest run --locked -p biosmod-core -p biosmod-host -p biosmod-cli
+cargo test --locked --doc -p biosmod-core -p biosmod-host -p biosmod-cli
 cargo build -p biosmod-cli
 cargo clippy -p biosmod-gui --all-targets -- -D warnings
 cargo nextest run --locked -p biosmod-gui
@@ -30,7 +30,7 @@ Core and CLI retain Rust 1.88 and Linux, Windows and macOS coverage. The Linux G
 
 - The core never does I/O; the CLI never interprets firmware on its own (see [docs/architecture.md](docs/architecture.md)).
 - Every new function gets a test. Bug fixes start with a test that fails for the reported reason.
-- External I/O in tests goes through named fakes (`FakeTransport`, `FakeTools`, `FakeCmos`, `FakeFlashChip`, `FakeSysfs`), never the network or real hardware.
+- External I/O in tests goes through named fakes (`FakeTransport`, `FakeTools`, `FakeCmos`, `FakeFlashChip`, `FakeSysfs`, `FakeKernelLog`, `FakePrivilege`, `FixedClock`, `RecordingPorts`), never the network or real hardware.
 - Errors name the invalid value and the expected shape: `module size: expected 604832 | received 604800`.
 - Required CI must not depend on vendor ROMs or large downloads. Tests that need real dumps read them from `BME_ROM_*` variables and report when they are skipped.
 - Commits follow Conventional Commits, one concern each, with a body.

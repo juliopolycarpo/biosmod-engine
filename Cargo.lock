@@ -506,6 +506,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "biosmod-core",
+ "biosmod-host",
  "blake2",
  "clap",
  "ed25519-dalek",
@@ -552,6 +553,17 @@ dependencies = [
  "serde_json",
  "slint",
  "slint-build",
+ "tempfile",
+]
+
+[[package]]
+name = "biosmod-host"
+version = "0.1.0"
+dependencies = [
+ "biosmod-core",
+ "libc",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 

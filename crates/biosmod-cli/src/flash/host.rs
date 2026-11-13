@@ -39,7 +39,7 @@ pub struct Flashrom {
     pub version: Option<String>,
 }
 
-/// DMI identity fields read from `/sys/class/dmi/id`.
+/// The DMI fields the flash diagnosis shows, a subset of what `biosmod-host` reads.
 const DMI_FIELDS: [&str; 8] = [
     "sys_vendor",
     "product_name",
@@ -106,13 +106,10 @@ impl Host {
     ///
     /// Example: `host.dmi().get("bios_version")` is `Some("5.11")` on the MR9A.
     pub fn dmi(&self) -> BTreeMap<&'static str, String> {
-        DMI_FIELDS
-            .iter()
-            .filter_map(|field| {
-                self.text(&format!("sys/class/dmi/id/{field}"))
-                    .map(|value| (*field, value))
-            })
-            .collect()
+        biosmod_host::identity::read_dmi_fields(
+            &biosmod_host::RootedFiles::new(&self.root),
+            &DMI_FIELDS,
+        )
     }
 
     fn kernel_lockdown(&self) -> Option<String> {

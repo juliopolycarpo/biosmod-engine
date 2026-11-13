@@ -34,6 +34,38 @@
         "version"
       ],
       "type": "object"
+    },
+    "HostObservation": {
+      "additionalProperties": false,
+      "description": "Where and how a `bme diag` command observed the running machine.\n\nExample: `{\"command\": \"diag acpi capture\", \"boot_id\": \"98d86da9-...\",\n\"kernel_release\": \"7.0.0-42-generic\", \"digests\": {\"manifest.json\": \"ab...\"}}`",
+      "properties": {
+        "boot_id": {
+          "description": "`/proc/sys/kernel/random/boot_id`: ties the record to one boot.",
+          "type": "string"
+        },
+        "command": {
+          "description": "The `bme` command that made the observation, such as `diag superio read`.",
+          "type": "string"
+        },
+        "digests": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Digest256"
+          },
+          "description": "SHA-256 of each artifact the record describes, by name.",
+          "type": "object"
+        },
+        "kernel_release": {
+          "description": "`/proc/sys/kernel/osrelease`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "boot_id",
+        "kernel_release",
+        "digests"
+      ],
+      "type": "object"
     }
   },
   "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/bme.evidence-1.schema.json",
@@ -61,6 +93,17 @@
     },
     "firmware": {
       "type": "string"
+    },
+    "host": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HostObservation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What the running machine reported, for records made by `bme diag`."
     },
     "id": {
       "type": "string"

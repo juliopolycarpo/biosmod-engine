@@ -434,6 +434,26 @@ pub struct Evidence {
     pub limits: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// What the running machine reported, for records made by `bme diag`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<HostObservation>,
+}
+
+/// Where and how a `bme diag` command observed the running machine.
+///
+/// Example: `{"command": "diag acpi capture", "boot_id": "98d86da9-...",
+/// "kernel_release": "7.0.0-42-generic", "digests": {"manifest.json": "ab..."}}`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HostObservation {
+    /// The `bme` command that made the observation, such as `diag superio read`.
+    pub command: String,
+    /// `/proc/sys/kernel/random/boot_id`: ties the record to one boot.
+    pub boot_id: String,
+    /// `/proc/sys/kernel/osrelease`.
+    pub kernel_release: String,
+    /// SHA-256 of each artifact the record describes, by name.
+    pub digests: BTreeMap<String, Digest256>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -747,5 +767,31 @@ impl FileSource for MemorySource {
             ));
         }
         Ok(bytes.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HOST_RECORD: &str = r#"{"schema":"bme.evidence/1","id":"host-x","kind":"hardware-observation",
+        "date":"2026-11-12","title":"t","board":"b","firmware":"f","patches":[],
+        "observations":[],"limits":"l"HOST}"#;
+
+    #[test]
+    fn evidence_host_observation_round_trips_and_stays_optional() {
+        let host = r#","host":{"command":"diag acpi capture","boot_id":"b0","kernel_release":"7.0",
+            "digests":{"manifest.json":"0000000000000000000000000000000000000000000000000000000000000001"}}"#;
+        let with: Evidence =
+            parse_strict(HOST_RECORD.replace("HOST", host).as_bytes(), "host.json").unwrap();
+        let observed = with.host.as_ref().expect("host observation");
+        assert_eq!(observed.command, "diag acpi capture");
+        assert_eq!(observed.digests["manifest.json"].0[31], 1);
+        let again = serde_json::to_string(&with).unwrap();
+        assert!(again.contains("\"host\""), "serialized: {again}");
+
+        let without: Evidence =
+            parse_strict(HOST_RECORD.replace("HOST", "").as_bytes(), "plain.json").unwrap();
+        assert!(without.host.is_none());
     }
 }
