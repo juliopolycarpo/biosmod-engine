@@ -651,11 +651,45 @@ impl Fixture {
             remediation: "Synthetic fix, C1.".into(),
             evidence: vec![],
             patches,
+            detectors: vec![],
         };
+        let mut open = finding("OPEN1", FindingStatus::Open, vec![]);
+        open.detectors = vec![self.detector()];
         vec![
-            finding("OPEN1", FindingStatus::Open, vec![]),
+            open,
             finding("PA", FindingStatus::FixedByPatch, vec!["PA".into()]),
         ]
+    }
+
+    /// Offset in `peim` where the detector's defect pattern sits; no patch touches it.
+    pub const DETECTOR_SITE: usize = 120;
+
+    /// A PEIM detector: eight bytes of `peim` with one wildcard, and the same bytes
+    /// with the first one flipped as the corrected shape.
+    pub fn detector(&self) -> Detector {
+        let defect = self.peim[Self::DETECTOR_SITE..Self::DETECTOR_SITE + 8].to_vec();
+        let mut fixed = defect.clone();
+        fixed[0] ^= 0xFF;
+        Detector {
+            id: "peim-site".into(),
+            title: "synthetic eight-byte site".into(),
+            anchor: Anchor::Pe32 {
+                module_kind: Some(ModuleKind::Peim),
+                ffs_guid: None,
+            },
+            signatures: vec![Signature {
+                label: "site".into(),
+                defect: Pattern {
+                    bytes: HexBytes(defect),
+                    wild: vec![3],
+                },
+                fixed: Some(Pattern {
+                    bytes: HexBytes(fixed),
+                    wild: vec![3],
+                }),
+            }],
+            expect: Expect::default(),
+        }
     }
 
     /// The board profile.

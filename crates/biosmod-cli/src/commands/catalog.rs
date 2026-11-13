@@ -266,6 +266,33 @@ fn list(ctx: &Ctx) -> Reply {
     Reply::new(json!({"sources": data}), table(&rows))
 }
 
+/// Where a detector looks, as text: `pe32`, `pe32 smm`, `pe32 <guid>` or `dsdt`.
+///
+/// Example: `anchor_label(&Anchor::Dsdt) == "dsdt"`.
+fn anchor_label(anchor: &biosmod_core::catalog::Anchor) -> String {
+    use biosmod_core::catalog::{Anchor, ModuleKind};
+    match anchor {
+        Anchor::Dsdt => "dsdt".into(),
+        Anchor::Pe32 {
+            module_kind,
+            ffs_guid,
+        } => {
+            let mut label = "pe32".to_string();
+            if let Some(kind) = module_kind {
+                label.push_str(match kind {
+                    ModuleKind::Peim => " peim",
+                    ModuleKind::Dxe => " dxe",
+                    ModuleKind::Smm => " smm",
+                });
+            }
+            if let Some(guid) = ffs_guid {
+                label.push_str(&format!(" {guid}"));
+            }
+            label
+        }
+    }
+}
+
 fn show(ctx: &Ctx, args: &crate::SourceArgs) -> Result<Reply> {
     let mut text = String::new();
     let mut data = Vec::new();
@@ -313,6 +340,18 @@ fn show(ctx: &Ctx, args: &crate::SourceArgs) -> Result<Reply> {
                 biosmod_core::register::confidence_cell(&finding.confidence),
                 finding.title
             );
+            for detector in &finding.detectors {
+                let _ = writeln!(
+                    text,
+                    "    detector {} ({}, {} signatures, expect {}-{} per module): {}",
+                    detector.id,
+                    anchor_label(&detector.anchor),
+                    detector.signatures.len(),
+                    detector.expect.min_per_module,
+                    detector.expect.max_per_module,
+                    detector.title
+                );
+            }
         }
         for evidence in catalog.evidence.values() {
             let image = evidence
@@ -429,6 +468,26 @@ fn import(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn anchor_label_names_kind_and_guid() {
+        use biosmod_core::catalog::{Anchor, ModuleKind};
+        let guid = biosmod_core::util::Guid::constant("11111111-2222-3333-4444-555555555555");
+        assert_eq!(anchor_label(&Anchor::Dsdt), "dsdt");
+        let any = Anchor::Pe32 {
+            module_kind: None,
+            ffs_guid: None,
+        };
+        assert_eq!(anchor_label(&any), "pe32");
+        let both = Anchor::Pe32 {
+            module_kind: Some(ModuleKind::Smm),
+            ffs_guid: Some(guid),
+        };
+        assert_eq!(
+            anchor_label(&both),
+            "pe32 smm 11111111-2222-3333-4444-555555555555"
+        );
+    }
 
     #[test]
     fn import_rejects_ids_that_escape_output() {

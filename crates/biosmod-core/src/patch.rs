@@ -149,8 +149,20 @@ pub fn state<'a>(data: &[u8], hunks: impl IntoIterator<Item = &'a Hunk>) -> Resu
 
 /// The only offset where `pattern` matches `data` (wildcards match any byte), or `None`.
 pub fn find_unique(data: &[u8], pattern: &[u8], wild: &[usize]) -> Option<usize> {
+    let found = find_matches(data, pattern, wild, 2);
+    (found.len() == 1).then(|| found[0])
+}
+
+/// Offsets where `pattern` matches `data` (wildcards match any byte), in order, at most `limit`.
+///
+/// Overlapping matches all count. Detectors use this to count every site of a
+/// defect; [`find_unique`] is the same search stopped at the second hit.
+///
+/// Example: `find_matches(&[1, 9, 1, 9], &[1, 0], &[1], usize::MAX) == [0, 2]`.
+pub fn find_matches(data: &[u8], pattern: &[u8], wild: &[usize], limit: usize) -> Vec<usize> {
+    let mut found = Vec::new();
     if pattern.is_empty() || pattern.len() > data.len() {
-        return None;
+        return found;
     }
     let mut mask = vec![false; pattern.len()];
     for w in wild {
@@ -159,7 +171,6 @@ pub fn find_unique(data: &[u8], pattern: &[u8], wild: &[usize]) -> Option<usize>
         }
     }
     let anchor = (0..pattern.len()).find(|i| !mask[*i]);
-    let mut found = None;
     for start in 0..=data.len() - pattern.len() {
         if let Some(a) = anchor
             && data[start + a] != pattern[a]
@@ -173,10 +184,10 @@ pub fn find_unique(data: &[u8], pattern: &[u8], wild: &[usize]) -> Option<usize>
             .zip(&mask)
             .all(|((d, p), m)| *m || d == p)
         {
-            if found.is_some() {
-                return None;
+            found.push(start);
+            if found.len() >= limit {
+                break;
             }
-            found = Some(start);
         }
     }
     found
@@ -375,5 +386,19 @@ mod tests {
         assert_eq!(find_unique(b"abcabc", b"abc", &[]), None);
         assert_eq!(find_unique(b"a1ca2c", b"a?c", &[1]), None);
         assert_eq!(find_unique(b"a1cb2c", b"a?c", &[1]), Some(0));
+    }
+
+    #[test]
+    fn find_matches_lists_overlapping_sites_in_order_and_honors_the_limit() {
+        assert_eq!(
+            find_matches(&[1, 9, 1, 9], &[1, 0], &[1], usize::MAX),
+            [0, 2]
+        );
+        assert_eq!(find_matches(b"aaaa", b"aa", &[], usize::MAX), [0, 1, 2]);
+        assert_eq!(find_matches(b"aaaa", b"aa", &[], 2), [0, 1]);
+        assert!(find_matches(b"abc", b"", &[], 9).is_empty());
+        assert!(find_matches(b"ab", b"abc", &[], 9).is_empty());
+        // An all-wildcard pattern has no fixed anchor byte and matches everywhere.
+        assert_eq!(find_matches(b"abc", b"??", &[0, 1], 9), [0, 1]);
     }
 }

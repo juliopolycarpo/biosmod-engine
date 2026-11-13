@@ -277,6 +277,7 @@ fn scan_text(loaded: &Loaded, report: &ScanReport) -> String {
             let _ = writeln!(text, "  {line}");
         }
     }
+    text.push_str(&detector_text(&report.detectors));
     let plannable: Vec<String> = report
         .patches
         .iter()
@@ -294,6 +295,61 @@ fn scan_text(loaded: &Loaded, report: &ScanReport) -> String {
     );
     if !report.recommended.is_empty() {
         let _ = writeln!(text, "Recommended: {}", report.recommended.join(" "));
+    }
+    text
+}
+
+/// The detector table of a scan: one row per detector that matched or could not be read.
+///
+/// Detectors with no match are left out; they say nothing about the image.
+///
+/// Example: `detector_text(&report.detectors)` is empty when every detector is `absent`.
+fn detector_text(detectors: &[biosmod_core::detect::DetectorReport]) -> String {
+    let shown: Vec<_> = detectors
+        .iter()
+        .filter(|d| d.state != biosmod_core::detect::DetectorState::Absent)
+        .collect();
+    if shown.is_empty() {
+        return String::new();
+    }
+    let mut rows = vec![vec![
+        "FINDING".to_string(),
+        "DETECTOR".into(),
+        "STATE".into(),
+        "MODULES".into(),
+    ]];
+    for d in &shown {
+        let sites: usize = d.modules.iter().map(|m| m.defect.len()).sum();
+        let more = if d.modules.iter().any(|m| m.truncated) {
+            "+"
+        } else {
+            ""
+        };
+        let mut modules = match d.modules.as_slice() {
+            [] => String::new(),
+            [only] => only
+                .ui_name
+                .clone()
+                .unwrap_or_else(|| only.ffs_guid.to_string()),
+            many => format!("{} modules, {sites}{more} defect sites", many.len()),
+        };
+        // Whatever the state, modules this engine cannot read may hold more hits.
+        if !d.unsupported.is_empty() {
+            if !modules.is_empty() {
+                modules.push_str("; ");
+            }
+            modules.push_str(&format!("{} unreadable", d.unsupported.len()));
+        }
+        rows.push(vec![
+            d.finding.clone(),
+            d.detector.clone(),
+            d.state.label().replace(' ', "-"),
+            modules,
+        ]);
+    }
+    let mut text = format!("Detector hits ({}):\n", shown.len());
+    for line in table(&rows).lines() {
+        let _ = writeln!(text, "  {line}");
     }
     text
 }
@@ -1337,4 +1393,90 @@ pub fn derive(ctx: &Ctx, args: &DeriveArgs) -> Result<Reply> {
             rebased.review.len()
         );
     Ok(Reply::new(data, text))
+}
+
+#[cfg(test)]
+mod detector_text_tests {
+    use super::detector_text;
+    use biosmod_core::detect::{DetectorReport, DetectorState, ModuleHits, Site};
+    use biosmod_core::util::Guid;
+
+    const GUID: &str = "11111111-2222-3333-4444-555555555555";
+
+    fn report(state: DetectorState, modules: Vec<ModuleHits>) -> DetectorReport {
+        DetectorReport {
+            finding: "F1".into(),
+            detector: "d".into(),
+            title: "t".into(),
+            state,
+            modules,
+            unsupported: vec![],
+        }
+    }
+
+    fn hits(name: Option<&str>) -> ModuleHits {
+        ModuleHits {
+            ffs_guid: Guid::constant(GUID),
+            ui_name: name.map(str::to_string),
+            state: DetectorState::LikelyPresent,
+            defect: vec![Site {
+                signature: "s".into(),
+                offset: 4,
+            }],
+            fixed: vec![],
+            truncated: false,
+        }
+    }
+
+    #[test]
+    fn absent_detectors_leave_no_table() {
+        assert_eq!(detector_text(&[report(DetectorState::Absent, vec![])]), "");
+        assert_eq!(detector_text(&[]), "");
+    }
+
+    #[test]
+    fn single_module_hit_names_the_module_and_many_hits_count_sites() {
+        let one = detector_text(&[report(
+            DetectorState::LikelyPresent,
+            vec![hits(Some("Peim"))],
+        )]);
+        assert!(one.starts_with("Detector hits (1):"), "{one}");
+        assert!(
+            one.contains("likely-present") && one.contains("Peim"),
+            "{one}"
+        );
+        let many = detector_text(&[report(
+            DetectorState::LikelyPresent,
+            vec![hits(None), hits(None)],
+        )]);
+        assert!(many.contains("2 modules, 2 defect sites"), "{many}");
+        let unnamed = detector_text(&[report(DetectorState::LikelyPresent, vec![hits(None)])]);
+        assert!(unnamed.contains(GUID), "{unnamed}");
+    }
+
+    #[test]
+    fn unreadable_modules_are_noted_next_to_hits_and_truncated_counts_are_marked() {
+        let mut mixed = report(DetectorState::LikelyPresent, vec![hits(Some("Peim"))]);
+        mixed.unsupported = vec![Guid::constant(GUID), Guid::constant(GUID)];
+        let text = detector_text(&[mixed]);
+        assert!(text.contains("Peim; 2 unreadable"), "{text}");
+        let mut cut = hits(None);
+        cut.truncated = true;
+        let text = detector_text(&[report(
+            DetectorState::UnexpectedCount,
+            vec![cut, hits(None)],
+        )]);
+        assert!(text.contains("2 modules, 2+ defect sites"), "{text}");
+    }
+
+    #[test]
+    fn unreadable_modules_are_counted_when_nothing_matched() {
+        let mut unreadable = report(DetectorState::Unsupported, vec![]);
+        unreadable.unsupported = vec![Guid::constant(GUID)];
+        let text = detector_text(&[unreadable]);
+        assert!(
+            text.contains("unsupported") && text.contains("1 unreadable"),
+            "{text}"
+        );
+    }
 }

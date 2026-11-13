@@ -123,6 +123,16 @@ fn plan_patch_verify_round_trip() {
         "(scan text): expected an open findings table | received {}",
         text.stdout
     );
+    assert!(
+        text.stdout.contains("Detector hits (1):")
+            && text.stdout.contains("OPEN1    peim-site  likely-present"),
+        "(scan text): expected a detector hits table naming OPEN1 peim-site | received {}",
+        text.stdout
+    );
+    assert_eq!(
+        report["detectors"][0]["state"], "likely-present",
+        "(scan json): expected the synthetic detector to report likely-present"
+    );
 
     let plan = sandbox.path("plan.json");
     let made = sandbox.run([
@@ -713,6 +723,14 @@ fn local_sources_and_breadcrumbs() {
     assert_eq!(added.code, 0, "{}", added.stdout);
     let listed = sandbox.run(["catalog", "list", "--json"]).json();
     assert_eq!(listed["data"]["sources"].as_array().unwrap().len(), 2);
+    let shown = sandbox.run(["catalog", "show", "--catalog", "lab"]);
+    assert!(
+        shown.stdout.contains(
+            "    detector peim-site (pe32 peim, 1 signatures, expect 1-1 per module): synthetic eight-byte site"
+        ),
+        "(catalog show): expected the OPEN1 detector line | received {}",
+        shown.stdout
+    );
     let scan = sandbox
         .run(["scan", s(&image), "--catalog", "lab", "--json"])
         .json();

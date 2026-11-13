@@ -46,5 +46,56 @@
   "remediation": "All 27 PR9 and 26 MR9A inventoried copies have executed 6-7-byte corrections, including the required R11 initialization. C1 local, C2 physical repair. No ROM repack.",
   "patches": [
     "B09"
+  ],
+  "detectors": [
+    {
+      "id": "byte-counter-scan",
+      "title": "8-bit index over a native-width configuration-table count",
+      "anchor": {
+        "in": "pe32"
+      },
+      "signatures": [
+        {
+          "label": "bl-r8",
+          "defect": {
+            "bytes": "fec30fb6c3493bc072d9"
+          },
+          "fixed": {
+            "bytes": "48ffc39090493bd872d9"
+          }
+        },
+        {
+          "label": "bl-rdx",
+          "defect": {
+            "bytes": "fec30fb6c3483bc272d9"
+          },
+          "fixed": {
+            "bytes": "48ffc39090483bda72d9"
+          }
+        },
+        {
+          "label": "dil-rdx",
+          "defect": {
+            "bytes": "40fec7400fb6c7483bc272d7"
+          },
+          "fixed": {
+            "bytes": "48ffc7488bc790483bc272d7"
+          }
+        },
+        {
+          "label": "r11b-r8",
+          "defect": {
+            "bytes": "41fec3410fb6c3493bc072d7"
+          },
+          "fixed": {
+            "bytes": "49ffc3498bc390493bc072d7"
+          }
+        }
+      ],
+      "expect": {
+        "min_per_module": 1,
+        "max_per_module": 1
+      }
+    }
   ]
 }

@@ -938,3 +938,146 @@ fn pr9_vs_mr9a_dsdt_changes_sios_and_siow_and_keeps_s3() {
         );
     }
 }
+
+/// What a `scan --json` report holds for one detector: state, per-module (defect, fixed) site
+/// counts keyed by FFS GUID, and the GUIDs of candidate files the engine could not read.
+struct DetectorView {
+    state: String,
+    modules: std::collections::BTreeMap<String, (usize, usize)>,
+    unreadable: Vec<String>,
+}
+
+fn detector_sites(report: &serde_json::Value, finding: &str) -> DetectorView {
+    let detector = report["detectors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["finding"] == finding)
+        .unwrap_or_else(|| panic!("({finding}): expected a detector report | received none"));
+    let modules = detector["modules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| {
+            (
+                m["ffs_guid"].as_str().unwrap().to_string(),
+                (
+                    m["defect"].as_array().unwrap().len(),
+                    m["fixed"].as_array().unwrap().len(),
+                ),
+            )
+        })
+        .collect();
+    let unreadable = detector["unsupported"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .map(|g| g.as_str().unwrap().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    DetectorView {
+        state: detector["state"].as_str().unwrap().to_string(),
+        modules,
+        unreadable,
+    }
+}
+
+/// An undecodable DXE driver that both stock dumps carry; B09 cannot rule it out.
+const UNREADABLE_DRIVER: &str = "91B4D9C1-141C-4824-8D02-3C298E36EB3F";
+
+/// FFS GUIDs of the components a catalog patch edits in `firmware`, read from the repository catalog.
+fn patch_guids(patch: &str, firmware: &str) -> std::collections::BTreeSet<String> {
+    let path = format!(
+        "{}/../../catalog/patches/{patch}.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    doc["variants"][firmware]["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["ffs_guid"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Defect sites per detector finding that the catalog patches cover; B09 is the
+/// per-build copy count (27 on PR9, 26 on MR9A) and is passed separately.
+const DETECTOR_SITES: [(&str, Option<usize>); 4] = [
+    ("A02", Some(1)),
+    ("B09", None),
+    ("B10", Some(1)),
+    ("B11", Some(2)),
+];
+
+#[test]
+fn detectors_find_the_catalog_patch_sites_on_stock_and_report_the_defect_absent_when_patched() {
+    for (var, firmware, copies, extra) in [
+        ("BME_ROM_MR9A", "mnx99mr9apro-230322", 26, &[][..]),
+        ("BME_ROM_PR9", "x99ha00m-20221202", 27, &["S01", "S02"][..]),
+    ] {
+        let Some(input) = rom(var) else { continue };
+        let sandbox = Sandbox::new();
+        let stock = sandbox.run(["scan", s(&input), "--json"]).json();
+        let stock = &stock["data"]["sources"][0]["report"];
+        for (finding, sites) in DETECTOR_SITES {
+            let sites = sites.unwrap_or(copies);
+            let DetectorView { state, modules, .. } = detector_sites(stock, finding);
+            assert_eq!(
+                state, "likely-present",
+                "({var} {finding}): expected detector state likely-present | received {state}"
+            );
+            let hit: std::collections::BTreeSet<String> = modules.keys().cloned().collect();
+            assert_eq!(
+                hit,
+                patch_guids(finding, firmware),
+                "({var} {finding}): expected detector modules equal to the patch components"
+            );
+            let defect: usize = modules.values().map(|(d, _)| d).sum();
+            assert_eq!(
+                defect, sites,
+                "({var} {finding}): expected {sites} defect sites | received {defect}"
+            );
+            assert!(
+                modules.values().all(|(_, fixed)| *fixed == 0),
+                "({var} {finding}): expected no fixed-pattern sites on the stock image"
+            );
+        }
+
+        let out = sandbox.path("patched.bin");
+        let select = [MR9A_ALL, extra].concat();
+        let mut args = vec!["patch", s(&input), "-o", s(&out), "--json", "--select"];
+        args.extend_from_slice(&select);
+        let built = sandbox.run(args);
+        assert_eq!(built.code, 0, "{}", built.stdout);
+        let patched = sandbox.run(["scan", s(&out), "--json"]).json();
+        let patched = &patched["data"]["sources"][0]["report"];
+        for (finding, sites) in DETECTOR_SITES {
+            let sites = sites.unwrap_or(copies);
+            let DetectorView {
+                state,
+                modules,
+                unreadable,
+            } = detector_sites(patched, finding);
+            // Every hit module shows only the corrected shape. B09 scans all PE32 modules,
+            // so the undecodable driver keeps it from claiming that for the whole image.
+            let (expected, expected_unreadable) = if finding == "B09" {
+                ("unsupported", vec![UNREADABLE_DRIVER.to_string()])
+            } else {
+                ("fixed-pattern", vec![])
+            };
+            assert_eq!(
+                (state.as_str(), &unreadable),
+                (expected, &expected_unreadable),
+                "({var} patched {finding}): expected detector state and unreadable files | received {state} {unreadable:?}"
+            );
+            let defect: usize = modules.values().map(|(d, _)| d).sum();
+            let fixed: usize = modules.values().map(|(_, f)| f).sum();
+            assert_eq!(
+                (defect, fixed),
+                (0, sites),
+                "({var} patched {finding}): expected 0 defect and {sites} fixed sites | received {defect} and {fixed}"
+            );
+        }
+    }
+}
