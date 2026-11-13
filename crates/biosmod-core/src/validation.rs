@@ -35,6 +35,55 @@ pub fn identifier(id: &str, what: &str) -> Result<()> {
     }
 }
 
+/// Longest `repository` URL accepted, in characters.
+pub const MAX_REPOSITORY_CHARS: usize = 2048;
+
+/// A repository URL: `https://` and a host, no whitespace or control characters, no
+/// credentials, at most [`MAX_REPOSITORY_CHARS`] characters. Nothing is fetched.
+///
+/// Example: `repository_url("https://example.org/acme/x99", "catalog repository")` passes;
+/// `http://example.org/x` fails with `catalog repository: expected an https URL | received "http://example.org/x"`.
+pub fn repository_url(url: &str, what: &str) -> Result<()> {
+    let length = url.chars().count();
+    if length > MAX_REPOSITORY_CHARS {
+        return Err(invalid(format!(
+            "{what}: expected an https URL of at most {MAX_REPOSITORY_CHARS} characters | received {length} characters"
+        )));
+    }
+    let authority = url
+        .strip_prefix("https://")
+        .map(|rest| rest.split(['/', '?', '#']).next().unwrap_or(""));
+    let ok = url.chars().all(|c| !c.is_whitespace() && !c.is_control())
+        && authority.is_some_and(|host| {
+            // A host, with an optional port; `user@` would commit a credential to the history.
+            !host.is_empty() && !host.starts_with(':') && !host.contains('@')
+        });
+    if ok {
+        Ok(())
+    } else {
+        Err(invalid(format!(
+            "{what}: expected an https URL | received {url:?}"
+        )))
+    }
+}
+
+/// A git object id: 40 (SHA-1) or 64 (SHA-256) lowercase hex characters.
+///
+/// Example: `commit_id(&"a".repeat(40), "source catalog commit")` passes.
+pub fn commit_id(commit: &str, what: &str) -> Result<()> {
+    let ok = matches!(commit.len(), 40 | 64)
+        && commit
+            .bytes()
+            .all(|c| c.is_ascii_digit() || matches!(c, b'a'..=b'f'));
+    if ok {
+        Ok(())
+    } else {
+        Err(invalid(format!(
+            "{what}: expected 40 or 64 lowercase hex characters | received {commit:?}"
+        )))
+    }
+}
+
 /// Catalog-relative paths: `/`-separated, no empty, `.` or `..` components, safe characters only.
 pub fn relative_path(path: &str) -> Result<()> {
     let ok = !path.is_empty()
@@ -78,8 +127,17 @@ pub fn manifest(manifest: &Manifest) -> Result<()> {
             ),
         ));
     }
+    if let Some(url) = &manifest.repository {
+        repository_url(url, "catalog repository")?;
+    }
     for source in &manifest.sources {
         identifier(&source.id, "source catalog id")?;
+        if let Some(url) = &source.repository {
+            repository_url(url, "source catalog repository")?;
+        }
+        if let Some(commit) = &source.commit {
+            commit_id(commit, "source catalog commit")?;
+        }
     }
     if manifest.files.len() > MAX_FILES {
         return Err(invalid(format!(
@@ -928,6 +986,7 @@ mod tests {
             title: "Merged".into(),
             engine: semver::VersionReq::parse(">=0.1.0").unwrap(),
             description: None,
+            repository: None,
             sources,
             files: vec![],
         }
@@ -938,6 +997,8 @@ mod tests {
             id: id.into(),
             version: semver::Version::new(0, 1, 0),
             manifest_sha256: crate::util::Digest256::of(id.as_bytes()),
+            repository: None,
+            commit: None,
         }
     }
 
@@ -954,6 +1015,106 @@ mod tests {
             error.message,
             "source catalog id \"a b\": expected 1-64 characters [A-Za-z0-9._-] starting alphanumeric"
         );
+    }
+
+    #[test]
+    fn repository_urls_accept_an_https_host_with_path_port_and_query() {
+        for url in [
+            "https://example.org",
+            "https://github.com/acme/x99-bios",
+            "https://git.example.org:8443/acme/x99.git?ref=main#readme",
+            "https://[2001:db8::1]/repo",
+        ] {
+            repository_url(url, "catalog repository").unwrap_or_else(|e| panic!("{url}: {e}"));
+        }
+        repository_url(&format!("https://e.org/{}", "a".repeat(2048 - 14)), "r").unwrap();
+    }
+
+    #[test]
+    fn repository_urls_refuse_each_wrong_shape_naming_the_value() {
+        for url in [
+            "",
+            "example.org/acme",
+            "http://example.org/acme",
+            "HTTPS://example.org/acme",
+            "git@github.com:acme/x99.git",
+            "https://",
+            "https:///acme",
+            "https://:443/acme",
+            "https://user:token@example.org/acme",
+            "https://example.org/a b",
+            "https://example.org/a\tb",
+            "https://example.org/a\nb",
+            "https://example.org/\u{7f}",
+            " https://example.org/acme",
+        ] {
+            let error = repository_url(url, "catalog repository").unwrap_err();
+            assert_eq!(error.code, Code::CatalogInvalid, "{url:?}");
+            assert_eq!(
+                error.message,
+                format!("catalog repository: expected an https URL | received {url:?}")
+            );
+        }
+    }
+
+    #[test]
+    fn repository_urls_refuse_more_than_2048_characters_naming_the_length() {
+        let long = format!("https://e.org/{}", "a".repeat(2048 - 13));
+        let error = repository_url(&long, "catalog repository").unwrap_err();
+        assert_eq!(
+            error.message,
+            "catalog repository: expected an https URL of at most 2048 characters | received 2049 characters"
+        );
+    }
+
+    #[test]
+    fn commit_ids_are_40_or_64_lowercase_hex_characters() {
+        commit_id(&"a1".repeat(20), "commit").unwrap();
+        commit_id(&"0f".repeat(32), "commit").unwrap();
+        for bad in [
+            "",
+            "abc",
+            &"A1".repeat(20),
+            &"g1".repeat(20),
+            &"a".repeat(41),
+        ] {
+            let error = commit_id(bad, "source catalog commit").unwrap_err();
+            assert_eq!(
+                error.message,
+                format!(
+                    "source catalog commit: expected 40 or 64 lowercase hex characters | received {bad:?}"
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn a_manifest_with_a_refused_repository_or_source_field_is_refused_naming_the_value() {
+        let mut bad_catalog = manifest_with_sources(vec![]);
+        bad_catalog.repository = Some("http://example.org/x".into());
+        assert_eq!(
+            manifest(&bad_catalog).unwrap_err().message,
+            "catalog repository: expected an https URL | received \"http://example.org/x\""
+        );
+        let mut source = pin("dev");
+        source.repository = Some("ftp://example.org/x".into());
+        assert_eq!(
+            manifest(&manifest_with_sources(vec![source]))
+                .unwrap_err()
+                .message,
+            "source catalog repository: expected an https URL | received \"ftp://example.org/x\""
+        );
+        let mut source = pin("dev");
+        source.commit = Some("HEAD".into());
+        assert_eq!(
+            manifest(&manifest_with_sources(vec![source]))
+                .unwrap_err()
+                .message,
+            "source catalog commit: expected 40 or 64 lowercase hex characters | received \"HEAD\""
+        );
+        let mut good = manifest_with_sources(vec![]);
+        good.repository = Some("https://example.org/x".into());
+        manifest(&good).unwrap();
     }
 
     #[test]

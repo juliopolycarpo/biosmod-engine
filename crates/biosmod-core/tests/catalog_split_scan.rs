@@ -24,6 +24,7 @@ fn load(id: &str, mut files: Vec<(String, Vec<u8>)>) -> Catalog {
         title: id.into(),
         engine: semver::VersionReq::parse(">=0.1.0").unwrap(),
         description: None,
+        repository: None,
         sources: vec![],
         files: index_files(&files).unwrap(),
     };

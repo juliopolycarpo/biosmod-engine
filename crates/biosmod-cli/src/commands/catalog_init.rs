@@ -14,7 +14,7 @@ use crate::publish::{publish_directory, remove_failed_directory};
 use crate::sources::OFFICIAL;
 use biosmod_core::catalog::{CATALOG_SCHEMA, CatalogSource, Manifest, index_files};
 use biosmod_core::json::pretty;
-use biosmod_core::validation::{engine_version, identifier};
+use biosmod_core::validation::{engine_version, identifier, repository_url};
 use biosmod_core::{Code, Error, Result};
 use semver::{Version, VersionReq};
 use serde_json::json;
@@ -45,18 +45,20 @@ pub const SCAFFOLD_FILES: [&str; 4] = ["README.md", ".gitignore", ".gitattribute
 pub const INITIAL_VERSION: Version = Version::new(0, 1, 0);
 
 /// A device repository that was written.
+#[derive(Debug)]
 pub struct Repository {
     /// The directory as shown to the user.
     pub directory: String,
     pub title: String,
 }
 
-/// Scaffold the device repository at `dir`.
-pub fn init(dir: &Path, id: &str, title: Option<&str>) -> Result<Reply> {
+/// Scaffold the device repository at `dir`. `url` is the `repository` of its `catalog.json`.
+pub fn init(dir: &Path, id: &str, title: Option<&str>, url: Option<&str>) -> Result<Reply> {
     let repository = write_repository(
         dir,
         id,
         title,
+        url,
         engine_requirement(&engine_version()),
         Vec::new(),
     )?;
@@ -76,36 +78,40 @@ pub fn init(dir: &Path, id: &str, title: Option<&str>) -> Result<Reply> {
         SCAFFOLD_FILES.join(" "),
         DIRECTORIES.map(|d| format!("{d}/")).join(" "),
     );
-    Ok(Reply::new(
-        json!({
-            "directory": shown,
-            "id": id,
-            "title": repository.title,
-            "version": INITIAL_VERSION.to_string(),
-            "files": SCAFFOLD_FILES,
-            "directories": DIRECTORIES,
-        }),
-        text,
-    ))
+    let mut data = json!({
+        "directory": shown,
+        "id": id,
+        "title": repository.title,
+        "version": INITIAL_VERSION.to_string(),
+        "files": SCAFFOLD_FILES,
+        "directories": DIRECTORIES,
+    });
+    if let Some(url) = url {
+        data["repository"] = json!(url);
+    }
+    Ok(Reply::new(data, text))
 }
 
 /// Write the scaffold at `dir` with `records` (`(relative path, bytes)` below
 /// `boards/`, `findings/`, `patches/`, `evidence/` or `provenance/`) indexed in
-/// its `catalog.json` at [`INITIAL_VERSION`] with the `engine` requirement.
+/// its `catalog.json` at [`INITIAL_VERSION`] with the `engine` requirement and the
+/// `repository` URL `url`.
 ///
-/// Checks the id and title first, refuses an existing `dir` and removes the new
+/// Checks the id, title and URL first, refuses an existing `dir` and removes the new
 /// directory if a write fails.
 ///
-/// Example: `write_repository(Path::new("acme"), "acme-x99", None, engine, Vec::new())?`.
+/// Example: `write_repository(Path::new("acme"), "acme-x99", None, None, engine, Vec::new())?`.
 pub fn write_repository(
     dir: &Path,
     id: &str,
     title: Option<&str>,
+    url: Option<&str>,
     engine: VersionReq,
     records: Vec<(String, Vec<u8>)>,
 ) -> Result<Repository> {
     let title = checked_title(id, title)?;
-    let files = scaffold(id, title, engine, records)?;
+    check_repository(url)?;
+    let files = scaffold(id, title, url, engine, records)?;
     let files: Vec<(&str, &[u8])> = files
         .iter()
         .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
@@ -132,6 +138,13 @@ pub fn checked_title<'a>(id: &'a str, title: Option<&'a str>) -> Result<&'a str>
     let title = title.unwrap_or(id);
     check_title(title)?;
     Ok(title)
+}
+
+/// Reject a `repository` URL that is not an `https` URL with a host.
+///
+/// Example: `check_repository(Some("https://example.org/acme"))` passes; `check_repository(Some("git@host:acme"))` fails.
+pub fn check_repository(url: Option<&str>) -> Result<()> {
+    url.map_or(Ok(()), |url| repository_url(url, "catalog repository"))
 }
 
 /// The title of the catalog bundled with `bme`. Its id is the reserved `official`, which
@@ -184,9 +197,23 @@ pub fn engine_requirement(engine: &Version) -> VersionReq {
         .expect("a caret requirement of two numbers parses")
 }
 
+/// The header fields of a `catalog.json`; [`manifest_bytes_from`] adds the file index.
+pub struct ManifestHeader<'a> {
+    pub id: &'a str,
+    pub title: &'a str,
+    pub version: Version,
+    pub engine: VersionReq,
+    pub description: Option<&'a str>,
+    /// The `https` URL of the repository that holds the catalog.
+    pub repository: Option<&'a str>,
+    /// The pins a merge built the catalog from, in merge order.
+    pub sources: Vec<CatalogSource>,
+}
+
 /// The `catalog.json` that indexes `records`, byte-identical to what `bme catalog index` writes.
 ///
 /// Example: with no records it is the empty catalog `catalog init` writes.
+#[cfg(test)]
 pub fn manifest_bytes(
     id: &str,
     title: &str,
@@ -194,29 +221,36 @@ pub fn manifest_bytes(
     engine: VersionReq,
     records: &[(String, Vec<u8>)],
 ) -> Result<Vec<u8>> {
-    manifest_bytes_with(id, title, version, engine, None, Vec::new(), records)
+    manifest_bytes_from(
+        ManifestHeader {
+            id,
+            title,
+            version,
+            engine,
+            description: None,
+            repository: None,
+            sources: Vec::new(),
+        },
+        records,
+    )
 }
 
-/// [`manifest_bytes`] with a `description` and the `sources` a merge built the catalog from.
+/// [`manifest_bytes`] with a `description`, a `repository` and the `sources` of a merge.
 ///
-/// Example: `sources` holds one pin per merged catalog, in merge order.
-pub fn manifest_bytes_with(
-    id: &str,
-    title: &str,
-    version: Version,
-    engine: VersionReq,
-    description: Option<&str>,
-    sources: Vec<CatalogSource>,
+/// Example: `header.sources` holds one pin per merged catalog, in merge order.
+pub fn manifest_bytes_from(
+    header: ManifestHeader<'_>,
     records: &[(String, Vec<u8>)],
 ) -> Result<Vec<u8>> {
     Ok(pretty(&Manifest {
         schema: CATALOG_SCHEMA.to_string(),
-        id: id.to_string(),
-        version,
-        title: title.to_string(),
-        engine,
-        description: description.map(str::to_string),
-        sources,
+        id: header.id.to_string(),
+        version: header.version,
+        title: header.title.to_string(),
+        engine: header.engine,
+        description: header.description.map(str::to_string),
+        repository: header.repository.map(str::to_string),
+        sources: header.sources,
         files: index_files(records)?,
     }))
 }
@@ -235,10 +269,22 @@ fn render_readme(id: &str, title: &str) -> String {
 fn scaffold(
     id: &str,
     title: &str,
+    url: Option<&str>,
     engine: VersionReq,
     mut records: Vec<(String, Vec<u8>)>,
 ) -> Result<Vec<(String, Vec<u8>)>> {
-    let manifest = manifest_bytes(id, title, INITIAL_VERSION, engine, &records)?;
+    let manifest = manifest_bytes_from(
+        ManifestHeader {
+            id,
+            title,
+            version: INITIAL_VERSION,
+            engine,
+            description: None,
+            repository: url,
+            sources: Vec::new(),
+        },
+        &records,
+    )?;
     let mut files = vec![
         (
             "README.md".to_string(),
@@ -384,6 +430,7 @@ mod tests {
         let files = scaffold(
             "acme-x99",
             "Acme X99",
+            None,
             engine_requirement(&engine_version()),
             vec![record],
         )
@@ -421,30 +468,91 @@ mod tests {
     }
 
     #[test]
-    fn manifest_bytes_with_writes_the_description_and_sources_and_round_trips() {
+    fn manifest_bytes_from_writes_the_description_repository_and_sources_and_round_trips() {
         let source = CatalogSource {
             id: "pr9-b85".into(),
             version: Version::new(0, 1, 0),
             manifest_sha256: biosmod_core::util::Digest256::of(b"catalog.json"),
+            repository: Some("https://example.org/pr9-b85".into()),
+            commit: Some("1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b".into()),
         };
-        let bytes = manifest_bytes_with(
-            "both",
-            "Both",
-            INITIAL_VERSION,
-            engine_requirement(&engine_version()),
-            Some("Two boards"),
-            vec![source.clone()],
+        let bytes = manifest_bytes_from(
+            ManifestHeader {
+                id: "both",
+                title: "Both",
+                version: INITIAL_VERSION,
+                engine: engine_requirement(&engine_version()),
+                description: Some("Two boards"),
+                repository: Some("https://example.org/both"),
+                sources: vec![source.clone()],
+            },
             &[],
         )
         .unwrap();
         let manifest: Manifest = parse_strict(&bytes, "catalog.json").unwrap();
         assert_eq!(manifest.description.as_deref(), Some("Two boards"));
+        assert_eq!(
+            manifest.repository.as_deref(),
+            Some("https://example.org/both")
+        );
         assert_eq!(manifest.sources, [source]);
         assert_eq!(pretty(&manifest), bytes);
     }
 
     #[test]
-    fn manifest_bytes_leave_out_sources_and_description_when_empty() {
+    fn check_repository_accepts_none_and_an_https_url_and_names_a_refused_value() {
+        check_repository(None).unwrap();
+        check_repository(Some("https://example.org/acme/x99")).unwrap();
+        let error = check_repository(Some("git@github.com:acme/x99.git")).unwrap_err();
+        assert_eq!(error.code, Code::CatalogInvalid);
+        assert_eq!(
+            error.message,
+            "catalog repository: expected an https URL | received \"git@github.com:acme/x99.git\""
+        );
+    }
+
+    #[test]
+    fn write_repository_writes_the_repository_url_and_refuses_a_bad_one_before_writing() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("repo");
+        write_repository(
+            &dir,
+            "acme-x99",
+            None,
+            Some("https://example.org/acme/x99"),
+            engine_requirement(&engine_version()),
+            Vec::new(),
+        )
+        .unwrap();
+        let manifest: Manifest =
+            parse_strict(&fs::read(dir.join("catalog.json")).unwrap(), "catalog.json").unwrap();
+        assert_eq!(
+            manifest.repository.as_deref(),
+            Some("https://example.org/acme/x99")
+        );
+
+        let refused = parent.path().join("refused");
+        let error = write_repository(
+            &refused,
+            "acme-x99",
+            None,
+            Some("http://example.org/acme"),
+            engine_requirement(&engine_version()),
+            Vec::new(),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.message,
+            "catalog repository: expected an https URL | received \"http://example.org/acme\""
+        );
+        assert!(
+            !refused.exists(),
+            "(refused repository): expected nothing written"
+        );
+    }
+
+    #[test]
+    fn manifest_bytes_leave_out_sources_description_and_repository_when_empty() {
         let bytes = manifest_bytes(
             "acme",
             "Acme",
@@ -455,8 +563,10 @@ mod tests {
         .unwrap();
         let text = String::from_utf8(bytes).unwrap();
         assert!(
-            !text.contains("sources") && !text.contains("description"),
-            "(catalog.json): expected neither key | received {text}"
+            !text.contains("sources")
+                && !text.contains("description")
+                && !text.contains("repository"),
+            "(catalog.json): expected none of the keys | received {text}"
         );
     }
 
@@ -482,6 +592,7 @@ mod tests {
         write_repository(
             &dir,
             "acme-x99",
+            None,
             None,
             engine_requirement(&engine_version()),
             records,
@@ -569,7 +680,7 @@ mod tests {
     fn init_writes_a_catalog_that_loads_and_reports_what_it_wrote() {
         let parent = tempfile::tempdir().unwrap();
         let dir = parent.path().join("repo");
-        let reply = init(&dir, "acme-x99", Some("Acme X99")).unwrap();
+        let reply = init(&dir, "acme-x99", Some("Acme X99"), None).unwrap();
         assert_eq!(reply.data["id"], "acme-x99");
         assert_eq!(reply.data["version"], "0.1.0");
         assert_eq!(reply.data["directory"], dir.to_string_lossy().as_ref());
@@ -587,7 +698,7 @@ mod tests {
     #[test]
     fn init_defaults_the_title_to_the_id() {
         let parent = tempfile::tempdir().unwrap();
-        let reply = init(&parent.path().join("repo"), "acme-x99", None).unwrap();
+        let reply = init(&parent.path().join("repo"), "acme-x99", None, None).unwrap();
         assert_eq!(reply.data["title"], "acme-x99");
     }
 
@@ -597,7 +708,7 @@ mod tests {
         let dir = parent.path().join("repo");
         fs::create_dir(&dir).unwrap();
         fs::write(dir.join("keep.txt"), b"mine").unwrap();
-        let error = init(&dir, "acme-x99", None).unwrap_err();
+        let error = init(&dir, "acme-x99", None, None).unwrap_err();
         assert_eq!(error.code, Code::OutputExists, "{error}");
         assert_eq!(fs::read(dir.join("keep.txt")).unwrap(), b"mine");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
@@ -608,16 +719,37 @@ mod tests {
         let parent = tempfile::tempdir().unwrap();
         let dir = parent.path().join("repo");
         assert_eq!(
-            init(&dir, "official", None).unwrap_err().code,
+            init(&dir, "official", None, None).unwrap_err().code,
             Code::CatalogInvalid
         );
-        let error = init(&dir, "acme-x99", Some("")).unwrap_err();
+        let error = init(&dir, "acme-x99", Some(""), None).unwrap_err();
         assert_eq!(error.code, Code::CatalogInvalid);
         assert!(error.message.starts_with("title: expected"), "{error}");
         assert!(
             !dir.exists(),
             "(init): expected nothing written on invalid input"
         );
+    }
+
+    #[test]
+    fn init_writes_the_repository_and_refuses_a_bad_url_before_writing() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("repo");
+        let reply = init(&dir, "acme-x99", None, Some("https://example.org/acme")).unwrap();
+        assert_eq!(reply.data["repository"], "https://example.org/acme");
+        let catalog = Catalog::load(&DirSource::new(&dir).unwrap(), Scope::All).unwrap();
+        assert_eq!(
+            catalog.manifest.repository.as_deref(),
+            Some("https://example.org/acme")
+        );
+
+        let refused = parent.path().join("refused");
+        let error = init(&refused, "acme-x99", None, Some("example.org/acme")).unwrap_err();
+        assert_eq!(
+            error.message,
+            "catalog repository: expected an https URL | received \"example.org/acme\""
+        );
+        assert!(!refused.exists(), "(init): expected nothing written");
     }
 
     #[test]

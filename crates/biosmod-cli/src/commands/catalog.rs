@@ -20,16 +20,27 @@ use std::path::{Path, PathBuf};
 
 pub fn run(ctx: &mut Ctx, command: CatalogCommand) -> Result<Reply> {
     match command {
-        CatalogCommand::Init { dir, id, title } => {
-            super::catalog_init::init(&dir, &id, title.as_deref())
-        }
+        CatalogCommand::Init {
+            dir,
+            id,
+            title,
+            repository,
+        } => super::catalog_init::init(&dir, &id, title.as_deref(), repository.as_deref()),
         CatalogCommand::Split {
             source,
             board,
             output,
             id,
             title,
-        } => super::catalog_share::split(&source, &board, &output, &id, title.as_deref()),
+            repository,
+        } => super::catalog_share::split(
+            &source,
+            &board,
+            &output,
+            &id,
+            title.as_deref(),
+            repository.as_deref(),
+        ),
         CatalogCommand::Merge {
             sources,
             check,

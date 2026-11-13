@@ -1147,3 +1147,263 @@ fn capabilities_list_split_and_merge_without_network() {
     assert_eq!(writes("catalog merge --check"), json!([]));
     assert_eq!(writes("catalog merge -o"), json!(["catalog directory"]));
 }
+
+const MR9A_URL: &str = "https://example.org/acme/mr9a-pro";
+const PR9_URL: &str = "https://example.org/acme/pr9-b85";
+const MR9A_COMMIT: &str = "1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b";
+
+/// Make `dir` look like a git checkout at `commit`: `.git/HEAD` names a branch whose
+/// loose ref holds the hash. Nothing here runs git.
+fn fake_checkout(dir: &Path, commit: &str) {
+    fs::create_dir_all(dir.join(".git/refs/heads")).unwrap();
+    fs::write(dir.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    fs::write(dir.join(".git/refs/heads/main"), format!("{commit}\n")).unwrap();
+}
+
+/// Split `board` of the bundled catalog into `name` with `--repository url`.
+fn split_with_repository(
+    sandbox: &Sandbox,
+    board: &str,
+    name: &str,
+    id: &str,
+    url: &str,
+) -> PathBuf {
+    let dir = sandbox.path(name);
+    ok(sandbox.run([
+        "catalog",
+        "split",
+        "official",
+        "--board",
+        board,
+        "-o",
+        s(&dir),
+        "--id",
+        id,
+        "--repository",
+        url,
+    ]));
+    dir
+}
+
+#[test]
+fn init_repository_writes_the_url_and_the_catalog_validates_and_indexes() {
+    let sandbox = Sandbox::new();
+    let repo = sandbox.path("acme");
+    let run = ok(sandbox.run([
+        "catalog",
+        "init",
+        s(&repo),
+        "--id",
+        "acme-x99",
+        "--repository",
+        PR9_URL,
+        "--json",
+    ]));
+    assert_eq!(run.json()["data"]["repository"], PR9_URL);
+    assert_eq!(json_file(&repo.join("catalog.json"))["repository"], PR9_URL);
+    assert_valid_and_indexed(&sandbox, &repo);
+
+    // Without the flag the key is absent from the file and the reply.
+    let plain = sandbox.path("plain");
+    let run = ok(sandbox.run(["catalog", "init", s(&plain), "--id", "plain", "--json"]));
+    assert!(run.json()["data"].get("repository").is_none());
+    assert!(
+        json_file(&plain.join("catalog.json"))
+            .get("repository")
+            .is_none()
+    );
+}
+
+#[test]
+fn split_repository_writes_the_url_and_the_catalog_validates_and_indexes() {
+    let sandbox = Sandbox::new();
+    let dir = split_with_repository(&sandbox, PR9, "pr9", PR9_CATALOG, PR9_URL);
+    assert_eq!(json_file(&dir.join("catalog.json"))["repository"], PR9_URL);
+    assert_valid_and_indexed(&sandbox, &dir);
+    // `catalog index` rewrites the same bytes, so it keeps the field.
+    let before = fs::read(dir.join("catalog.json")).unwrap();
+    ok(sandbox.run(["catalog", "index", s(&dir)]));
+    assert_eq!(fs::read(dir.join("catalog.json")).unwrap(), before);
+}
+
+#[test]
+fn init_and_split_refuse_a_repository_that_is_not_an_https_url_and_write_nothing() {
+    let sandbox = Sandbox::new();
+    for url in [
+        "http://example.org/acme",
+        "git@github.com:acme/x99.git",
+        "https://",
+        "https://example.org/a b",
+    ] {
+        let expected = format!("catalog repository: expected an https URL | received {url:?}");
+        let repo = sandbox.path("init-refused");
+        let run = sandbox.run([
+            "catalog",
+            "init",
+            s(&repo),
+            "--id",
+            "acme-x99",
+            "--repository",
+            url,
+            "--json",
+        ]);
+        assert_eq!(
+            (run.code, run.error_code().as_str()),
+            (1, "CATALOG_INVALID"),
+            "(init {url})"
+        );
+        assert_eq!(run.json()["error"]["message"], expected.as_str());
+        assert!(!repo.exists(), "(init {url}): expected nothing written");
+
+        let out = sandbox.path("split-refused");
+        let run = sandbox.run([
+            "catalog",
+            "split",
+            "official",
+            "--board",
+            PR9,
+            "-o",
+            s(&out),
+            "--id",
+            PR9_CATALOG,
+            "--repository",
+            url,
+            "--json",
+        ]);
+        assert_eq!(
+            (run.code, run.error_code().as_str()),
+            (1, "CATALOG_INVALID"),
+            "(split {url})"
+        );
+        assert_eq!(run.json()["error"]["message"], expected.as_str());
+        assert!(!out.exists(), "(split {url}): expected nothing written");
+    }
+}
+
+#[test]
+fn merge_records_the_repository_and_the_checked_out_commit_of_each_source() {
+    let sandbox = Sandbox::new();
+    let mr9a = split_with_repository(&sandbox, MR9A, "mr9a", MR9A_CATALOG, MR9A_URL);
+    let pr9 = split(&sandbox, PR9, "pr9", PR9_CATALOG).0;
+    fake_checkout(&mr9a, MR9A_COMMIT);
+    let merged = sandbox.path("merged");
+    let run = ok(sandbox.run([
+        "catalog",
+        "merge",
+        s(&mr9a),
+        s(&pr9),
+        "-o",
+        s(&merged),
+        "--id",
+        "two-boards",
+        "--json",
+    ]));
+    let digest = |dir: &Path| Digest256::of(&fs::read(dir.join("catalog.json")).unwrap());
+    let expected = json!([
+        {
+            "id": MR9A_CATALOG,
+            "version": "0.1.0",
+            "manifest_sha256": digest(&mr9a).to_string(),
+            "repository": MR9A_URL,
+            "commit": MR9A_COMMIT,
+        },
+        {"id": PR9_CATALOG, "version": "0.1.0", "manifest_sha256": digest(&pr9).to_string()},
+    ]);
+    assert_eq!(json_file(&merged.join("catalog.json"))["sources"], expected);
+    assert_eq!(run.json()["data"]["sources"], expected);
+    assert_valid_and_indexed(&sandbox, &merged);
+}
+
+#[test]
+fn merge_from_directories_that_are_not_checkouts_records_no_commit() {
+    let sandbox = Sandbox::new();
+    let (mr9a, pr9) = both_splits(&sandbox);
+    // A malformed HEAD is "no commit", not an error.
+    fs::create_dir_all(mr9a.join(".git")).unwrap();
+    fs::write(mr9a.join(".git/HEAD"), "ref: refs/heads/nowhere\n").unwrap();
+    let merged = sandbox.path("merged");
+    ok(sandbox.run([
+        "catalog",
+        "merge",
+        s(&mr9a),
+        s(&pr9),
+        "-o",
+        s(&merged),
+        "--id",
+        "two-boards",
+    ]));
+    for entry in json_file(&merged.join("catalog.json"))["sources"]
+        .as_array()
+        .unwrap()
+    {
+        assert!(
+            entry.get("commit").is_none() && entry.get("repository").is_none(),
+            "(sources entry): expected no commit and no repository | received {entry}"
+        );
+    }
+}
+
+#[test]
+fn merge_check_adds_the_commit_to_a_moved_pin_and_keeps_a_pinned_line_short() {
+    let sandbox = Sandbox::new();
+    let mr9a = split_with_repository(&sandbox, MR9A, "mr9a", MR9A_CATALOG, MR9A_URL);
+    let pr9 = split(&sandbox, PR9, "pr9", PR9_CATALOG).0;
+    fake_checkout(&mr9a, MR9A_COMMIT);
+    let merged = sandbox.path("merged");
+    ok(sandbox.run([
+        "catalog",
+        "merge",
+        s(&mr9a),
+        s(&pr9),
+        "-o",
+        s(&merged),
+        "--id",
+        "two-boards",
+    ]));
+    let pinned = ok(sandbox.run(["catalog", "merge", s(&merged), s(&mr9a), s(&pr9), "--check"]));
+    assert!(
+        pinned.stdout.ends_with(&format!(
+            "  pin      two-boards lists {MR9A_CATALOG} 0.1.0: pinned\n  pin      two-boards lists {PR9_CATALOG} 0.1.0: pinned\n"
+        )),
+        "(pinned lines): expected no commit | received:\n{}",
+        pinned.stdout
+    );
+
+    let pinned_digest = Digest256::of(&fs::read(mr9a.join("catalog.json")).unwrap());
+    let moved = edited_copy(
+        &sandbox,
+        &mr9a,
+        "mr9a-moved",
+        &[("catalog.json", &|d| {
+            d["version"] = json!("0.2.0");
+        })],
+    );
+    let current_digest = Digest256::of(&fs::read(moved.join("catalog.json")).unwrap());
+    let run = ok(sandbox.run([
+        "catalog",
+        "merge",
+        s(&merged),
+        s(&moved),
+        s(&pr9),
+        "--check",
+    ]));
+    assert!(
+        run.stdout.contains(&format!(
+            "  pin      two-boards lists {MR9A_CATALOG} 0.1.0: moved (pinned {pinned_digest} at commit 1a2b3c4d5e6f, current {current_digest})\n"
+        )),
+        "(merge --check moved line) | received:\n{}",
+        run.stdout
+    );
+    let json = ok(sandbox.run([
+        "catalog",
+        "merge",
+        s(&merged),
+        s(&moved),
+        s(&pr9),
+        "--check",
+        "--json",
+    ]))
+    .json();
+    assert_eq!(json["data"]["pins"][0]["commit"], MR9A_COMMIT);
+    assert!(json["data"]["pins"][1].get("commit").is_none());
+}

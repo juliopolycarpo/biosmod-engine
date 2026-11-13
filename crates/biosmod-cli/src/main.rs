@@ -3,6 +3,7 @@
 //! Outputs are always new files. Only the `flash` commands touch a flash chip,
 //! through flashrom; `flash write` is the single command that changes one.
 
+mod checkout;
 mod commands;
 mod config;
 mod flash;
@@ -354,6 +355,9 @@ pub enum CatalogCommand {
         /// Catalog title (default: the id).
         #[arg(long)]
         title: Option<String>,
+        /// URL of the repository that holds this catalog, written to catalog.json as `repository`: `https://` and a host. `catalog merge` copies it into `sources`.
+        #[arg(long, value_name = "URL")]
+        repository: Option<String>,
     },
     /// Write the device repository of one board, cut from a catalog.
     ///
@@ -378,16 +382,22 @@ pub enum CatalogCommand {
         /// Catalog title (default: the id).
         #[arg(long)]
         title: Option<String>,
+        /// URL of the repository that holds this catalog, written to catalog.json as `repository`: `https://` and a host. `catalog merge` copies it into `sources`.
+        #[arg(long, value_name = "URL")]
+        repository: Option<String>,
     },
     /// Union two or more catalogs, or check that they agree.
     ///
     /// Records match by id. Board lists, patch variants, finding builds, code
     /// references and evidence are unioned; every other field of a shared record
     /// must be equal, and a difference is an error naming the record, field, both
-    /// values and both catalogs. A catalog written with -o lists its sources (id,
-    /// version and the SHA-256 of each catalog.json). With --check, a source that
-    /// lists sources reports whether each pinned digest still matches the given
-    /// source with that id.
+    /// values and both catalogs. A catalog written with -o lists its sources: id,
+    /// version, the SHA-256 of each catalog.json, the `repository` its catalog.json
+    /// names and the commit checked out in its directory when that is a git
+    /// checkout. The commit is read from .git without running git; uncommitted
+    /// changes are covered by the digest, not by the commit. With --check, a source
+    /// that lists sources reports whether each pinned digest still matches the
+    /// given source with that id.
     Merge {
         /// Catalog directories or `official`, at least two.
         #[arg(value_name = "SOURCE", required = true)]

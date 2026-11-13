@@ -6,9 +6,10 @@
 //! trust flag, like `bme catalog validate <path>`.
 
 use super::catalog_init::{
-    INITIAL_VERSION, SCAFFOLD_FILES, bundled_title, checked_title, manifest_bytes_with,
-    write_repository,
+    INITIAL_VERSION, ManifestHeader, SCAFFOLD_FILES, bundled_title, check_repository,
+    checked_title, manifest_bytes_from, write_repository,
 };
+use crate::checkout::head_commit;
 use crate::output::{Reply, display_path};
 use crate::publish::{check_outputs, publish_directory};
 use crate::sources::{DirSource, OFFICIAL, builtin_source};
@@ -32,6 +33,11 @@ struct Origin {
     version: Version,
     /// SHA-256 of the exact `catalog.json` bytes.
     manifest_sha256: Digest256,
+    /// The `repository` in its `catalog.json`.
+    repository: Option<String>,
+    /// The commit checked out in its directory; `None` for `official` and for a directory
+    /// that is not a git checkout.
+    commit: Option<String>,
     engine: VersionReq,
     /// The pins its `catalog.json` lists, empty unless it was written by a merge.
     sources: Vec<CatalogSource>,
@@ -42,12 +48,18 @@ struct Origin {
 
 /// Read `source`: the word `official` for the bundled catalog, otherwise a catalog directory.
 ///
+/// The commit is read from the directory's `.git` after the catalog loads, so a directory
+/// that is not a catalog fails first.
+///
 /// Example: `read_origin("official")?.records.boards.len() == 2` for the bundled catalog.
 fn read_origin(source: &str) -> Result<Origin> {
     if source == OFFICIAL {
         read_files(&builtin_source())
     } else {
-        read_files(&DirSource::new(Path::new(source))?)
+        let path = Path::new(source);
+        let mut origin = read_files(&DirSource::new(path)?)?;
+        origin.commit = head_commit(path);
+        Ok(origin)
     }
 }
 
@@ -79,6 +91,8 @@ fn read_files(files: &dyn FileSource) -> Result<Origin> {
         id: catalog.manifest.id.clone(),
         version: catalog.manifest.version.clone(),
         manifest_sha256: catalog.manifest_sha256,
+        repository: catalog.manifest.repository.clone(),
+        commit: None,
         engine: catalog.manifest.engine.clone(),
         sources: catalog.manifest.sources.clone(),
         records: Records::of(&catalog),
@@ -136,8 +150,10 @@ pub fn split(
     dir: &Path,
     id: &str,
     title: Option<&str>,
+    url: Option<&str>,
 ) -> Result<Reply> {
     let title = checked_title(id, title)?;
+    check_repository(url)?;
     check_outputs(&[dir], &[])?;
     let origin = read_origin(source)?;
     let split = split_board(&origin.records, board)?;
@@ -148,13 +164,16 @@ pub fn split(
     let mut records = record_files(&split.records);
     records.extend(kept);
     // The split keeps the source's engine requirement, so merging it back never disagrees on it.
-    let manifest = manifest_bytes_with(
-        id,
-        title,
-        INITIAL_VERSION,
-        origin.engine.clone(),
-        None,
-        Vec::new(),
+    let manifest = manifest_bytes_from(
+        ManifestHeader {
+            id,
+            title,
+            version: INITIAL_VERSION,
+            engine: origin.engine.clone(),
+            description: None,
+            repository: url,
+            sources: Vec::new(),
+        },
         &records,
     )?;
     check_loads(&records, manifest)?;
@@ -164,7 +183,7 @@ pub fn split(
         .map(String::from)
         .collect();
     let dropped_provenance: Vec<String> = dropped.into_iter().map(|(path, _)| path).collect();
-    let repository = write_repository(dir, id, Some(title), origin.engine.clone(), records)?;
+    let repository = write_repository(dir, id, Some(title), url, origin.engine.clone(), records)?;
 
     let shown = &repository.directory;
     let kept_ids = |ids: Vec<&String>| ids.into_iter().cloned().collect::<Vec<String>>();
@@ -193,8 +212,7 @@ pub fn split(
         source_id = origin.id,
         source_version = origin.version,
     );
-    Ok(Reply::new(
-        json!({
+    let mut data = json!({
             "directory": shown,
             "id": id,
             "title": repository.title,
@@ -214,9 +232,11 @@ pub fn split(
                 "evidence": split.dropped.evidence,
                 "provenance": dropped_provenance,
             },
-        }),
-        text,
-    ))
+    });
+    if let Some(url) = url {
+        data["repository"] = json!(url);
+    }
+    Ok(Reply::new(data, text))
 }
 
 /// What `catalog merge` writes: nothing (`check`) or a catalog directory.
@@ -286,6 +306,8 @@ pub fn merge(sources: &[String], output: MergeOutput<'_>) -> Result<Reply> {
             catalog_id: &origin.id,
             version: &origin.version,
             manifest_sha256: origin.manifest_sha256,
+            repository: origin.repository.as_deref(),
+            commit: origin.commit.as_deref(),
             sources: &origin.sources,
             engine: &origin.engine,
             records: &origin.records,
@@ -300,13 +322,16 @@ pub fn merge(sources: &[String], output: MergeOutput<'_>) -> Result<Reply> {
         Some((_, id, title, version, description)) => (*id, *title, version.clone(), *description),
         None => ("merge-check", "merge check", INITIAL_VERSION, None),
     };
-    let manifest = manifest_bytes_with(
-        id,
-        title,
-        version.clone(),
-        merged.engine.clone(),
-        description,
-        merged.sources.clone(),
+    let manifest = manifest_bytes_from(
+        ManifestHeader {
+            id,
+            title,
+            version: version.clone(),
+            engine: merged.engine.clone(),
+            description,
+            repository: None,
+            sources: merged.sources.clone(),
+        },
         &files,
     )?;
     let catalog = check_loads(&files, manifest.clone())?;
@@ -375,18 +400,28 @@ pub fn merge(sources: &[String], output: MergeOutput<'_>) -> Result<Reply> {
 /// The source is named as it was given, so two sources with one id read `dev (#1)` and
 /// `dev (#2)` and the moved one can be told apart.
 ///
+/// A pin that records a commit shows its first 12 characters when the source moved, so the
+/// line says which commit the digest was taken at.
+///
 /// Example: `  pin      rebuilt lists pr9-b85 0.1.0: pinned`.
 fn pin_lines(pins: &[PinCheck]) -> String {
     pins.iter()
         .map(|pin| {
             let state = match pin.state {
                 PinState::Pinned => pin.state.label().to_string(),
-                PinState::Moved => format!(
-                    "{} (pinned {}, current {})",
-                    pin.state.label(),
-                    pin.pinned,
-                    pin.current
-                ),
+                PinState::Moved => {
+                    let at = pin
+                        .commit
+                        .as_deref()
+                        .map(|commit| format!(" at commit {}", commit.get(..12).unwrap_or(commit)))
+                        .unwrap_or_default();
+                    format!(
+                        "{} (pinned {}{at}, current {})",
+                        pin.state.label(),
+                        pin.pinned,
+                        pin.current
+                    )
+                }
             };
             format!(
                 "  pin      {} lists {} {}: {state}\n",
@@ -483,6 +518,68 @@ mod tests {
         let none: [&str; 0] = [];
         assert_eq!(listed(&none), "none");
         assert_eq!(listed(&["A".to_string(), "B".to_string()]), "A B");
+    }
+
+    /// A pin check of `id`, with the digests of `pinned` and `current` and an optional commit.
+    fn pin_check(state: PinState, commit: Option<&str>) -> PinCheck {
+        PinCheck {
+            listed_by: "merged".into(),
+            source: "pr9".into(),
+            id: "pr9".into(),
+            version: Version::new(0, 1, 0),
+            pinned: Digest256::of(b"old"),
+            current: Digest256::of(b"new"),
+            commit: commit.map(str::to_string),
+            state,
+        }
+    }
+
+    #[test]
+    fn a_moved_pin_line_names_the_first_12_characters_of_its_commit() {
+        let commit = "1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b";
+        let line = pin_lines(&[pin_check(PinState::Moved, Some(commit))]);
+        assert_eq!(
+            line,
+            format!(
+                "  pin      merged lists pr9 0.1.0: moved (pinned {} at commit 1a2b3c4d5e6f, current {})\n",
+                Digest256::of(b"old"),
+                Digest256::of(b"new")
+            )
+        );
+        let without = pin_lines(&[pin_check(PinState::Moved, None)]);
+        assert!(!without.contains("commit"), "{without}");
+    }
+
+    #[test]
+    fn a_pinned_line_stays_short_even_when_the_entry_has_a_commit() {
+        let line = pin_lines(&[pin_check(PinState::Pinned, Some(&"a".repeat(40)))]);
+        assert_eq!(line, "  pin      merged lists pr9 0.1.0: pinned\n");
+    }
+
+    #[test]
+    fn read_origin_records_the_commit_of_a_checkout_and_none_for_official_or_a_plain_directory() {
+        assert_eq!(read_origin(OFFICIAL).unwrap().commit, None);
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("repo");
+        crate::commands::catalog_init::init(&dir, "acme", None, Some("https://example.org/acme"))
+            .unwrap();
+        let plain = read_origin(dir.to_str().unwrap()).unwrap();
+        assert_eq!(plain.commit, None);
+        assert_eq!(
+            plain.repository.as_deref(),
+            Some("https://example.org/acme")
+        );
+
+        let commit = "ab".repeat(20);
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(dir.join(".git/HEAD"), format!("{commit}\n")).unwrap();
+        assert_eq!(
+            read_origin(dir.to_str().unwrap())
+                .unwrap()
+                .commit
+                .as_deref(),
+            Some(commit.as_str())
+        );
     }
 
     #[test]
