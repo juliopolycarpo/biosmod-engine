@@ -41,7 +41,7 @@ pub const STORED_SET_NOTICE: &str = "Stored set: tables found with a valid check
 /// Where one copy of a table sits. Nested volumes inside FV-image sections are scanned too.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TableLocation {
-    /// GUID of the owning top-level FFS file.
+    /// GUID of the owning FFS file.
     pub file_guid: Guid,
     pub file_name: Option<String>,
     /// Section indices from the file's section list down to the leaf section.
@@ -54,12 +54,20 @@ pub struct TableLocation {
     pub compressed: bool,
     /// Table offset within the section body.
     pub offset: usize,
-    /// Enclosing FFS file GUIDs, outermost first, when the file sits in a nested volume.
-    pub nested_in: Vec<Guid>,
-    /// Image offset of the owning FFS file. When that file only exists in decoded content
-    /// (a nested volume behind a compressed or CRC32 section), the image offset of the
-    /// innermost enclosing file whose bytes lie directly in the image instead.
-    pub file_offset: usize,
+    /// Enclosing FFS files, outermost first, when the file sits in a nested volume.
+    pub nested_in: Vec<EnclosingFile>,
+    /// Image offset of the owning FFS file, or `None` when the file only exists in decoded
+    /// content (a nested volume behind a compressed or CRC32 section). The innermost
+    /// `nested_in` entry with an offset is then the stored file that holds it.
+    pub file_offset: Option<usize>,
+}
+
+/// An FFS file whose FV-image section holds the volume of a [`TableLocation`]'s file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct EnclosingFile {
+    pub guid: Guid,
+    /// Image offset of the file, or `None` when it only exists in decoded content.
+    pub file_offset: Option<usize>,
 }
 
 /// One distinct table (by SHA-256) and every place it is stored.
@@ -214,8 +222,6 @@ struct BufferPlace {
     image_base: Option<usize>,
     /// True when the buffer came out of a compressed section.
     compressed: bool,
-    /// Image offset of the innermost enclosing FFS file stored directly in the image.
-    anchor: usize,
 }
 
 impl BufferPlace {
@@ -223,21 +229,19 @@ impl BufferPlace {
     const IMAGE: BufferPlace = BufferPlace {
         image_base: Some(0),
         compressed: false,
-        anchor: 0,
     };
 
-    /// What [`TableLocation::file_offset`] reports for `file` in this buffer.
-    fn file_offset(&self, file: &FfsFile) -> usize {
-        self.image_base
-            .map_or(self.anchor, |base| base + file.offset)
+    /// Image offset of `file` in this buffer, if the buffer lies in the image.
+    fn file_offset(&self, file: &FfsFile) -> Option<usize> {
+        self.image_base.map(|base| base + file.offset)
     }
 }
 
-/// Callback for [`visit_files`]: `(file, volume buffer, enclosing file GUIDs, buffer place)`.
-type FileVisitor<'a> = dyn FnMut(&FfsFile, &[u8], &[Guid], &BufferPlace) + 'a;
+/// Callback for [`visit_files`]: `(file, volume buffer, enclosing files, buffer place)`.
+type FileVisitor<'a> = dyn FnMut(&FfsFile, &[u8], &[EnclosingFile], &BufferPlace) + 'a;
 
 /// Call `visit` for every FFS file in `volumes`, then for the files of volumes nested in
-/// FV-image sections, as `(file, volume buffer, enclosing file GUIDs, buffer place)`.
+/// FV-image sections, as `(file, volume buffer, enclosing files, buffer place)`.
 ///
 /// Only the ACPI scan descends into nested volumes; `firmware::walk` and `Image::leaves`
 /// keep their top-level-only meaning for the patch pipeline.
@@ -245,21 +249,23 @@ fn visit_files(
     volumes: &[Volume],
     buffer: &[u8],
     place: &BufferPlace,
-    nested_in: &mut Vec<Guid>,
+    nested_in: &mut Vec<EnclosingFile>,
     visit: &mut FileVisitor,
 ) {
     for volume in volumes {
         for file in &volume.files {
             visit(file, buffer, nested_in, place);
-            let file_at = place.image_base.map(|base| base + file.offset);
+            let file_offset = place.file_offset(file);
             let body = BufferPlace {
-                image_base: file_at.map(|at| at + file.header_size),
+                image_base: file_offset.map(|at| at + file.header_size),
                 compressed: place.compressed,
-                anchor: file_at.unwrap_or(place.anchor),
             };
             let mut inner = Vec::new();
             nested_volumes(&file.sections, file.body(buffer), body, &mut inner);
-            nested_in.push(file.guid);
+            nested_in.push(EnclosingFile {
+                guid: file.guid,
+                file_offset,
+            });
             for (volumes, section_body, inner_place) in inner {
                 visit_files(volumes, section_body, &inner_place, nested_in, visit);
             }
@@ -286,7 +292,6 @@ fn nested_volumes<'a>(
                 image_base: None,
                 compressed: place.compressed
                     || section.encoding.is_some_and(Encoding::is_compressed),
-                anchor: place.anchor,
             };
             nested_volumes(&decoded.children, &decoded.bytes, inner, out);
         } else if let Some(volumes) = section.volumes.as_deref().filter(|v| !v.is_empty()) {
@@ -579,14 +584,22 @@ mod tests {
         );
         let at = &list.tables[0].locations[0];
         assert_eq!(at.file_guid, fixture.inner_guid);
-        assert_eq!(at.nested_in, vec![fixture.outer_guid]);
+        assert_eq!(
+            at.nested_in,
+            vec![EnclosingFile {
+                guid: fixture.outer_guid,
+                file_offset: Some(image.volumes[0].files[0].offset),
+            }]
+        );
         assert_eq!(at.section_path, vec![0]);
         assert!(!at.compressed, "(nested table): expected stored plain");
+        let file_offset = at
+            .file_offset
+            .expect("a plain nested file has an image offset");
         assert_eq!(
-            image.bytes[at.file_offset..at.file_offset + 16],
+            image.bytes[file_offset..file_offset + 16],
             fixture.inner_guid.0,
-            "(nested file_offset {:#x}): expected the image offset of the inner file header",
-            at.file_offset
+            "(nested file_offset {file_offset:#x}): expected the image offset of the inner file header"
         );
         let (_, bytes) =
             select_table(&image, fixture.inner_guid, &TableSelector::default()).unwrap();
@@ -594,7 +607,7 @@ mod tests {
     }
 
     #[test]
-    fn a_volume_nested_behind_lzma_marks_its_tables_compressed_at_the_outer_file() {
+    fn a_volume_nested_behind_lzma_marks_its_tables_compressed_without_an_image_offset() {
         let table = acpi_table(*b"SSDT", "InLzmaFv", 1, 40);
         let inner = ffs(PEIM_GUID, 0x07, &section(0x19, &table), 0);
         let wrapped = lzma_section(&section(0x17, &volume(&[inner], 0x1000)));
@@ -604,14 +617,21 @@ mod tests {
         let list = inventory(&image);
         assert_eq!(list.tables.len(), 1, "{:?}", list.tables);
         let at = &list.tables[0].locations[0];
-        assert_eq!(at.nested_in, vec![DXE_GUID]);
+        assert_eq!(
+            at.nested_in,
+            vec![EnclosingFile {
+                guid: DXE_GUID,
+                file_offset: Some(image.volumes[0].files[0].offset),
+            }],
+            "(table in a volume behind LZMA): expected the outer file with its image offset"
+        );
         assert!(
             at.compressed,
             "(table in a volume behind LZMA): expected compressed true | received false"
         );
         assert_eq!(
-            at.file_offset, image.volumes[0].files[0].offset,
-            "(table in a volume behind LZMA): expected the outer file's image offset"
+            at.file_offset, None,
+            "(table in a volume behind LZMA): expected no image offset for a decoded file"
         );
     }
 
