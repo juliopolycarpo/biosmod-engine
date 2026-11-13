@@ -1,5 +1,6 @@
 //! `catalog` subcommands.
 
+use super::catalog_share::MergeOutput;
 use super::{Ctx, load_sources};
 use crate::CatalogCommand;
 use crate::config::{SourceKind, io_error, write_atomic, write_new};
@@ -21,6 +22,38 @@ pub fn run(ctx: &mut Ctx, command: CatalogCommand) -> Result<Reply> {
     match command {
         CatalogCommand::Init { dir, id, title } => {
             super::catalog_init::init(&dir, &id, title.as_deref())
+        }
+        CatalogCommand::Split {
+            source,
+            board,
+            output,
+            id,
+            title,
+        } => super::catalog_share::split(&source, &board, &output, &id, title.as_deref()),
+        CatalogCommand::Merge {
+            sources,
+            check,
+            output,
+            id,
+            title,
+            version,
+        } => {
+            let target = match (check, &output, &id) {
+                (true, None, None) => MergeOutput::Check,
+                (false, Some(dir), Some(id)) => MergeOutput::Write {
+                    dir,
+                    id,
+                    title: title.as_deref(),
+                    version: version.as_deref(),
+                },
+                _ => {
+                    return Err(Error::new(
+                        Code::Usage,
+                        "merge: expected --check or -o DIR with --id ID | received neither or both",
+                    ));
+                }
+            };
+            super::catalog_share::merge(&sources, target)
         }
         CatalogCommand::Validate { path } => validate(&path),
         CatalogCommand::Index { path, check } => index(&path, check),

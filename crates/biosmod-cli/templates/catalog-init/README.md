@@ -44,6 +44,17 @@ bme scan work/dump.bin --catalog . --allow-unsigned-local
 
 `bme guide cases` and `bme guide porting` cover the investigation itself.
 
+## Share a record with another board
+
+A defect this board shares with another board keeps the same id and the same text in both repositories. Each repository holds only the variant for its own firmware build.
+
+```sh
+bme catalog merge . ../other-board --check   # fails with the record, field and both values when a shared record drifted
+bme derive --patch B02-B03 --from-firmware <other build id> --component <module> --module Module.pe > draft.json
+```
+
+`bme derive` drafts the variant for this board's build from the other board's record; review it hunk by hunk (`bme guide porting`). Keep a `not-applicable` variant for the other board's build out of this repository: only a catalog that defines both builds can hold it. To start from the bundled records, run `bme catalog split official --board <board id> -o <dir> --id <id>`.
+
 ## Commits
 
 One record per commit, with the id in the scope and the defect in the subject, so `git log` and code search find it by id, module or symptom:

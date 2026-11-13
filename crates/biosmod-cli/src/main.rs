@@ -355,6 +355,54 @@ pub enum CatalogCommand {
         #[arg(long)]
         title: Option<String>,
     },
+    /// Write the device repository of one board, cut from a catalog.
+    ///
+    /// Keeps the board's records and cuts each to the board's firmware builds:
+    /// a patch stays when a build of the board has an applicable variant; a finding
+    /// stays when it affects a build of the board; evidence stays when it names the
+    /// board. The reply lists what was dropped.
+    Split {
+        /// Catalog directory, or `official` for the bundled catalog.
+        source: String,
+        /// Board id to keep.
+        #[arg(long, value_name = "BOARD_ID")]
+        board: String,
+        /// New directory (must not exist).
+        #[arg(short, long, value_name = "DIR")]
+        output: PathBuf,
+        /// Catalog id: 1-64 characters [A-Za-z0-9._-] starting alphanumeric; not `official`.
+        #[arg(long)]
+        id: String,
+        /// Catalog title (default: the id).
+        #[arg(long)]
+        title: Option<String>,
+    },
+    /// Union two or more catalogs, or check that they agree.
+    ///
+    /// Records match by id. Board lists, patch variants, finding builds, code
+    /// references and evidence are unioned; every other field of a shared record
+    /// must be equal, and a difference is an error naming the record, field, both
+    /// values and both catalogs.
+    Merge {
+        /// Catalog directories or `official`, at least two.
+        #[arg(value_name = "SOURCE", required = true)]
+        sources: Vec<String>,
+        /// Write nothing; report whether the catalogs agree.
+        #[arg(long, conflicts_with_all = ["output", "id", "title", "version"], required_unless_present = "output")]
+        check: bool,
+        /// New catalog directory (must not exist).
+        #[arg(short, long, value_name = "DIR", requires = "id")]
+        output: Option<PathBuf>,
+        /// Catalog id: 1-64 characters [A-Za-z0-9._-] starting alphanumeric; not `official`.
+        #[arg(long, requires = "output")]
+        id: Option<String>,
+        /// Catalog title (default: the id).
+        #[arg(long, requires = "output")]
+        title: Option<String>,
+        /// Catalog version (default: 0.1.0).
+        #[arg(long, value_name = "SEMVER", requires = "output")]
+        version: Option<String>,
+    },
     /// Validate a catalog directory (or board file) without registering it.
     Validate { path: PathBuf },
     /// Regenerate catalog.json's file index (lengths and hashes).
@@ -775,6 +823,8 @@ fn command_name(command: &Command) -> &'static str {
         Command::Compare(_) => "compare",
         Command::Catalog(c) => match c {
             CatalogCommand::Init { .. } => "catalog init",
+            CatalogCommand::Split { .. } => "catalog split",
+            CatalogCommand::Merge { .. } => "catalog merge",
             CatalogCommand::Validate { .. } => "catalog validate",
             CatalogCommand::Index { .. } => "catalog index",
             CatalogCommand::Add { .. } => "catalog add",
