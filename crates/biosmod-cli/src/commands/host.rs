@@ -5,12 +5,13 @@
 //! platform without the surface it needs and checks its output path before it
 //! touches the host, so a refusal never costs a hardware read.
 
-use crate::AcpiCommand;
 use crate::output::{Reply, display_path};
 use crate::publish::{check_outputs, publish_directory};
+use crate::{AcpiCommand, SuperioCommand};
 use biosmod_core::Result;
 use biosmod_host::bundle::{Bundle, EVIDENCE_FILE, MANIFEST_FILE};
-use biosmod_host::{HostSurfaces, acpi};
+use biosmod_host::ports::PortIo;
+use biosmod_host::{HostSurfaces, acpi, superio};
 use serde_json::json;
 use std::path::Path;
 
@@ -20,20 +21,23 @@ pub fn run_acpi(command: AcpiCommand) -> Result<Reply> {
     }
 }
 
+/// Run `body` against the real machine's surfaces.
 #[cfg(target_os = "linux")]
-fn acpi_capture(output: &Path) -> Result<Reply> {
+fn on_this_machine<T>(body: impl FnOnce(&HostSurfaces) -> T) -> T {
     use biosmod_host::kmsg::DevKmsg;
     use biosmod_host::{ProcessPrivilege, RootedFiles, SystemClock};
+    body(&HostSurfaces {
+        files: &RootedFiles::system(),
+        kernel_log: &DevKmsg::system(),
+        privilege: &ProcessPrivilege,
+        clock: &SystemClock,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn acpi_capture(output: &Path) -> Result<Reply> {
     check_outputs(&[output], &[])?;
-    capture_acpi_to(
-        &HostSurfaces {
-            files: &RootedFiles::system(),
-            kernel_log: &DevKmsg::system(),
-            privilege: &ProcessPrivilege,
-            clock: &SystemClock,
-        },
-        output,
-    )
+    on_this_machine(|surfaces| capture_acpi_to(surfaces, output))
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -94,6 +98,155 @@ pub fn capture_acpi_to(surfaces: &HostSurfaces, output: &Path) -> Result<Reply> 
     ))
 }
 
+pub fn run_superio(command: SuperioCommand) -> Result<Reply> {
+    match command {
+        SuperioCommand::Read {
+            device,
+            output,
+            unbound_only,
+        } => superio_read(&device, output.as_deref(), unbound_only),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn superio_read(device: &Path, output: Option<&Path>, unbound_only: bool) -> Result<Reply> {
+    use biosmod_host::ports::DevPort;
+    if let Some(output) = output {
+        check_outputs(&[output], &[])?;
+    }
+    // Before the device opens: a non-root user gets the refusal, not an open error.
+    on_this_machine(|surfaces| {
+        biosmod_host::privilege::require_root(surfaces.privilege, "diag superio read")
+    })?;
+    let mut ports = DevPort::open(device, "sudo bme diag superio read")?;
+    on_this_machine(|surfaces| read_superio_to(surfaces, &mut ports, output, unbound_only))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn superio_read(_device: &Path, output: Option<&Path>, _unbound_only: bool) -> Result<Reply> {
+    if let Some(output) = output {
+        check_outputs(&[output], &[])?;
+    }
+    Err(unsupported("diag superio read"))
+}
+
+/// Read the chip through `ports` and optionally publish the bundle at `output`.
+///
+/// Example: with `FakeSuperIoPorts` and fake surfaces, the reply's `reading.chip_id` is `"0xc562"`.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
+pub fn read_superio_to(
+    surfaces: &HostSurfaces,
+    ports: &mut dyn PortIo,
+    output: Option<&Path>,
+    unbound_only: bool,
+) -> Result<Reply> {
+    let capture = superio::capture(surfaces, ports, superio::builtin(), unbound_only)?;
+    if let Some(output) = output {
+        publish_bundle(output, &capture.bundle)?;
+    }
+    let evidence: serde_json::Value =
+        serde_json::from_slice(capture.bundle.get(EVIDENCE_FILE).expect("sealed bundle"))
+            .expect("the evidence record is JSON");
+    let mut text = render_superio(&capture.reading);
+    if let Some(output) = output {
+        text += &format!("Saved to {}\n", output.display());
+    }
+    Ok(Reply::new(
+        json!({
+            "reading": capture.reading,
+            "evidence": evidence,
+            "directory": output.map(display_path),
+        }),
+        text,
+    ))
+}
+
+/// Human summary of a reading, whichever way it was taken.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
+fn render_superio(reading: &superio::Reading) -> String {
+    match reading {
+        superio::Reading::RawPorts(reading) => render_raw_superio(reading),
+        superio::Reading::Hwmon(reading) => render_hwmon(reading),
+    }
+}
+
+/// What a bound driver publishes: the refusal reason first, then the attributes.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
+fn render_hwmon(reading: &biosmod_host::hwmon::HwmonReading) -> String {
+    let mut text = format!("{}\n", reading.raw_access_refused);
+    text += &format!(
+        "hwmon {} ({}): {} attributes\n",
+        reading.driver.hwmon.as_deref().unwrap_or("none"),
+        reading.name.as_deref().unwrap_or("unnamed"),
+        reading.attributes.len()
+    );
+    for (name, value) in &reading.attributes {
+        text += &format!("  {name} = {value}\n");
+    }
+    for name in &reading.unreadable {
+        text += &format!("  {name}: unreadable\n");
+    }
+    text += &format!("Not available through sysfs: {}\n", reading.not_available);
+    text
+}
+
+/// Raw reading: chip, logical devices, then one line per bank.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
+fn render_raw_superio(reading: &superio::SuperIoReading) -> String {
+    let mut text = format!(
+        "{} {} (ID {}) on configuration port {}\n",
+        reading.vendor, reading.chip, reading.chip_id, reading.config_port
+    );
+    for device in &reading.logical_devices {
+        text += &format!(
+            "  LDN {:#04x} {:<36} active {}{}\n",
+            device.ldn,
+            device.name,
+            device.active,
+            device
+                .base
+                .as_ref()
+                .map(|base| format!(" base {base}"))
+                .unwrap_or_default()
+        );
+    }
+    if let (Some(active), Some(base)) = (reading.hwm_active, &reading.hwm_base) {
+        text += &format!("Hardware monitor active {active} at {base}\n");
+    }
+    for (bank, registers) in &reading.registers {
+        let values: Vec<String> = registers
+            .iter()
+            .map(|(register, value)| format!("{register}={value:02x}"))
+            .collect();
+        text += &format!("  bank {bank}: {}\n", values.join(" "));
+    }
+    text
+}
+
 /// Publish every bundle file; `evidence.json` is last, so it marks a complete capture.
 #[cfg_attr(
     not(target_os = "linux"),
@@ -116,7 +269,9 @@ fn publish_bundle(output: &Path, bundle: &Bundle) -> Result<()> {
 mod tests {
     use super::*;
     use biosmod_core::Code;
-    use biosmod_host::testkit::{FakeKernelLog, FakePrivilege, FakeSysfs, FixedClock};
+    use biosmod_host::testkit::{
+        FakeKernelLog, FakePrivilege, FakeSuperIoPorts, FakeSysfs, FixedClock,
+    };
 
     fn sysfs() -> FakeSysfs {
         FakeSysfs::mr9a()
@@ -137,6 +292,143 @@ mod tests {
             },
             output,
         )
+    }
+
+    fn read_chip(
+        privilege: &FakePrivilege,
+        ports: &mut FakeSuperIoPorts,
+        output: Option<&Path>,
+    ) -> Result<Reply> {
+        read_chip_on(FakeSysfs::mr9a(), privilege, ports, output, false)
+    }
+
+    fn read_chip_on(
+        sysfs: FakeSysfs,
+        privilege: &FakePrivilege,
+        ports: &mut FakeSuperIoPorts,
+        output: Option<&Path>,
+        unbound_only: bool,
+    ) -> Result<Reply> {
+        let files = sysfs.files();
+        let log = FakeKernelLog::new();
+        read_superio_to(
+            &HostSurfaces {
+                files: &files,
+                kernel_log: &log,
+                privilege,
+                clock: &FixedClock,
+            },
+            ports,
+            output,
+            unbound_only,
+        )
+    }
+
+    fn driver_bound() -> FakeSysfs {
+        FakeSysfs::mr9a()
+            .file("sys/class/hwmon/hwmon3/name", "nct6779\n")
+            .file("sys/class/hwmon/hwmon3/pwm1", "128\n")
+            .file("sys/class/hwmon/hwmon3/fan1_input", "1204\n")
+    }
+
+    #[test]
+    fn a_bound_driver_is_read_through_sysfs_and_no_port_moves() {
+        let mut ports = FakeSuperIoPorts::mr9a_nct5532d();
+        let reply = read_chip_on(
+            driver_bound(),
+            &FakePrivilege::root(),
+            &mut ports,
+            None,
+            false,
+        )
+        .unwrap();
+        assert_eq!(reply.data["reading"]["source"], "hwmon-sysfs");
+        assert_eq!(reply.data["reading"]["attributes"]["fan1_input"], "1204");
+        assert!(reply.text.contains("fan1_input = 1204"), "{}", reply.text);
+        assert!(
+            reply.text.contains("sudo modprobe -r nct6775"),
+            "{}",
+            reply.text
+        );
+        assert!(
+            reply.text.contains("Not available through sysfs"),
+            "{}",
+            reply.text
+        );
+        assert!(
+            ports.trace.is_empty(),
+            "(port trace): expected empty | received {:?}",
+            ports.trace
+        );
+    }
+
+    #[test]
+    fn unbound_only_turns_a_bound_driver_into_a_refusal() {
+        let mut ports = FakeSuperIoPorts::mr9a_nct5532d();
+        let error = read_chip_on(
+            driver_bound(),
+            &FakePrivilege::root(),
+            &mut ports,
+            None,
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, Code::HostRefused, "{error}");
+        assert!(error.message.contains("received nct6775"), "{error}");
+        assert!(ports.trace.is_empty());
+    }
+
+    #[test]
+    fn superio_reply_carries_the_reading_and_the_receipt() {
+        let mut ports = FakeSuperIoPorts::mr9a_nct5532d();
+        let reply = read_chip(&FakePrivilege::root(), &mut ports, None).unwrap();
+        assert_eq!(reply.data["reading"]["source"], "raw-ports");
+        assert_eq!(reply.data["reading"]["chip_id"], "0xc562");
+        assert_eq!(reply.data["reading"]["registers"]["2"]["02"], 69);
+        assert_eq!(
+            reply.data["evidence"]["host"]["command"],
+            "diag superio read"
+        );
+        assert_eq!(reply.data["directory"], serde_json::Value::Null);
+        assert!(
+            reply.text.contains("NCT5532D/NCT6779D (ID 0xc562)"),
+            "{}",
+            reply.text
+        );
+        assert!(
+            reply.text.contains("bank 2: 00=10 01=32 02=45"),
+            "{}",
+            reply.text
+        );
+        assert!(ports.violations.is_empty(), "{:?}", ports.violations);
+    }
+
+    #[test]
+    fn superio_output_directory_is_new_only_and_not_created_for_a_refusal() {
+        let out = tempfile::tempdir().unwrap();
+        let target = out.path().join("fan");
+        let refused = read_chip(
+            &FakePrivilege::user(1000),
+            &mut FakeSuperIoPorts::mr9a_nct5532d(),
+            Some(&target),
+        )
+        .unwrap_err();
+        assert_eq!(refused.code, Code::HostRefused, "{refused}");
+        assert!(!target.exists());
+        read_chip(
+            &FakePrivilege::root(),
+            &mut FakeSuperIoPorts::mr9a_nct5532d(),
+            Some(&target),
+        )
+        .unwrap();
+        assert!(target.join("superio.json").is_file() && target.join(EVIDENCE_FILE).is_file());
+        let again = read_chip(
+            &FakePrivilege::root(),
+            &mut FakeSuperIoPorts::mr9a_nct5532d(),
+            Some(&target),
+        )
+        .unwrap_err();
+        assert_eq!(again.code, Code::OutputExists, "{again}");
     }
 
     #[test]
@@ -178,7 +470,7 @@ mod tests {
         let out = tempfile::tempdir().unwrap();
         let target = out.path().join("capture");
         let error = capture(&sysfs(), &FakePrivilege::user(1000), &target).unwrap_err();
-        assert_eq!(error.code, Code::Io, "{error}");
+        assert_eq!(error.code, Code::HostRefused, "{error}");
         assert!(!target.exists());
     }
 }

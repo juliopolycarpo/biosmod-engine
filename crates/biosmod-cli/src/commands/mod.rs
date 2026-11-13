@@ -58,6 +58,7 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Flash(sub) => return crate::flash::run(out, sub),
         // Same reason: host diagnostics need root and never read configuration.
         Command::Diag(DiagCommand::Acpi(sub)) => return host::run_acpi(sub),
+        Command::Diag(DiagCommand::Superio(sub)) => return host::run_superio(sub),
         other => other,
     };
     let paths = Paths::from_env()?;
@@ -88,7 +89,7 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Catalog(sub) => catalog::run(&mut ctx, sub),
         Command::Tools(sub) => tools(&ctx, sub),
         Command::Diag(DiagCommand::Breadcrumbs(sub)) => diag::breadcrumbs(sub),
-        Command::Diag(DiagCommand::Acpi(_)) => {
+        Command::Diag(DiagCommand::Acpi(_) | DiagCommand::Superio(_)) => {
             unreachable!("host diagnostics return before configuration")
         }
         Command::Dev(DevCommand::Synthetic { output }) => diag::synthetic(&output),

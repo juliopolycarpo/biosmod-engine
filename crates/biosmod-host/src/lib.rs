@@ -14,11 +14,14 @@ pub mod acpi;
 pub mod bundle;
 pub mod clock;
 pub mod files;
+pub mod hwmon;
 pub mod identity;
 pub mod kmsg;
 pub mod ports;
 pub mod privilege;
 pub mod receipt;
+pub mod signals;
+pub mod superio;
 
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;

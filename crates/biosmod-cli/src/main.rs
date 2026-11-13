@@ -446,6 +446,32 @@ pub enum DiagCommand {
     /// ACPI tables and sleep state of the running machine (Linux, root).
     #[command(subcommand)]
     Acpi(AcpiCommand),
+    /// Super I/O chip registers: fan controller and logical devices (Linux, root).
+    #[command(subcommand)]
+    Superio(SuperioCommand),
+}
+
+#[derive(Subcommand)]
+pub enum SuperioCommand {
+    /// Detect the chip by ID on ports 2Eh/4Eh, refuse unknown IDs, and read its logical
+    /// devices and hardware-monitor registers. Writes only access selectors and restores
+    /// the logical device and bank selection. When a kernel driver owns the chip, no port
+    /// is touched: the driver's hwmon files are read instead.
+    Read {
+        /// Port device (default /dev/port).
+        #[arg(long, default_value = "/dev/port")]
+        device: PathBuf,
+        /// Also save the reading, manifest and evidence record in this new directory.
+        #[arg(short, long, value_name = "DIR")]
+        output: Option<PathBuf>,
+        /// Fail instead of falling back when nct6775 is bound to the chip. Any other kernel
+        /// claimant (it87, f71882fg, an unknown holder of the ports) is refused with or
+        /// without this flag. By default a bound nct6775 means no port is touched and the
+        /// reading is what the driver publishes in sysfs. bme never unloads a driver; the
+        /// error names the `modprobe -r` step.
+        #[arg(long)]
+        unbound_only: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -598,6 +624,7 @@ fn command_name(command: &Command) -> &'static str {
         },
         Command::Diag(DiagCommand::Breadcrumbs(_)) => "diag breadcrumbs",
         Command::Diag(DiagCommand::Acpi(AcpiCommand::Capture { .. })) => "diag acpi capture",
+        Command::Diag(DiagCommand::Superio(SuperioCommand::Read { .. })) => "diag superio read",
         Command::Flash(f) => match f {
             FlashCommand::Doctor { .. } => "flash doctor",
             FlashCommand::Probe(_) => "flash probe",
