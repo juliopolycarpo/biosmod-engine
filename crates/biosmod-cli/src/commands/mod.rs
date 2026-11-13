@@ -98,6 +98,7 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Case(sub) => case::run(&ctx, sub),
         Command::Tools(sub) => tools(&ctx, sub),
         Command::Replay(ReplayCommand::Script(args)) => replay::script(&ctx, &args),
+        Command::Replay(ReplayCommand::Run(args)) => replay::run(&ctx, &args),
         Command::Diag(DiagCommand::Breadcrumbs(sub)) => diag::breadcrumbs(sub),
         Command::Diag(
             DiagCommand::Acpi(_)

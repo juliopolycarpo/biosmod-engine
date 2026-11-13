@@ -140,7 +140,9 @@ class ServiceTable:
         self.handlers[name] = handler
 
     def called(self, name):
-        """Argument lists of every call to `name`."""
+        """Argument lists of every call to `name`; an unknown slot name raises, not counts 0."""
+        if name not in self.layout:
+            raise ReplayError("%s service %r: expected one of %s" % (self.title, name, sorted(self.layout)))
         return [args for service, args in self.calls if service == name]
 
 

@@ -4,6 +4,7 @@
 use super::*;
 use crate::toolchain::{Finished, Profile, Runner};
 use crate::transport::Offline;
+use biosmod_core::util::Digest256;
 use std::cell::RefCell;
 
 /// Pretends to be the environment's `python`: reports versions for the probe and, for the
@@ -17,6 +18,8 @@ struct FakeReplayScript {
     /// Grow the result file to this many bytes (sparse), as a runaway harness would.
     result_len: Option<u64>,
     launches: RefCell<Vec<Invocation>>,
+    /// The file after `--scenario` as it was when the launcher started.
+    scenario_seen: RefCell<Option<Vec<u8>>>,
 }
 
 impl FakeReplayScript {
@@ -29,6 +32,7 @@ impl FakeReplayScript {
             stderr: "",
             result_len: None,
             launches: RefCell::new(Vec::new()),
+            scenario_seen: RefCell::new(None),
         }
     }
 }
@@ -52,6 +56,9 @@ impl Runner for FakeReplayScript {
             "(runner): expected the version probe or the launcher | received {script}"
         );
         self.launches.borrow_mut().push(invocation.clone());
+        if let Some(at) = words.iter().position(|w| w == "--scenario") {
+            *self.scenario_seen.borrow_mut() = fs::read(&words[at + 1]).ok();
+        }
         let (_, result) = invocation
             .env
             .iter()
@@ -328,5 +335,66 @@ fn a_result_file_over_the_limit_is_refused_without_reading_it() {
         "(result file): expected the limit {MAX_RESULT_BYTES} and the size {} named | received {}",
         MAX_RESULT_BYTES + 1,
         error.message
+    );
+}
+
+#[test]
+fn a_scenario_reaches_the_runtime_as_canonical_json_in_a_scratch_file_with_its_digest() {
+    let scene = Scene::new();
+    let fake = FakeReplayScript::new("{\"summary\": true}\n");
+    let scenario: biosmod_core::scenario::Scenario = serde_json::from_value(serde_json::json!({
+        "schema": "bme.scenario/1",
+        "id": "synthetic",
+        "description": "d",
+        "module": {"sha256": "00".repeat(32), "bitness": 64},
+        "entry": {"rva": 4096},
+        "budget": 1000,
+        "expect": [{"kind": "return", "equals": 7}]
+    }))
+    .unwrap();
+    let user_file = Path::new("user-scenario.json");
+    run_scenario(
+        &scene.env(&fake),
+        &scene.home(),
+        &ScenarioRun {
+            scenario: &scenario,
+            label: user_file,
+            module: Path::new("m.pe"),
+            timeout: Duration::from_secs(5),
+        },
+    )
+    .unwrap();
+    let launch = fake.launches.borrow()[0].words();
+    let at = launch.iter().position(|w| w == "--scenario").unwrap();
+    assert_ne!(
+        Path::new(&launch[at + 1]),
+        user_file,
+        "(scenario argument): expected a scratch file | received the user's path"
+    );
+    let seen = fake
+        .scenario_seen
+        .borrow()
+        .clone()
+        .expect("the scratch file existed during the run");
+    assert_eq!(
+        seen,
+        serde_json::to_vec(&scenario).unwrap(),
+        "(scratch file): expected the canonical JSON of the validated scenario"
+    );
+    assert!(
+        std::str::from_utf8(&seen)
+            .unwrap()
+            .contains("\"rva\":\"0x1000\""),
+        "(canonical form): expected Words as 0x strings | received {}",
+        String::from_utf8_lossy(&seen)
+    );
+    let digest_at = launch
+        .iter()
+        .position(|w| w == "--scenario-sha256")
+        .unwrap();
+    assert_eq!(
+        launch[digest_at + 1],
+        Digest256::of(&seen).to_string(),
+        "(--scenario-sha256): expected the digest of the scratch bytes"
     );
 }

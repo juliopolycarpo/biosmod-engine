@@ -8,6 +8,16 @@ MMIO: `RegisterFile`. SMBus lives in `smbus.py`. Scenarios pick these by name th
 from .errors import ReplayError, UnmodeledAccess
 
 
+def word(value):
+    """An integer from a JSON integer or a `0x` string.
+
+    Example: `word("0x1658")` and `word(5720)` are both 5720.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ReplayError("number: expected an integer or a 0x string | received %r" % (value,))
+    return value if isinstance(value, int) else int(value, 0)
+
+
 class PortRegisters:
     """Flat port registers: reads return the stored value, writes store it.
 
@@ -126,36 +136,37 @@ class RegisterFile:
 
 
 def _int_keys(mapping):
-    return {int(str(k), 0): v for k, v in (mapping or {}).items()}
+    """`{key: value}` with keys and values read through `word` (JSON integers or `0x` strings)."""
+    return {word(k): word(v) for k, v in (mapping or {}).items()}
 
 
 def _build_port_registers(options):
-    return PortRegisters(_int_keys(options.get("values")), read_only=[int(str(p), 0) for p in options.get("read_only", [])])
+    return PortRegisters(_int_keys(options.get("values")), read_only=[word(p) for p in options.get("read_only", [])])
 
 
 def _build_indexed_registers(options):
     registers = {}
     for bank, entries in (options.get("registers") or {}).items():
         for index, value in entries.items():
-            registers[(int(str(bank), 0), int(str(index), 0))] = value
+            registers[(word(bank), word(index))] = word(value)
     return IndexedRegisters(
-        int(str(options["index_port"]), 0),
-        int(str(options["data_port"]), 0),
-        banks=options.get("banks", 1),
-        bank_register=_optional_int(options.get("bank_register")),
+        word(options["index_port"]),
+        word(options["data_port"]),
+        banks=word(options.get("banks", 1)),
+        bank_register=_optional(options.get("bank_register")),
         registers=registers,
-        default=options.get("default", 0),
-        seed=options.get("seed"),
-        fixed_bank=options.get("fixed_bank", 0),
+        default=word(options.get("default", 0)),
+        seed=_optional(options.get("seed")),
+        fixed_bank=word(options.get("fixed_bank", 0)),
     )
 
 
-def _optional_int(value):
-    return None if value is None else int(str(value), 0)
+def _optional(value):
+    return None if value is None else word(value)
 
 
 def _build_register_file(options):
-    return RegisterFile(_int_keys(options.get("values")), default=options.get("default"))
+    return RegisterFile(_int_keys(options.get("values")), default=_optional(options.get("default")))
 
 
 #: Device kinds a scenario can name: kind -> factory(options dict) -> device.

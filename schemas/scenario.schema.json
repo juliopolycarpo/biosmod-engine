@@ -1,0 +1,611 @@
+{
+  "$defs": {
+    "Digest256": {
+      "description": "SHA-256 digest, lowercase hexadecimal",
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "Expectation": {
+      "description": "One pass/fail check after the call returned.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The routine returned this value in RAX or EAX.",
+          "properties": {
+            "equals": {
+              "$ref": "#/$defs/Word"
+            },
+            "kind": {
+              "const": "return",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "equals"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An indexed register of an `indexed-registers` device holds a value (after `mask`).",
+          "properties": {
+            "bank": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Word"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "device": {
+              "type": "string"
+            },
+            "equals": {
+              "$ref": "#/$defs/Word"
+            },
+            "index": {
+              "$ref": "#/$defs/Word"
+            },
+            "kind": {
+              "const": "register",
+              "type": "string"
+            },
+            "mask": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Word"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "device",
+            "index",
+            "equals"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A `port-registers` port holds a value.",
+          "properties": {
+            "device": {
+              "type": "string"
+            },
+            "equals": {
+              "$ref": "#/$defs/Word"
+            },
+            "kind": {
+              "const": "port",
+              "type": "string"
+            },
+            "port": {
+              "$ref": "#/$defs/Word"
+            }
+          },
+          "required": [
+            "kind",
+            "device",
+            "port",
+            "equals"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A UEFI variable holds exactly these bytes.",
+          "properties": {
+            "equals": {
+              "$ref": "#/$defs/HexBytes"
+            },
+            "guid": {
+              "$ref": "#/$defs/Guid"
+            },
+            "kind": {
+              "const": "variable",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "guid",
+            "equals"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The module called a service this many times.",
+          "properties": {
+            "count": {
+              "$ref": "#/$defs/Word"
+            },
+            "kind": {
+              "const": "service-calls",
+              "type": "string"
+            },
+            "service": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "service",
+            "count"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Guid": {
+      "description": "EFI GUID in registry format",
+      "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
+      "type": "string"
+    },
+    "HexBytes": {
+      "description": "Bytes as hexadecimal",
+      "pattern": "^([0-9a-fA-F]{2})*$",
+      "type": "string"
+    },
+    "IndexedOptions": {
+      "additionalProperties": false,
+      "description": "Options of `indexed-registers`.",
+      "properties": {
+        "bank_register": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Index that selects a bank when written, as the NCT55xx monitor does."
+        },
+        "banks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Number of register banks; 1 when omitted."
+        },
+        "data_port": {
+          "$ref": "#/$defs/Word"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Value of a register nobody set; 0 when omitted."
+        },
+        "fixed_bank": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The bank in use when the model has no `bank_register`; 0 when omitted."
+        },
+        "index_port": {
+          "$ref": "#/$defs/Word"
+        },
+        "registers": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "$ref": "#/$defs/Word"
+            },
+            "type": "object"
+          },
+          "description": "Initial registers: bank, then index, then a byte.",
+          "type": "object"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Fill every register from this seed and scramble the initial index and bank."
+        }
+      },
+      "required": [
+        "index_port",
+        "data_port"
+      ],
+      "type": "object"
+    },
+    "MmioOptions": {
+      "additionalProperties": false,
+      "description": "Options of `mmio-registers`.",
+      "properties": {
+        "default": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Value of an offset not listed; reading one is an unmodeled access when omitted."
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Word"
+          },
+          "description": "Initial value by offset inside the window.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "Operand": {
+      "description": "A Word, or the name of an address the runtime provides",
+      "oneOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^0x[0-9a-fA-F]{1,16}$",
+          "type": "string"
+        },
+        {
+          "enum": [
+            "image-base",
+            "system-table",
+            "boot-services",
+            "runtime-services",
+            "smm-table",
+            "pei-services"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "PortOptions": {
+      "additionalProperties": false,
+      "description": "Options of `port-registers`.",
+      "properties": {
+        "read_only": {
+          "description": "Ports whose writes are dropped.",
+          "items": {
+            "$ref": "#/$defs/Word"
+          },
+          "type": "array"
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Word"
+          },
+          "description": "Initial value by port (`\"0x404\"` or `\"1028\"`); only these ports are claimed.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "ScenarioBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "rva": {
+          "$ref": "#/$defs/Word",
+          "description": "RVA of the pointer-sized field."
+        },
+        "to": {
+          "description": "One of the symbols of the services kind.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rva",
+        "to"
+      ],
+      "type": "object"
+    },
+    "ScenarioDevice": {
+      "description": "A named hardware model from the runtime's library, with the options that model takes.\n\nExample: `{\"name\": \"hwm\", \"kind\": \"indexed-registers\", \"options\": {\"index_port\": \"0xa25\",\n\"data_port\": \"0xa26\"}}` is an [`ScenarioDevice::IndexedRegisters`].",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Flat port registers.",
+          "properties": {
+            "kind": {
+              "const": "port-registers",
+              "type": "string"
+            },
+            "name": {
+              "description": "Unique name; expectations refer to it.",
+              "type": "string"
+            },
+            "options": {
+              "$ref": "#/$defs/PortOptions",
+              "default": {}
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An index port and a data port in front of banked 8-bit registers.",
+          "properties": {
+            "kind": {
+              "const": "indexed-registers",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "options": {
+              "$ref": "#/$defs/IndexedOptions"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "options"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Memory-mapped registers in a window.",
+          "properties": {
+            "base": {
+              "$ref": "#/$defs/Word",
+              "description": "Window base address."
+            },
+            "kind": {
+              "const": "mmio-registers",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "options": {
+              "$ref": "#/$defs/MmioOptions",
+              "default": {}
+            },
+            "size": {
+              "$ref": "#/$defs/Word",
+              "description": "Window size in bytes."
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "base",
+            "size"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ScenarioEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "$ref": "#/$defs/Operand"
+          },
+          "type": "array"
+        },
+        "rva": {
+          "$ref": "#/$defs/Word",
+          "description": "Entry point as an RVA inside the image."
+        }
+      },
+      "required": [
+        "rva"
+      ],
+      "type": "object"
+    },
+    "ScenarioModule": {
+      "additionalProperties": false,
+      "description": "The module under test, by digest only.",
+      "properties": {
+        "base": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Word"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Load address; the runtime default when omitted."
+        },
+        "bitness": {
+          "description": "32 or 64; checked against the image header.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Label for records, such as `SioDxeInit`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "sha256",
+        "bitness"
+      ],
+      "type": "object"
+    },
+    "ScenarioServices": {
+      "additionalProperties": false,
+      "description": "Service tables the module may call, and where it finds them.",
+      "properties": {
+        "bind": {
+          "description": "Pointer-sized image fields to fill before the call, such as a driver's `gRT`.",
+          "items": {
+            "$ref": "#/$defs/ScenarioBinding"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/ServicesKind"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ScenarioVariable": {
+      "additionalProperties": false,
+      "description": "A UEFI variable present before the call.",
+      "properties": {
+        "attributes": {
+          "description": "Variable attributes; 7 (NV, BS, RT) when omitted.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "data": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "guid": {
+          "$ref": "#/$defs/Guid"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "guid",
+        "data"
+      ],
+      "type": "object"
+    },
+    "ServicesKind": {
+      "enum": [
+        "dxe",
+        "smm",
+        "pei"
+      ],
+      "type": "string"
+    },
+    "Word": {
+      "description": "Unsigned integer as a JSON number or a 0x hex string",
+      "oneOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^0x[0-9a-fA-F]{1,16}$",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/bme.scenario-1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "budget": {
+      "description": "Instruction budget of the call.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "description": {
+      "type": "string"
+    },
+    "entry": {
+      "$ref": "#/$defs/ScenarioEntry"
+    },
+    "expect": {
+      "items": {
+        "$ref": "#/$defs/Expectation"
+      },
+      "type": "array"
+    },
+    "hardware": {
+      "items": {
+        "$ref": "#/$defs/ScenarioDevice"
+      },
+      "type": "array"
+    },
+    "id": {
+      "description": "Identifier, 1-64 characters of `[A-Za-z0-9._-]`.",
+      "type": "string"
+    },
+    "module": {
+      "$ref": "#/$defs/ScenarioModule"
+    },
+    "schema": {
+      "const": "bme.scenario/1",
+      "type": "string"
+    },
+    "services": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ScenarioServices"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Where service tables come from; omit for a routine that calls none."
+    },
+    "variables": {
+      "items": {
+        "$ref": "#/$defs/ScenarioVariable"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "description",
+    "module",
+    "entry",
+    "budget",
+    "expect"
+  ],
+  "title": "Scenario",
+  "type": "object"
+}

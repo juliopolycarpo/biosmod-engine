@@ -7,6 +7,7 @@ use crate::case::Case;
 use crate::catalog::{Board, Evidence, Finding, Manifest, Patch};
 use crate::draft::FirmwareDraft;
 use crate::plan::document::{OutputManifest, PlanDocument};
+use crate::scenario::Scenario;
 use serde_json::Value;
 
 /// Schema names with the document identifier each describes.
@@ -20,6 +21,7 @@ pub const NAMES: &[(&str, &str)] = &[
     ("manifest", crate::plan::document::MANIFEST_SCHEMA),
     ("case", crate::case::CASE_SCHEMA),
     ("firmware-draft", crate::draft::FIRMWARE_DRAFT_SCHEMA),
+    ("scenario", crate::scenario::SCENARIO_SCHEMA),
 ];
 
 fn finish<T: schemars::JsonSchema>(id: &str) -> Value {
@@ -46,6 +48,7 @@ pub fn generate(name: &str) -> Option<Value> {
         "plan" => finish::<PlanDocument>(id),
         "case" => finish::<Case>(id),
         "firmware-draft" => finish::<FirmwareDraft>(id),
+        "scenario" => finish::<Scenario>(id),
         _ => finish::<OutputManifest>(id),
     })
 }

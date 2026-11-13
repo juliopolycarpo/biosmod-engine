@@ -39,6 +39,16 @@ pub struct ScriptRun<'a> {
     pub timeout: Duration,
 }
 
+/// A validated scenario and the module it replays.
+pub struct ScenarioRun<'a> {
+    /// The parsed scenario; the runtime receives its canonical JSON, not the user's file.
+    pub scenario: &'a biosmod_core::scenario::Scenario,
+    /// The scenario file the user named, for messages.
+    pub label: &'a Path,
+    pub module: &'a Path,
+    pub timeout: Duration,
+}
+
 /// What a finished harness left behind.
 #[derive(Debug)]
 pub struct ScriptOutput {
@@ -99,6 +109,35 @@ pub fn run_script(env: &Env, home: &ReplayHome, run: &ScriptRun) -> Result<Scrip
         args.extend(run.args.iter().map(OsString::from));
     }
     run_main(env, home, run.timeout, args, versions, run.harness)
+}
+
+/// Replay a validated scenario and return the documents it emitted.
+///
+/// bme writes the scenario's canonical JSON to a scratch file and passes its SHA-256, which the
+/// runtime checks, so the bytes that ran are the bytes bme validated even if the user's file
+/// changes meanwhile.
+///
+/// Example: `run_scenario(&env, &home, &ScenarioRun { scenario, label, module, timeout })`
+/// yields one document per expectation and a closing summary.
+pub fn run_scenario(env: &Env, home: &ReplayHome, run: &ScenarioRun) -> Result<ScriptOutput> {
+    let versions = ready(env, home)?;
+    let package_dir = package::ensure(&env.data)?;
+    let scratch = tempfile::tempdir().map_err(|e| io_error(&std::env::temp_dir(), e))?;
+    let canonical = serde_json::to_vec(run.scenario).expect("a scenario serializes");
+    let file = scratch.path().join("scenario.json");
+    fs::write(&file, &canonical).map_err(|e| io_error(&file, e))?;
+    let args: Vec<OsString> = vec![
+        package_dir.into_os_string(),
+        "--scenario".into(),
+        file.into_os_string(),
+        "--scenario-sha256".into(),
+        biosmod_core::util::Digest256::of(&canonical)
+            .to_string()
+            .into(),
+        "--module".into(),
+        run.module.into(),
+    ];
+    run_main(env, home, run.timeout, args, versions, run.label)
 }
 
 /// Start the launcher with `main_args` and read the result file back.

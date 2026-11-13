@@ -123,6 +123,7 @@ fn commands() -> Value {
         {"name": "tools set|unset", "writes": ["config"], "network": false, "summary": "choose an existing Ghidra directory, flashrom executable or replay Python environment"},
         {"name": "tools setup ghidra", "writes": ["tool install", "cache"], "network": true},
         {"name": "tools setup replay", "writes": ["Python environment"], "network": true, "summary": "create a virtual environment with hash-locked Unicorn, Capstone and pefile; --offline --wheelhouse installs from local wheels"},
+        {"name": "replay run", "writes": ["result.jsonl", "evidence.json"], "network": false, "summary": "replay a bme.scenario/1 file against the module it names by SHA-256, report pass/fail per expectation and record an offline-validation evidence record; exits REPLAY_FAILED when an expectation fails; requires `tools setup replay`"},
         {"name": "replay script", "writes": ["result.jsonl", "evidence.json"], "network": false, "summary": "run a Python harness against firmware modules in the replay runtime and record an offline-validation evidence record; requires `tools setup replay`"},
         {"name": "tools analyze", "writes": ["Ghidra project", "exports"], "network": false},
         {"name": "diag breadcrumbs decode|read", "writes": [], "network": false, "summary": "read uses ports 72h/73h only"},

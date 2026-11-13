@@ -14,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Every file of the package, by name inside `bme_replay/`.
-pub const FILES: [(&str, &str); 11] = [
+pub const FILES: [(&str, &str); 12] = [
     (
         "__init__.py",
         include_str!("../../../../../tools/replay/bme_replay/__init__.py"),
@@ -46,6 +46,10 @@ pub const FILES: [(&str, &str); 11] = [
     (
         "ports.py",
         include_str!("../../../../../tools/replay/bme_replay/ports.py"),
+    ),
+    (
+        "scenario.py",
+        include_str!("../../../../../tools/replay/bme_replay/scenario.py"),
     ),
     (
         "services.py",
