@@ -292,7 +292,8 @@ fn tools_status_exits_zero_and_set_rejects_a_directory() {
             "jdk",
             "git",
             "flashrom",
-            "nasm"
+            "nasm",
+            "iasl"
         ],
         "{document}"
     );

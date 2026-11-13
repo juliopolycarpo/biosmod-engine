@@ -898,3 +898,43 @@ fn pr9_vs_mr9a_nct5532d_differs_after_normalization() {
         "(compare NCT5532DPeiInit): expected different | received {names:?}"
     );
 }
+
+#[test]
+fn pr9_vs_mr9a_dsdt_changes_sios_and_siow_and_keeps_s3() {
+    let (Some(a), Some(b)) = (rom("BME_ROM_PR9"), rom("BME_ROM_MR9A")) else {
+        return;
+    };
+    let run = Sandbox::new().run(["compare", "--acpi", "--objects", s(&a), s(&b), "--json"]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    let doc = run.json();
+    let dsdt = doc["data"]["pairs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["signature"] == "DSDT")
+        .unwrap_or_else(|| panic!("(compare --acpi): expected a DSDT pair | received {doc}"))
+        .clone();
+    let changed: Vec<&str> = dsdt["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["status"] == "changed")
+        .filter_map(|c| c["path"].as_str())
+        .collect();
+    for method in ["SIOS", "SIOW"] {
+        assert!(
+            changed.iter().any(|p| p.ends_with(&format!(".{method}"))),
+            "(compare --acpi {method}): expected changed | received {changed:?}"
+        );
+    }
+    for side in ["objects_a", "objects_b"] {
+        assert!(
+            dsdt[side]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|o| o["path"] == "\\_S3_"),
+            "(compare --acpi {side}): expected \\_S3_ present"
+        );
+    }
+}

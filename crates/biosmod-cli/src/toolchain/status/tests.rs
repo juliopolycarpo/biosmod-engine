@@ -31,6 +31,10 @@ impl FakeInstalledTools {
                 ("javac", "javac 21.0.5"),
                 ("git", "git version 2.53.0"),
                 ("nasm", "NASM version 2.16.01 compiled on Jan  1 2026"),
+                (
+                    "iasl",
+                    "Intel ACPI Component Architecture\nASL+ Optimizing Compiler/Disassembler version 20250404",
+                ),
                 ("flashrom", "flashrom v1.6.0 on Linux 7.0 (x86_64)"),
             ]),
             calls: RefCell::new(Vec::new()),
@@ -848,4 +852,32 @@ fn a_root_refusal_suggests_chmod_only_for_a_loose_mode() {
         !reason.is_empty() && !reason.contains("chmod"),
         "(root refusal, directory): expected a refusal without the chmod fix | received {reason:?}"
     );
+}
+
+#[test]
+fn a_missing_iasl_is_optional_and_names_its_package() {
+    let mut scene = Scene::new(FakeInstalledTools::complete().without("iasl"));
+    scene.configured_flashrom = Some("/opt/fr/flashrom".into());
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    let iasl = row(&rows, "iasl");
+    assert_eq!(iasl.health, Health::Missing);
+    assert!(iasl.optional && !iasl.custom_location, "{iasl:?}");
+    assert_eq!(
+        iasl.install.command.as_deref(),
+        Some("sudo apt install acpica-tools")
+    );
+    let text = render(&rows);
+    assert!(
+        text.contains("Every required tool is ready. Optional:")
+            && text.contains("iasl (optional)"),
+        "(tools status): expected iasl listed as optional | received {text}"
+    );
+}
+
+#[test]
+fn iasl_reports_its_version_when_installed() {
+    let scene = Scene::new(FakeInstalledTools::complete());
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    assert_eq!(row(&rows, "iasl").version.as_deref(), Some("20250404"));
+    assert_eq!(row(&rows, "iasl").health, Health::Ready);
 }

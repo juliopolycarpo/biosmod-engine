@@ -325,6 +325,15 @@ pub struct CompareArgs {
     /// Compare two `tools analyze` JSON exports function by function instead of images.
     #[arg(long)]
     pub functions: bool,
+    /// Compare the DSDT/SSDT tables of two images or `.aml` files object by object.
+    #[arg(long, conflicts_with = "functions")]
+    pub acpi: bool,
+    /// With --acpi: write a unified ASL diff per changed method into DIR (needs `iasl` on PATH).
+    #[arg(long, value_name = "DIR", requires = "acpi")]
+    pub disassemble: Option<PathBuf>,
+    /// With --acpi: also list every object (path, kind, hash) of each paired table.
+    #[arg(long, requires = "acpi")]
+    pub objects: bool,
 }
 
 #[derive(Subcommand)]

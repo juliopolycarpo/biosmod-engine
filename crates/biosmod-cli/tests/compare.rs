@@ -179,3 +179,125 @@ fn functions_mode_rejects_an_export_without_instructions() {
         run.stdout
     );
 }
+
+mod acpi {
+    use super::*;
+    use biosmod_core::aml::fixture::{device, method, name_byte, scope, table};
+
+    /// A DSDT whose `\_SB_.DEV0.WORK` method body is `body`, plus an `_S3_` name.
+    fn write_dsdt(
+        sandbox: &Sandbox,
+        name: &str,
+        body: &[u8],
+        extra: &[Vec<u8>],
+    ) -> std::path::PathBuf {
+        let mut children = vec![method("WORK", 0, body)];
+        children.extend_from_slice(extra);
+        let aml = [
+            name_byte("_S3_", 5),
+            scope("\\_SB_", &[device("DEV0", &children)]),
+        ]
+        .concat();
+        let path = sandbox.path(name);
+        fs::write(&path, table("DSDT", "BMETEST", &aml)).unwrap();
+        path
+    }
+
+    #[test]
+    fn changed_and_added_objects_are_reported_by_path() {
+        let sandbox = Sandbox::new();
+        let a = write_dsdt(&sandbox, "a.aml", &[0xA3], &[]);
+        let b = write_dsdt(&sandbox, "b.aml", &[0xA3, 0xA3], &[name_byte("NEWV", 1)]);
+        let run = sandbox.run(["compare", "--acpi", s(&a), s(&b), "--json"]);
+        assert_eq!(run.code, 0, "{}", run.stdout);
+        let doc = run.json();
+        assert_eq!(doc["command"], "compare");
+        let pair = &doc["data"]["pairs"][0];
+        assert_eq!(pair["signature"], "DSDT", "{pair}");
+        let changes = pair["changes"].as_array().unwrap();
+        let find = |path: &str| changes.iter().find(|c| c["path"] == path).cloned();
+        assert_eq!(
+            find("\\_SB_.DEV0.WORK").unwrap()["status"],
+            "changed",
+            "{pair}"
+        );
+        assert_eq!(
+            find("\\_SB_.DEV0.NEWV").unwrap()["status"],
+            "added",
+            "{pair}"
+        );
+        assert!(find("\\_S3_").is_none(), "unchanged _S3_ listed: {pair}");
+    }
+
+    #[test]
+    fn identical_tables_report_no_changes() {
+        let sandbox = Sandbox::new();
+        let a = write_dsdt(&sandbox, "a.aml", &[0xA3], &[]);
+        let run = sandbox.run(["compare", "--acpi", s(&a), s(&a), "--json"]);
+        assert_eq!(run.code, 0, "{}", run.stdout);
+        let doc = run.json();
+        assert!(
+            doc["data"]["pairs"][0]["changes"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn objects_flag_lists_every_object_of_each_pair() {
+        let sandbox = Sandbox::new();
+        let a = write_dsdt(&sandbox, "a.aml", &[0xA3], &[]);
+        let run = sandbox.run(["compare", "--acpi", "--objects", s(&a), s(&a), "--json"]);
+        let doc = run.json();
+        let paths: Vec<&str> = doc["data"]["pairs"][0]["objects_b"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|o| o["path"].as_str())
+            .collect();
+        assert!(paths.contains(&"\\_S3_"), "{paths:?}");
+        assert!(paths.contains(&"\\_SB_.DEV0.WORK"), "{paths:?}");
+    }
+
+    #[test]
+    fn disassemble_without_iasl_on_path_names_tools_status() {
+        let sandbox = Sandbox::new();
+        let a = write_dsdt(&sandbox, "a.aml", &[0xA3], &[]);
+        let b = write_dsdt(&sandbox, "b.aml", &[0xA3, 0xA3], &[]);
+        let empty = sandbox.path("empty-path");
+        fs::create_dir_all(&empty).unwrap();
+        let run = sandbox.run_with_env(
+            [
+                "compare",
+                "--acpi",
+                s(&a),
+                s(&b),
+                "--disassemble",
+                s(&sandbox.path("diffs")),
+                "--json",
+            ],
+            &[("PATH", &empty)],
+        );
+        assert_ne!(run.code, 0, "{}", run.stdout);
+        assert!(
+            run.stdout.contains("tools status"),
+            "(compare --disassemble): expected a tools status hint | received {}",
+            run.stdout
+        );
+    }
+
+    #[test]
+    fn disassemble_requires_acpi() {
+        let sandbox = Sandbox::new();
+        let a = write_dsdt(&sandbox, "a.aml", &[0xA3], &[]);
+        let run = sandbox.run([
+            "compare",
+            s(&a),
+            s(&a),
+            "--disassemble",
+            s(&sandbox.path("d")),
+        ]);
+        assert_ne!(run.code, 0);
+    }
+}

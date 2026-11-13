@@ -12,6 +12,8 @@
 //!
 //! Example: `let report = compare::compare_images(&a, &b); println!("{}", report.summary.different);`
 
+pub mod acpi;
+pub mod asl;
 pub mod functions;
 
 use crate::firmware::pe::{self, RebasedForReport};
@@ -152,7 +154,7 @@ pub struct Comparison {
 }
 
 /// One comparable leaf, borrowed from its image.
-struct Item<'a> {
+pub(crate) struct Item<'a> {
     guid: Guid,
     leaf: String,
     name: Option<String>,
@@ -177,7 +179,7 @@ pub fn leaf_label(kind: u8) -> String {
 }
 
 /// Every comparable leaf of an image in image order, with ordinals per (GUID, kind).
-fn items(image: &Image) -> BTreeMap<(Guid, String), Vec<Item<'_>>> {
+pub(crate) fn items(image: &Image) -> BTreeMap<(Guid, String), Vec<Item<'_>>> {
     let mut found: Vec<(usize, usize, Vec<usize>, Item<'_>)> = Vec::new();
     for (v, volume) in image.volumes.iter().enumerate() {
         for (f, file) in volume.files.iter().enumerate() {

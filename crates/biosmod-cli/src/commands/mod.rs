@@ -2,6 +2,7 @@
 
 mod catalog;
 mod compare;
+mod compare_acpi;
 mod diag;
 mod firmware;
 mod ifr;
