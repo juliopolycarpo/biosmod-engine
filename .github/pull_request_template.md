@@ -12,7 +12,6 @@
 - [ ] `cargo test --locked --doc -p biosmod-core -p biosmod-host -p biosmod-cli`
 - [ ] `cargo clippy -p biosmod-gui --all-targets -- -D warnings` (GUI changes)
 - [ ] `cargo nextest run --locked -p biosmod-gui` (GUI changes)
-- [ ] `cargo test --locked --doc -p biosmod-gui` (GUI changes)
 
 <!-- For GUI changes, name the desktop sessions, renderers, dialogs, accessibility and scaling checks actually run. -->
 

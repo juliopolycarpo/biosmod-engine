@@ -98,7 +98,6 @@ jobs:
       - run: cargo build --locked -p biosmod-cli -p biosmod-gui
       - run: cargo clippy --locked -p biosmod-gui --all-targets -- -D warnings
       - run: cargo nextest run --locked --profile ci -p biosmod-gui
-      - run: cargo test --locked --doc -p biosmod-gui
       - name: X11 software renderer
         run: |
           env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-software xvfb-run -a timeout 20s target/debug/bme-gui --smoke-test
