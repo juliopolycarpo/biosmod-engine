@@ -21,14 +21,14 @@
     ],
     "references": [
       {
-        "build": "x99ha00m-20221202",
-        "module": "SioDxeInit",
-        "location": "helper at RVA 15D4"
-      },
-      {
         "build": "mnx99mr9apro-230322",
         "module": "SioDxeInit",
         "location": "helper at RVA 1510"
+      },
+      {
+        "build": "x99ha00m-20221202",
+        "module": "SioDxeInit",
+        "location": "helper at RVA 15D4"
       }
     ]
   },

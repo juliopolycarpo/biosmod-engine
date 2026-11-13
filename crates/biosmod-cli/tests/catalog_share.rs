@@ -197,7 +197,7 @@ fn split_text_lists_what_it_dropped() {
         "--id",
         PR9_CATALOG,
     ]));
-    let first = format!("Split board {PR9} of official 1.3.0 into {}", s(&dir));
+    let first = format!("Split board {PR9} of official 1.3.1 into {}", s(&dir));
     for expected in [
         first.as_str(),
         "kept      19 patches, 28 findings, 0 evidence records, 1 provenance files",
@@ -426,21 +426,10 @@ fn merging_official_with_both_splits_reproduces_every_bundled_record() {
     assert_eq!(source_ids, ["official", MR9A_CATALOG, PR9_CATALOG]);
 }
 
-/// Findings whose code references the bundled catalog lists PR9 build first. A merge keeps
-/// first-seen order, so `merge MR9A PR9` lists the MR9A reference first. The bundled
-/// `affects.builds` lists MR9A first, so no source order reproduces both lists.
-const REFERENCES_IN_PR9_FIRST_ORDER: [&str; 5] = ["B09", "H02", "H05", "H09", "H10"];
-
-/// Sort `owner.references` of a finding, the one list the merge order changes.
-fn references_sorted(mut document: Value) -> Value {
-    if let Some(list) = document["owner"]["references"].as_array_mut() {
-        list.sort_by_key(Value::to_string);
-    }
-    document
-}
-
 #[test]
-fn merging_only_the_board_splits_rebuilds_the_bundled_catalog() {
+fn the_bundled_catalog_is_the_merge_of_its_board_splits() {
+    // `catalog/` is generated with `bme catalog merge --bundled` from the board catalogs.
+    // A record edited by hand in a way the merge would not write fails here.
     let sandbox = Sandbox::new();
     let (mr9a, pr9) = both_splits(&sandbox);
     let merged = sandbox.path("merged");
@@ -456,40 +445,32 @@ fn merging_only_the_board_splits_rebuilds_the_bundled_catalog() {
     ]));
     assert_valid_and_indexed(&sandbox, &merged);
 
-    let expected = documents(&bundled());
-    let merged_documents = documents(&merged);
+    let records = |root: &Path| -> BTreeMap<String, Vec<u8>> {
+        read_tree(root)
+            .into_iter()
+            .filter(|(path, _)| path != "catalog.json")
+            .collect()
+    };
+    let (merged_records, bundled_records) = (records(&merged), records(&bundled()));
     assert_eq!(
-        merged_documents.keys().collect::<Vec<_>>(),
-        expected.keys().collect::<Vec<_>>(),
-        "(merged record files)"
+        merged_records.keys().collect::<Vec<_>>(),
+        bundled_records.keys().collect::<Vec<_>>(),
+        "(merged record and provenance files)"
     );
-    // Every record is equal except the order of owner.references in five findings: the merge
-    // lists the MR9A reference first, the bundled catalog lists the PR9 one first.
-    let reordered: Vec<&str> = expected
+    let different: Vec<&String> = bundled_records
         .iter()
-        .filter(|(path, document)| merged_documents[*path] != **document)
-        .map(|(path, document)| {
-            assert_eq!(
-                references_sorted(merged_documents[path].clone()),
-                references_sorted(document.clone()),
-                "({path}): expected only the order of owner.references to differ"
-            );
-            path.strip_prefix("findings/")
-                .unwrap()
-                .strip_suffix(".json")
-                .unwrap()
-        })
+        .filter(|(path, bytes)| merged_records[*path] != **bytes)
+        .map(|(path, _)| path)
         .collect();
-    assert_eq!(
-        reordered, REFERENCES_IN_PR9_FIRST_ORDER,
-        "(findings with reordered references)"
+    assert!(
+        different.is_empty(),
+        "(catalog/): expected every file byte-identical to the merge of its board splits | received differences in {different:?}"
     );
+    let sources = json_file(&bundled().join("catalog.json"))["sources"].clone();
     assert_eq!(
-        read_tree(&merged)
-            .keys()
-            .filter(|p| p.starts_with("provenance/"))
-            .count(),
-        1
+        sources.as_array().map(Vec::len),
+        Some(2),
+        "(catalog/catalog.json sources): expected the two board catalogs it was merged from | received {sources}"
     );
 }
 

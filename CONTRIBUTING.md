@@ -68,14 +68,29 @@ and the GUI job's system packages are installed separately on each runner.
 
 A record is accepted when someone else can check it from the files alone.
 
-1. Add or update `catalog/boards/<id>.json`. Say how the revision is known (`observed` from the board, `unverified` from a listing, or `unknown`). Board ids are lowercase.
-2. Record the defect in `catalog/findings/<id>.json` (`bme.finding/1`): affected builds, owning module (UI name and FFS GUID), finding and condition confidence graded apart, what is not established, and the evidence ids. List the finding in the board's `findings`. A patch names the findings it resolves in `fixes`, and each of those findings lists the patch in `patches` with status `fixed-by-patch`. A defect with no fix yet is still a finding.
-3. Add the variant under the firmware build id in `catalog/patches/<id>.json`. Hunks need the exact original bytes, 16 bytes of context on each side, and source and result hashes. Ported variants start from `bme derive` and must be reviewed hunk by hunk (`bme guide porting`).
-4. Put assembly sources or notes needed to review the change in `catalog/provenance/`.
-5. Run `bme catalog index catalog` and `bme catalog validate catalog`.
+Records live in one repository per board, started with `bme catalog init` or `bme catalog split` (`bme guide catalogs`). `catalog/` in this repository is generated from those board catalogs: do not edit a file under it by hand. In the board repository:
+
+1. Add or update `boards/<id>.json`. Say how the revision is known (`observed` from the board, `unverified` from a listing, or `unknown`). Board ids are lowercase.
+2. Record the defect in `findings/<id>.json` (`bme.finding/1`): affected builds, owning module (UI name and FFS GUID), finding and condition confidence graded apart, what is not established, and the evidence ids. List the finding in the board's `findings`. A patch names the findings it resolves in `fixes`, and each of those findings lists the patch in `patches` with status `fixed-by-patch`. A defect with no fix yet is still a finding.
+3. Add the variant under the firmware build id in `patches/<id>.json`. Hunks need the exact original bytes, 16 bytes of context on each side, and source and result hashes. Ported variants start from `bme derive` and must be reviewed hunk by hunk (`bme guide porting`). A patch of another board that does not apply here gets a `not-applicable` variant with the reason.
+4. Put assembly sources or notes needed to review the change in `provenance/<record id>/`.
+5. Run `bme catalog index .` and `bme catalog validate .`. When another board shares the record, keep its id and text equal in both repositories and run `bme catalog merge . ../<other board> --check`.
 6. In the PR, state what the finding is, how it was shown (executed, analyzed, plausible), what the fix does not cover and how you checked the result.
 
-Hardware observations go in `catalog/evidence/` with the exact `image_sha256` that was flashed, the patch versions, the configuration and the limits. One observation never upgrades a record's general confidence. Never include vendor images or extracted modules.
+Hardware observations go in `evidence/` with the exact `image_sha256` that was flashed, the patch versions, the configuration and the limits. One observation never upgrades a record's general confidence. Never include vendor images or extracted modules.
+
+### Regenerate the bundled catalog
+
+`catalog/catalog.json` lists the board catalogs it was built from under `sources`, each with the SHA-256 of its `catalog.json`. To take their new records, give the board catalogs in the order `sources` lists them:
+
+```sh
+bme catalog merge <board catalog>... --check
+rm -r catalog
+bme catalog merge <board catalog>... -o catalog --bundled --title "<title>" --version <next version> --description "<description>"
+bme catalog merge catalog <board catalog>... --check
+```
+
+The last command prints `pinned` for every source: it is the check that `catalog/` still equals the board catalogs, and it needs them on disk. In CI, the test `the_bundled_catalog_is_the_merge_of_its_board_splits` fails when `catalog/` is not in the form a merge writes.
 
 ## Security
 

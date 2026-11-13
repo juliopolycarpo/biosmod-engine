@@ -21,14 +21,14 @@
     ],
     "references": [
       {
-        "build": "x99ha00m-20221202",
-        "module": "PchInitDxe",
-        "location": "common-clock retrain de70; IOBP waits d6bb, d6ee, d730"
-      },
-      {
         "build": "mnx99mr9apro-230322",
         "module": "PchInitDxe",
         "location": "common-clock retrain e02c; IOBP waits d873, d8a6, d8e8"
+      },
+      {
+        "build": "x99ha00m-20221202",
+        "module": "PchInitDxe",
+        "location": "common-clock retrain de70; IOBP waits d6bb, d6ee, d730"
       }
     ]
   },
