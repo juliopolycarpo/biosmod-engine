@@ -1,0 +1,28 @@
+{
+  "schema": "bme.finding/1",
+  "id": "R02",
+  "title": "PCH thermal device, ACPI thermal zone and DIMM temperatures never reach the OS",
+  "priority": "P3",
+  "status": "open",
+  "affects": {
+    "label": "MR9A measured",
+    "builds": [
+      "mnx99mr9apro-230322"
+    ]
+  },
+  "owner": {
+    "description": "IntelSetup / DSDT"
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "policy"
+    }
+  },
+  "description": "The OS never receives three sensors: the PCH thermal device is hidden (1AB=0, no 00:1f.6), there is no ACPI thermal zone, and DIMM temperatures exist only in iMC CSRs. The capture reads 0x150/0x154/0x158 on ff:14.0/.1 and ff:17.0/.1 as DIMMTEMPSTAT; slot 0 shows 54 to 57 and empty slots 85. nct6775 is not loaded, and the live DSDT leaves A20+ unclaimed.",
+  "not_established": "Binding nct6775 is untested. The DIMMTEMPSTAT offsets are not yet checked against the Intel datasheet.",
+  "remediation": "Setup change for the PCH device. No binary fix justified, C3.",
+  "evidence": [
+    "mr9a-sensor-capture-2026-11-13"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H13",
+  "title": "Package RAPL reads 12.5 W under all-core load on a 120 W CPU",
+  "priority": "P2",
+  "status": "open",
+  "affects": {
+    "label": "MR9A measured",
+    "builds": [
+      "mnx99mr9apro-230322"
+    ]
+  },
+  "owner": {
+    "description": "Unknown: board VR current report, PCU configuration, or CPU"
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "observation"
+    },
+    "condition": {
+      "grade": "C3",
+      "note": "cause"
+    }
+  },
+  "description": "Package RAPL reads 12.5 W with 28 threads loaded and every core at ratio 29, and 3.4 W idle, on a 120 W-TDP CPU. The energy unit is the standard 2^-14 J and powercap matches MSR 611. HWiNFO shows the same wrong value, per the user. PL1 120 W and PL2 144 W compare against this reading, so they should never engage. SVID Support 168D is 1 in every saved record of the 6 November dump, and MSR 601 is 0x10141480000470 (current limit 142 A).",
+  "not_established": "True draw is unmeasured. RAPL on Haswell-EP is measured, not modelled; whether its input is the mainboard VR's current report and whether firmware can rescale it are both unverified. No IMON or ICCMAX strings exist in the extracted modules.",
+  "remediation": "None yet. Needs a wall-meter reference, the measurement path for this CPU family, and a search of PpmInitialize and UncoreInitPeim for VR current scaling. C3.",
+  "evidence": [
+    "mr9a-sensor-capture-2026-11-13"
+  ]
+}

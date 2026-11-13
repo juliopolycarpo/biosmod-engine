@@ -1,7 +1,7 @@
 {
   "schema": "bme.catalog/1",
   "id": "official",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "title": "Biosmod Engine official catalog",
   "engine": "^0.1",
   "description": "Corrections and diagnostics for the Machinist MR9A PRO (Q87) and PR9 (B85) X99 boards, converted from x99-bios-fixes.",
@@ -9,14 +9,14 @@
     {
       "path": "boards/machinist-mr9a-pro-q87-rev-1.2.json",
       "kind": "board",
-      "length": 1638,
-      "sha256": "347da33386554bb0391e9e81fdd3c277831b28d518b3488a70ffe2e537a569b7"
+      "length": 1731,
+      "sha256": "9f081baf3eacecf148f515f4ea172a3c145b28c8a681a1e22f60c0cd2273d7bd"
     },
     {
       "path": "boards/machinist-pr9-b85.json",
       "kind": "board",
-      "length": 1370,
-      "sha256": "d5471523e0cf73884af38bd70ae3ebd7951e458d002120b4a4574bbd21925fcf"
+      "length": 1381,
+      "sha256": "c2b1a0e721896eb8ad7d0a8883a8557c5b12297d14e8c5eeeee79c85fea3bda1"
     },
     {
       "path": "evidence/mr9a-breadcrumbs-no-gpu-2026-11-08.json",
@@ -35,6 +35,12 @@
       "kind": "evidence",
       "length": 1727,
       "sha256": "9a2e07465fac27cd113b9bba6814f942b6b8356fcd52244cc924bb438368d267"
+    },
+    {
+      "path": "evidence/mr9a-sensor-capture-2026-11-13.json",
+      "kind": "evidence",
+      "length": 1711,
+      "sha256": "31049cb2bfce4ce45969016bfffc1f133aef4e13db045643f7d8ce35b8abc45f"
     },
     {
       "path": "evidence/mr9a-stage1-2026-11-08.json",
@@ -207,8 +213,8 @@
     {
       "path": "findings/H06.json",
       "kind": "finding",
-      "length": 894,
-      "sha256": "766ab4010415eeadfc15cf12512809b9f306d586136811b50332fc4944eb21f4"
+      "length": 980,
+      "sha256": "981ca49729b7bd3996a588098db009d92cad1083e4ab1749ce7b848fb87a135a"
     },
     {
       "path": "findings/H07.json",
@@ -241,10 +247,40 @@
       "sha256": "7f047f69e43a57a750b2fee9348f576c183c8f7ae518567aa27c97eaff593d63"
     },
     {
+      "path": "findings/H12.json",
+      "kind": "finding",
+      "length": 1941,
+      "sha256": "0509bd438f06d2034616252e3ec8ba33633f061cbb4674b90642e072ae2a77b7"
+    },
+    {
+      "path": "findings/H13.json",
+      "kind": "finding",
+      "length": 1486,
+      "sha256": "9202ef15ab150ac85616db84c10b9f495a1bb51349571bcac428ea75c4ee083a"
+    },
+    {
+      "path": "findings/H14.json",
+      "kind": "finding",
+      "length": 1393,
+      "sha256": "1aef4847d3dd573dd2dbfb1f54ca98ad813b178887ae3a434e0eb2d5b71a8842"
+    },
+    {
+      "path": "findings/H15.json",
+      "kind": "finding",
+      "length": 849,
+      "sha256": "bf1dc4b812a634109d4adf5bae92c1dce14df0b38331c79ab5c23685984221c4"
+    },
+    {
       "path": "findings/R01.json",
       "kind": "finding",
       "length": 1088,
       "sha256": "1d6c01ffd1a15ecb7ed20136de7a427f355dd26e4ee392e97c37c9d882d1ff1d"
+    },
+    {
+      "path": "findings/R02.json",
+      "kind": "finding",
+      "length": 1070,
+      "sha256": "1a260cde47090b324ac38ca79b972aacbbee6209bbc7a37234809a1aa47bde53"
     },
     {
       "path": "findings/S01.json",

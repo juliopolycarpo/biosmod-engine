@@ -1,0 +1,22 @@
+{
+  "schema": "bme.evidence/1",
+  "id": "mr9a-sensor-capture-2026-11-13",
+  "kind": "hardware-observation",
+  "date": "2026-11-13",
+  "title": "MR9A sensor and power capture: 11 idle and 31 all-core-load samples",
+  "board": "machinist-mr9a-pro-q87-rev-1.2",
+  "firmware": "mnx99mr9apro-230322",
+  "configuration": "MACHINIST E5-MR9A PRO V1.2 (Q87), Xeon E5-2680 v4 (TjMax 100 from MSR 1A2), NCT5532D (chip ID C562, hardware monitor at A20)",
+  "patches": [],
+  "observations": [
+    "One read-only capture: CPU MSRs, powercap energy, NCT5532D registers and iMC DIMM-temperature CSRs, 11 samples idle and 31 under all-core load. It writes no MSR and no monitor setting.",
+    "PECI Tbase is 91 on both agents; the chip reads 28 idle and 39 loaded while MSR 1B1 and coretemp read 37 and 48.",
+    "Only PECI Agent0 is alive (bank 7, 1F=01).",
+    "Package RAPL reads 3.4 W idle and 12.5 W with 28 threads loaded at ratio 29; powercap matches MSR 611.",
+    "CPUTIN 131, AUXTIN0 about 197, CPUVCORE pin 0.264 V, VIN2 255 and VIN4 253 do not move with load; SMIOVT1 source is 01 and reads 50.",
+    "MSR 619 and 618 read 0; Linux exposes no DRAM RAPL subdomain.",
+    "No 00:1f.6 PCH thermal device and no ACPI thermal zone; DIMMTEMPSTAT CSRs read 54 to 57 for slot 0 and 85 for empty slots."
+  ],
+  "limits": "One board, one CPU model and one capture. The capture does not record the digest of the flashed image or its patch set. PR9 was not measured. True power draw has no wall-meter reference, and the DIMMTEMPSTAT offsets are not checked against the Intel datasheet.",
+  "source": "Sensor audit of 2026-11-13, collected with a read-only script (MSR, powercap, Super I/O hardware monitor and iMC CSR reads)"
+}

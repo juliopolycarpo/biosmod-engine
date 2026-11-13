@@ -845,7 +845,7 @@ fn official_findings_round_trip_through_the_register_table() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../catalog");
     let catalog = Catalog::load(&CatalogDirectory(root), Scope::All).unwrap();
     let findings: Vec<_> = catalog.findings.values().collect();
-    assert_eq!(findings.len(), 35, "every register row has a document");
+    assert_eq!(findings.len(), 40, "every register row has a document");
     let table = register::render(&findings);
     let header = table.lines().next().unwrap();
     assert_eq!(
