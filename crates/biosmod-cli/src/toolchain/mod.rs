@@ -443,12 +443,25 @@ pub fn doctor(ctx: &Ctx, deep: bool, only: Option<DoctorTool>) -> Result<Reply> 
         context["ghidra_home"] = json!(home);
     }
     let replay = replay_home_now(ctx);
-    // Without a tool named, a runtime nobody installed is not a failure of `tools doctor`.
-    if only == Some(DoctorTool::Replay) || replay.python.is_file() {
+    if doctor_checks_replay(only, replay.python.is_file()) {
         checks.extend(replay::replay_checks(&env, &replay, deep));
         context["replay"] = json!(replay);
     }
     checks_reply(checks, context)
+}
+
+/// Whether `tools doctor` checks the replay runtime.
+///
+/// Naming a tool checks only that tool. Without a tool named, a runtime nobody installed is
+/// not a failure of `tools doctor`, so it is checked only when its interpreter exists.
+///
+/// Example: `doctor_checks_replay(Some(DoctorTool::Ghidra), true)` is `false`.
+fn doctor_checks_replay(only: Option<DoctorTool>, installed: bool) -> bool {
+    match only {
+        Some(DoctorTool::Replay) => true,
+        Some(DoctorTool::Ghidra) => false,
+        None => installed,
+    }
 }
 
 /// The flashrom a chip command would run, as `tools paths` reports it to the desktop app.
