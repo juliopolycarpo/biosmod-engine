@@ -1,6 +1,6 @@
 //! `bme nvram`: list the variable stores of a firmware image and read Setup fields from them.
 
-use super::{MAX_IMAGE_BYTES, read_bounded};
+use super::{MAX_IMAGE_BYTES, describe_diagnostic, read_bounded};
 use crate::NvramArgs;
 use crate::config::write_new;
 use crate::output::{Reply, display_path, table};
@@ -317,16 +317,6 @@ fn list_text(
         );
     }
     text
-}
-
-/// `file GUID name: message`, the wording `bme ifr` uses for a module it could not decode.
-fn describe_diagnostic(diagnostic: &ModuleDiagnostic) -> String {
-    let name = diagnostic
-        .name
-        .as_deref()
-        .map(|n| format!(" {n}"))
-        .unwrap_or_default();
-    format!("file {}{name}: {}", diagnostic.guid, diagnostic.message)
 }
 
 fn field_text(field: &Field) -> String {
