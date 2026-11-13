@@ -1826,6 +1826,34 @@ fn a_missing_optional_tool_is_quiet_not_an_error() {
 }
 
 #[test]
+fn a_tool_purpose_is_translated_when_known_and_the_engines_otherwise() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = AppWindow::new().unwrap();
+    let row = |id: &str, purpose: &str| {
+        json!({
+            "id": id, "name": id, "purpose": purpose, "health": "ready",
+            "version": null, "path": null, "origin": "PATH", "detail": "",
+            "install": {"method": "package-manager", "command": null, "automatic": false, "blocked": null},
+            "custom_location": false, "optional": true
+        })
+    };
+    let cards = tool_rows(
+        &window,
+        &json!({"tools": [row("iasl", "engine words"), row("unlisted-tool", "engine words")]}),
+    );
+    assert_eq!(
+        cards[0].purpose.as_str(),
+        window.global::<UiText>().get_tool_purpose_iasl().as_str(),
+        "(iasl card): expected the app's own purpose text"
+    );
+    assert_eq!(
+        cards[1].purpose.as_str(),
+        "engine words",
+        "(unlisted-tool card): expected the engine's purpose text"
+    );
+}
+
+#[test]
 fn a_missing_extension_beside_a_ready_ghidra_offers_the_install_button() {
     i_slint_backend_testing::init_no_event_loop();
     let window = AppWindow::new().unwrap();
