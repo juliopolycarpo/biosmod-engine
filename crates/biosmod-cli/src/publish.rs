@@ -190,7 +190,7 @@ pub fn publish_file(output: &Path, bytes: &[u8]) -> Result<()> {
 )]
 pub fn publish_directory(output: &Path, files: &[(&str, &[u8])]) -> Result<()> {
     check_outputs(&[output], &[])?;
-    fs::create_dir(output).map_err(|e| persist_error(output, e))?;
+    create_new_directory(output)?;
     let written = files.iter().try_for_each(|(relative, bytes)| {
         let target = output.join(relative);
         let parent = target.parent().expect("a file below the output directory");
@@ -202,20 +202,7 @@ pub fn publish_directory(output: &Path, files: &[(&str, &[u8])]) -> Result<()> {
             .and_then(|mut file| file.write_all(bytes).and_then(|()| file.sync_all()))
             .map_err(|e| io_error(&target, e))
     });
-    if let Err(cause) = written {
-        return match fs::remove_dir_all(output) {
-            Ok(()) => Err(cause),
-            Err(_) => Err(Error::new(
-                Code::PublishIncomplete,
-                format!(
-                    "{}; the partial directory {} could not be removed",
-                    cause.message,
-                    output.display()
-                ),
-            )
-            .with_details(json!({"directory": output.to_string_lossy(), "cause": cause.code}))),
-        };
-    }
+    written.map_err(|cause| remove_failed_directory(output, cause))?;
     sync_parent(output);
     Ok(())
 }
