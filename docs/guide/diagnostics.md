@@ -37,7 +37,7 @@ Creates the directory and fills it with:
 
 The kernel log comes from `/dev/kmsg`, read non-blocking, because it needs no helper program and is the same source `dmesg` uses. It is readable without root when `kernel.dmesg_restrict` is 0; the capture itself needs root for the tables.
 
-Tables keep the sysfs names, which are the ACPI signatures, so they pair with the ACPI tables `bme extract` writes from an image. `bme` has no command that compares the two yet.
+Tables keep the sysfs names, which are the ACPI signatures, so they pair with the ACPI tables of an image. `bme compare --acpi image.bin capture-2026-11-12` takes the capture directory as either side and pairs its `DSDT` and `SSDT` files with the image's tables by signature and OEM table ID. It first checks every table file against the SHA-256 in `manifest.json` and refuses a capture without `evidence.json`. Other tables (FACP, BERT and the rest) are listed as skipped, because the comparison reads AML only.
 
 ## Super I/O registers
 

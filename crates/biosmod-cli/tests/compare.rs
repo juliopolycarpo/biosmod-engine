@@ -3,7 +3,7 @@
 mod common;
 
 use biosmod_core::synthetic::{PEIM_GUID, ffs, image_of_files, relocatable_pe, section};
-use common::{Sandbox, s};
+use common::{Sandbox, s, write_capture_directory};
 use std::fs;
 
 /// Write an image holding one PEIM linked at `base` with `code`; return its path.
@@ -283,6 +283,110 @@ mod acpi {
         assert!(
             run.stdout.contains("tools status"),
             "(compare --disassemble): expected a tools status hint | received {}",
+            run.stdout
+        );
+    }
+
+    /// The raw DSDT of `write_dsdt` with `body`, as bytes.
+    fn dsdt_bytes(body: &[u8], extra: &[Vec<u8>]) -> Vec<u8> {
+        let mut children = vec![method("WORK", 0, body)];
+        children.extend_from_slice(extra);
+        let aml = [
+            name_byte("_S3_", 5),
+            scope("\\_SB_", &[device("DEV0", &children)]),
+        ]
+        .concat();
+        table("DSDT", "BMETEST", &aml)
+    }
+
+    #[test]
+    fn an_image_and_a_live_capture_pair_by_signature_and_oem_table_id() {
+        use biosmod_core::synthetic::TABLE_GUID;
+        let sandbox = Sandbox::new();
+        let image = sandbox.path("image.bin");
+        let stored = dsdt_bytes(&[0xA3], &[]);
+        fs::write(
+            &image,
+            image_of_files(&[ffs(TABLE_GUID, 0x02, &section(0x19, &stored), 0)]),
+        )
+        .unwrap();
+        let capture = sandbox.path("capture");
+        write_capture_directory(
+            &capture,
+            &[
+                ("DSDT", dsdt_bytes(&[0xA3, 0xA3], &[name_byte("NEWV", 1)])),
+                ("dynamic/SSDT3", table("SSDT", "LIVEONLY", &[])),
+                ("data/BERT", table("BERT", "LIVE", &[])),
+            ],
+        );
+        // The capture works as either side.
+        for (first, second, added) in [(&image, &capture, "added"), (&capture, &image, "removed")] {
+            let run = sandbox.run(["compare", "--acpi", s(first), s(second), "--json"]);
+            assert_eq!(run.code, 0, "{}", run.stdout);
+            let data = run.json()["data"].clone();
+            let pair = &data["pairs"][0];
+            assert_eq!(
+                (pair["signature"].as_str(), pair["oem_table_id"].as_str()),
+                (Some("DSDT"), Some("BMETEST")),
+                "{data}"
+            );
+            let changes = pair["changes"].as_array().unwrap();
+            let status = |path: &str| {
+                changes
+                    .iter()
+                    .find(|c| c["path"] == path)
+                    .map(|c| c["status"].clone())
+            };
+            assert_eq!(status("\\_SB_.DEV0.NEWV"), Some(added.into()), "{pair}");
+            assert_eq!(status("\\_SB_.DEV0.WORK"), Some("changed".into()), "{pair}");
+            let (side, other) = if first == &capture {
+                ("a", "b")
+            } else {
+                ("b", "a")
+            };
+            assert_eq!(data[side]["kind"], "capture", "{data}");
+            assert_eq!(data[side]["skipped"], serde_json::json!(["data/BERT"]));
+            assert_eq!(data[other]["kind"], "table-or-image", "{data}");
+            let lone = if side == "b" {
+                "only_in_b"
+            } else {
+                "only_in_a"
+            };
+            assert_eq!(data[lone][0]["oem_table_id"], "LIVEONLY", "{data}");
+        }
+    }
+
+    #[test]
+    fn a_capture_table_edited_after_capture_is_refused_naming_its_path() {
+        let sandbox = Sandbox::new();
+        let a = write_dsdt(&sandbox, "a.aml", &[0xA3], &[]);
+        let capture = sandbox.path("capture");
+        write_capture_directory(&capture, &[("DSDT", dsdt_bytes(&[0xA3], &[]))]);
+        let edited = capture.join("acpi/tables/DSDT");
+        let mut bytes = fs::read(&edited).unwrap();
+        bytes[60] ^= 0x01;
+        fs::write(&edited, bytes).unwrap();
+        let run = sandbox.run(["compare", "--acpi", s(&a), s(&capture), "--json"]);
+        assert_eq!(run.error_code(), "FORMAT_INVALID", "{}", run.stdout);
+        assert!(
+            run.stdout.contains("acpi/tables/DSDT: expected sha256"),
+            "(edited capture): expected the table path and digests | received {}",
+            run.stdout
+        );
+    }
+
+    #[test]
+    fn a_plain_directory_is_not_a_capture() {
+        let sandbox = Sandbox::new();
+        let a = write_dsdt(&sandbox, "a.aml", &[0xA3], &[]);
+        let empty = sandbox.path("empty");
+        fs::create_dir(&empty).unwrap();
+        let run = sandbox.run(["compare", "--acpi", s(&a), s(&empty), "--json"]);
+        assert_eq!(run.error_code(), "FORMAT_INVALID", "{}", run.stdout);
+        assert!(
+            run.stdout
+                .contains("expected manifest.json (bme.host-capture/1)"),
+            "(plain directory): expected the manifest requirement | received {}",
             run.stdout
         );
     }

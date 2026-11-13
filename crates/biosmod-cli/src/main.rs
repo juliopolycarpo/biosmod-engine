@@ -328,7 +328,7 @@ pub struct CompareArgs {
     /// Compare two `tools analyze` JSON exports function by function instead of images.
     #[arg(long)]
     pub functions: bool,
-    /// Compare the DSDT/SSDT tables of two images or `.aml` files object by object.
+    /// Compare the DSDT/SSDT tables of two images, `.aml` files or `diag acpi capture` directories object by object.
     #[arg(long, conflicts_with = "functions")]
     pub acpi: bool,
     /// With --acpi: write a unified ASL diff per changed method into DIR (needs `iasl` on PATH).

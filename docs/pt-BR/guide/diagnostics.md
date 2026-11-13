@@ -37,7 +37,7 @@ Cria o diretório e o preenche com:
 
 O log do kernel vem de `/dev/kmsg`, lido sem bloquear, porque não precisa de programa auxiliar e é a mesma fonte do `dmesg`. Ele é legível sem root quando `kernel.dmesg_restrict` é 0; a captura em si exige root por causa das tabelas.
 
-As tabelas mantêm os nomes do sysfs, que são as assinaturas ACPI, então combinam com as tabelas ACPI que `bme extract` grava a partir de uma imagem. O `bme` ainda não tem comando que compare as duas.
+As tabelas mantêm os nomes do sysfs, que são as assinaturas ACPI, então combinam com as tabelas ACPI de uma imagem. `bme compare --acpi image.bin capture-2026-11-12` aceita o diretório da captura em qualquer um dos lados e pareia seus arquivos `DSDT` e `SSDT` com as tabelas da imagem por assinatura e ID de tabela do OEM. Antes, confere cada arquivo de tabela com o SHA-256 de `manifest.json` e recusa uma captura sem `evidence.json`. As demais tabelas (FACP, BERT e outras) aparecem como ignoradas, porque a comparação lê só AML.
 
 ## Registradores do Super I/O
 

@@ -30,3 +30,18 @@ Exit codes: `0` success, `1` controlled failure (see `error.code`), `2` usage er
 Clients binding a build to a displayed scan can pass `--expect-input-sha256` and `--expect-source-sha256` from the scan input and selected source's `snapshot_sha256`. A mismatch fails with `PLAN_INPUT_CHANGED`; scan again before choosing a selection. The source digest identifies a validated snapshot, not a signature. Dry-run and export accept the same guards. Replay via `--from` uses the recipe pins and rejects guard overrides.
 
 Never write a chip from an agent. Flashing is the user's decision and needs a programmer recovery path.
+
+## Investigation workflow
+
+For an unknown build, a suspected defect or a claim about the running machine, work in a case and let each command leave a digest behind. This is a separate path from patching: nothing here writes an image or a chip.
+
+1. **Open a case.** `bme case init dump.bin -o work/case --json` scans the dump, drafts a board and lists the detector hits as findings (`bme guide cases`).
+2. **Read the image.** Run each reader through the case with `bme case record work/case -- <command>`, so its output is stored without local paths and hashed:
+   - `ifr dump.bin` decodes the Setup forms: question offsets, options, defaults and conditions (`bme guide ifr`).
+   - `nvram dump.bin --field "ACPI Sleep State"` lists the stored variables and compares a Setup question's saved value with its default (`bme guide nvram`).
+   - `inspect dump.bin --acpi` lists the ACPI tables the image stores.
+3. **Compare.** `compare reference.bin dump.bin` pairs modules, `compare --functions A.json B.json` pairs the functions of two `tools analyze` exports and `compare --acpi A B` pairs ACPI tables by method. For `--acpi`, either side may be a `bme diag acpi capture` directory, which sets what the running machine published against what the image stores (`bme guide porting`).
+4. **Observe the machine.** `diag` commands read ACPI tables, the fan controller, SMBIOS and suspend stages from the host (`bme guide diagnostics`). They need root and some touch hardware, so ask the user before running one, and never run `diag suspend` on their behalf. A recorded `diag` command that fails keeps its failure as an artifact.
+5. **Close the loop.** `bme case status work/case --input dump.bin` reports `changed`, `missing` or `unlisted` artifacts as `CASE_DRIFT`; `bme case export` turns the case into a catalog directory of draft board, findings and evidence that `bme catalog validate` accepts.
+
+Report what each artifact shows and cite its id (`002-ifr`). A finding stays `open` until a person reviews it: offline evidence does not show that a board boots.

@@ -13,7 +13,7 @@
 
 mod common;
 
-use common::{Sandbox, s};
+use common::{Sandbox, s, write_capture_directory};
 use std::path::PathBuf;
 
 /// Resolve the dump named by `var`, printing a skip notice when it is unset.
@@ -778,6 +778,84 @@ fn stock_images_list_exactly_their_stored_acpi_tables() {
     }
 }
 
+/// A capture-shaped directory made of the DSDT and SSDT tables `bme extract` writes out of
+/// `input`, one file per stored occurrence, named the way sysfs names live tables.
+fn capture_from_extracted_tables(sandbox: &Sandbox, var: &str, input: &std::path::Path) -> PathBuf {
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    for (n, (signature, _, _, digest, guids)) in stored_acpi(var, input).into_iter().enumerate() {
+        if signature != "DSDT" && signature != "SSDT" {
+            continue;
+        }
+        for (k, guid) in guids.iter().enumerate() {
+            let out = sandbox.path(&format!("extracted-{n}-{k}"));
+            let run = sandbox.run([
+                "extract",
+                s(input),
+                "--guid",
+                guid,
+                "--leaf",
+                "acpi-table",
+                "--sha256",
+                &digest,
+                "-o",
+                s(&out),
+                "--json",
+            ]);
+            assert_eq!(
+                run.code, 0,
+                "({var} extract {signature} {digest} from {guid}): expected exit 0 | received {}",
+                run.stdout
+            );
+            let name = if signature == "DSDT" {
+                "DSDT".to_string()
+            } else {
+                format!("SSDT{}", files.len())
+            };
+            files.push((name, std::fs::read(&out).unwrap()));
+        }
+    }
+    let capture = sandbox.path(&format!("capture-{var}"));
+    let borrowed: Vec<(&str, Vec<u8>)> =
+        files.iter().map(|(n, b)| (n.as_str(), b.clone())).collect();
+    write_capture_directory(&capture, &borrowed);
+    capture
+}
+
+#[test]
+fn stock_images_compare_identical_to_a_capture_of_their_own_tables() {
+    for var in ["BME_ROM_MR9A", "BME_ROM_PR9"] {
+        let Some(input) = rom(var) else { continue };
+        let sandbox = Sandbox::new();
+        let capture = capture_from_extracted_tables(&sandbox, var, &input);
+        let run = sandbox.run(["compare", "--acpi", s(&input), s(&capture), "--json"]);
+        assert_eq!(
+            run.code, 0,
+            "({var} compare --acpi image capture): expected exit 0 | received {}",
+            run.stdout
+        );
+        let data = run.json()["data"].clone();
+        let pairs = data["pairs"].as_array().unwrap();
+        assert_eq!(
+            pairs.len() as u64,
+            data["a"]["tables"].as_u64().unwrap(),
+            "({var}): expected every stored DSDT and SSDT paired with a capture file"
+        );
+        let different: Vec<&serde_json::Value> =
+            pairs.iter().filter(|p| p["identical"] != true).collect();
+        assert!(
+            different.is_empty(),
+            "({var}): expected every pair identical | received {different:?}"
+        );
+        assert_eq!(
+            (&data["only_in_a"], &data["only_in_b"]),
+            (&serde_json::json!([]), &serde_json::json!([])),
+            "({var}): expected no unpaired tables"
+        );
+        assert_eq!(data["b"]["kind"], "capture");
+        assert_eq!(data["a"]["tables"], data["b"]["tables"], "({var})");
+    }
+}
+
 #[test]
 fn every_listed_stock_acpi_table_extracts_unchanged() {
     for var in ["BME_ROM_PR9", "BME_ROM_MR9A"] {
@@ -983,9 +1061,6 @@ fn detector_sites(report: &serde_json::Value, finding: &str) -> DetectorView {
     }
 }
 
-/// An undecodable DXE driver that both stock dumps carry; B09 cannot rule it out.
-const UNREADABLE_DRIVER: &str = "91B4D9C1-141C-4824-8D02-3C298E36EB3F";
-
 /// FFS GUIDs of the components a catalog patch edits in `firmware`, read from the repository catalog.
 fn patch_guids(patch: &str, firmware: &str) -> std::collections::BTreeSet<String> {
     let path = format!(
@@ -1059,17 +1134,12 @@ fn detectors_find_the_catalog_patch_sites_on_stock_and_report_the_defect_absent_
                 modules,
                 unreadable,
             } = detector_sites(patched, finding);
-            // Every hit module shows only the corrected shape. B09 scans all PE32 modules,
-            // so the undecodable driver keeps it from claiming that for the whole image.
-            let (expected, expected_unreadable) = if finding == "B09" {
-                ("unsupported", vec![UNREADABLE_DRIVER.to_string()])
-            } else {
-                ("fixed-pattern", vec![])
-            };
+            // The EFI/Tiano decoder reads every module, so B09 no longer reports `unsupported`
+            // for the whole image: every detector says fixed-pattern and no file is skipped.
             assert_eq!(
                 (state.as_str(), &unreadable),
-                (expected, &expected_unreadable),
-                "({var} patched {finding}): expected detector state and unreadable files | received {state} {unreadable:?}"
+                ("fixed-pattern", &Vec::<String>::new()),
+                "({var} patched {finding}): expected detector state fixed-pattern and no unreadable files | received {state} {unreadable:?}"
             );
             let defect: usize = modules.values().map(|(d, _)| d).sum();
             let fixed: usize = modules.values().map(|(_, f)| f).sum();
