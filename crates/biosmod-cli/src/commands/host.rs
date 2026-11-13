@@ -183,6 +183,13 @@ pub fn run_smbios(output: Option<&Path>) -> Result<Reply> {
 ///
 /// Example: with fake surfaces over a tree holding the DMI table, the reply's
 /// `report.memory_devices[0].total_width_bits` is `72`.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
 pub fn smbios_to(surfaces: &HostSurfaces, output: Option<&Path>) -> Result<Reply> {
     let capture = smbios::capture(surfaces)?;
     if let Some(output) = output {
@@ -202,6 +209,13 @@ pub fn smbios_to(surfaces: &HostSurfaces, output: Option<&Path>) -> Result<Reply
 }
 
 /// Human summary: identity lines, then one line per memory device or why there are none.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
 fn render_smbios(report: &smbios::SmbiosReport) -> String {
     let or_unknown = |value: &Option<String>| value.clone().unwrap_or_else(|| "unknown".into());
     let mut text = String::new();
