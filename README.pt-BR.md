@@ -91,6 +91,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 | `derive` | elaborar uma variante para outra versão por assinaturas únicas |
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | fontes e manutenção de catálogos |
 | `catalog init`                                                     | iniciar um repositório de dispositivo: catálogo vazio, notas, `.gitignore` |
+| `catalog split`, `catalog merge`                                   | extrair os registros de uma placa de um catálogo, unir catálogos de placa ou verificar se concordam |
 | `case init/record/status/export` | registrar uma investigação, rascunhar uma placa desconhecida, exportar uma submissão |
 | `tools status/set/unset/doctor/setup ghidra/analyze/paths` | ver, localizar e instalar o Ghidra 12.2 com ghidra-firmware-utils |
 | `tools setup replay` | ambiente Python com Unicorn, Capstone e pefile fixados por hash |

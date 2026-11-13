@@ -37,6 +37,24 @@ O git rastreia a estrutura do catálogo e nada além: um novo caminho no nível 
 
 Faça um commit por registro, com o id no escopo (`feat(H11): record unbounded PCU mailbox waits`) e o `catalog.json` reindexado no mesmo commit; confira com `bme catalog index . --check` e `bme catalog validate .`. Altere `version` apenas em um commit de release: `bme catalog update` recusa uma versão que já aceitou com outro conteúdo. Aumente-a, execute `bme catalog index .`, assine `catalog.json` com minisign, faça commit de `catalog.json.minisig` e crie uma tag no commit. Os usuários registram a URL raw do `catalog.json` da tag com `bme catalog add --trust-key`. O `README.md` gerado traz os detalhes.
 
+## Compartilhar registros entre placas
+
+Um defeito que duas placas compartilham mantém um único id em cada catálogo de placa, como `B02-B03` no catálogo embutido. Cada catálogo traz o mesmo texto e apenas a variante do seu próprio build.
+
+```sh
+bme catalog split official --board machinist-pr9-b85 -o pr9-repo --id pr9-b85
+bme catalog merge . ../other-board --check
+bme catalog merge . ../other-board -o both-boards --id both-boards
+```
+
+- `split SOURCE --board BOARD_ID -o DIR --id ID` inicia um repositório de placa a partir de um diretório de catálogo ou de `official`. Ele grava a estrutura de `catalog init` mais os registros da placa e lista cada patch, finding, registro de evidência e arquivo de procedência que deixou de fora. Um patch fica quando um build da placa tem uma variante `applicable`. Um finding fica quando afeta um build da placa, e um finding `fixed-by-patch` que perde todos os patches vira `open`. A evidência fica quando cita a placa. A procedência fica sob o id de um registro mantido. O comando falha quando um patch mantido exige um patch descartado ou cita um finding descartado.
+- `merge --check SOURCE SOURCE...` não grava nada. Termina com código 0 e a contagem de registros compartilhados quando os catálogos concordam, e falha com o registro, o campo, os dois valores e os dois ids de catálogo quando um registro compartilhado divergiu.
+- `merge SOURCE SOURCE... -o DIR --id ID` grava um diretório de catálogo com a união, na versão `0.1.0` salvo `--version`. Execute-o com `official` primeiro para reconstruir os registros embutidos.
+
+Os registros são pareados por id. Listas da placa, variantes de patch, builds de finding, referências de código e evidências são unidas na ordem em que as fontes foram dadas. Um finding `open` em um catálogo e `fixed-by-patch` em outro vira `fixed-by-patch`. Todos os outros campos devem ser iguais, assim como o requisito `engine` e os bytes de um arquivo de procedência. As relações entre patches (`requires`, `supersedes`, `conflicts`) e os `patches` de um finding devem concordar em todo patch que os dois catálogos definem. As referências de código de um build que os dois catálogos listam, e as que não têm build, também devem ser iguais.
+
+Uma variante `not-applicable` para o build de outra placa existe apenas em um catálogo que define os dois builds. Um catálogo de placa não pode carregá-la, então `split` a descarta e a união de catálogos de placa não a traz de volta.
+
 ## Placas e versões de firmware
 
 Um perfil de placa informa fabricante, modelo e revisão, e como a revisão é conhecida (`observed`, `unverified`, `unknown`). Ele lista as versões de firmware fornecidas. Variantes de patches são identificadas pelo ID da versão de firmware, não da placa; duas placas com a mesma versão compartilham uma variante.

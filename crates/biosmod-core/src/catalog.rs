@@ -22,6 +22,16 @@ use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(test)]
+pub(crate) mod fixtures;
+pub mod merge;
+pub mod records;
+pub mod split;
+
+pub use merge::{MergeInput, Merged, Shared, merge_catalogs};
+pub use records::Records;
+pub use split::{Dropped, Split, split_board};
+
 pub const CATALOG_SCHEMA: &str = "bme.catalog/1";
 pub const BOARD_SCHEMA: &str = "bme.board/1";
 pub const PATCH_SCHEMA: &str = "bme.patch/1";

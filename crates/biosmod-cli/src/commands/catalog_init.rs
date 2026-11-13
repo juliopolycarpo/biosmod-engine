@@ -4,12 +4,15 @@
 //! investigation notes. The command only writes files; it never runs git. Its
 //! `.gitignore` keeps vendor firmware bytes and machine identifiers out of the
 //! history (see `templates/catalog-init/README.md` for the rules it gives users).
+//!
+//! `catalog split` writes the same repository with records in it, through
+//! [`write_repository`].
 
 use crate::config::io_error;
 use crate::output::{Reply, display_path};
 use crate::publish::{publish_directory, remove_failed_directory};
 use crate::sources::OFFICIAL;
-use biosmod_core::catalog::{CATALOG_SCHEMA, Manifest};
+use biosmod_core::catalog::{CATALOG_SCHEMA, Manifest, index_files};
 use biosmod_core::json::pretty;
 use biosmod_core::validation::{engine_version, identifier};
 use biosmod_core::{Code, Error, Result};
@@ -34,32 +37,24 @@ const DIRECTORIES: [&str; 7] = [
     "work",
 ];
 
-/// Version of a fresh catalog.
-const INITIAL_VERSION: Version = Version::new(0, 1, 0);
+/// The files every device repository starts with, in write order; the records
+/// come after them and `catalog.json` last.
+pub const SCAFFOLD_FILES: [&str; 4] = ["README.md", ".gitignore", ".gitattributes", "catalog.json"];
 
-/// What `catalog init` writes, before any of it touches the disk.
-struct Scaffold {
-    /// Relative path and bytes; `catalog.json` is last because it marks completeness.
-    files: Vec<(&'static str, Vec<u8>)>,
+/// Version of a fresh catalog.
+pub const INITIAL_VERSION: Version = Version::new(0, 1, 0);
+
+/// A device repository that was written.
+pub struct Repository {
+    /// The directory as shown to the user.
+    pub directory: String,
+    pub title: String,
 }
 
 /// Scaffold the device repository at `dir`.
 pub fn init(dir: &Path, id: &str, title: Option<&str>) -> Result<Reply> {
-    check_catalog_id(id)?;
-    let title = title.unwrap_or(id);
-    check_title(title)?;
-    let scaffold = scaffold(id, title);
-    let files: Vec<(&str, &[u8])> = scaffold
-        .files
-        .iter()
-        .map(|(path, bytes)| (*path, bytes.as_slice()))
-        .collect();
-    // Refuses an existing `dir` and removes the new one if a write fails.
-    publish_directory(dir, &files)?;
-    create_directories(dir, &DIRECTORIES)?;
-
-    let shown = display_path(dir);
-    let written: Vec<&str> = files.iter().map(|(path, _)| *path).collect();
+    let repository = write_repository(dir, id, title, Vec::new())?;
+    let shown = &repository.directory;
     let text = format!(
         "Created device repository {id} {INITIAL_VERSION} in {shown}\n\
          \x20 files        {}\n\
@@ -72,20 +67,64 @@ pub fn init(dir: &Path, id: &str, title: Option<&str>) -> Result<Reply> {
          \x20 bme case init {shown}/work/dump.bin -o {shown}/work/case\n\
          \x20 bme catalog index {shown}\n\
          \x20 bme catalog validate {shown}\n",
-        written.join(" "),
+        SCAFFOLD_FILES.join(" "),
         DIRECTORIES.map(|d| format!("{d}/")).join(" "),
     );
     Ok(Reply::new(
         json!({
             "directory": shown,
             "id": id,
-            "title": title,
+            "title": repository.title,
             "version": INITIAL_VERSION.to_string(),
-            "files": written,
+            "files": SCAFFOLD_FILES,
             "directories": DIRECTORIES,
         }),
         text,
     ))
+}
+
+/// Write the scaffold at `dir` with `records` (`(relative path, bytes)` below
+/// `boards/`, `findings/`, `patches/`, `evidence/` or `provenance/`) indexed in
+/// its `catalog.json` at [`INITIAL_VERSION`].
+///
+/// Checks the id and title first, refuses an existing `dir` and removes the new
+/// directory if a write fails.
+///
+/// Example: `write_repository(Path::new("acme"), "acme-x99", None, Vec::new())?`.
+pub fn write_repository(
+    dir: &Path,
+    id: &str,
+    title: Option<&str>,
+    records: Vec<(String, Vec<u8>)>,
+) -> Result<Repository> {
+    let title = checked_title(id, title)?;
+    let files = scaffold(id, title, records)?;
+    let files: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
+        .collect();
+    // Refuses an existing `dir` and removes the new one if a write fails.
+    publish_directory(dir, &files)?;
+    // Records already created the directories they sit in.
+    let missing: Vec<&str> = DIRECTORIES
+        .into_iter()
+        .filter(|name| !dir.join(name).exists())
+        .collect();
+    create_directories(dir, &missing)?;
+    Ok(Repository {
+        directory: display_path(dir).into_owned(),
+        title: title.to_string(),
+    })
+}
+
+/// Check a catalog id and title and return the title, which defaults to the id.
+///
+/// Example: `checked_title("acme-x99", None)? == "acme-x99"`.
+pub fn checked_title<'a>(id: &'a str, title: Option<&'a str>) -> Result<&'a str> {
+    check_catalog_id(id)?;
+    let title = title.unwrap_or(id);
+    check_title(title)?;
+    Ok(title)
 }
 
 /// Reject ids a catalog cannot carry: the identifier rule, and the id of the bundled catalog.
@@ -123,22 +162,30 @@ fn check_title(title: &str) -> Result<()> {
 /// major and minor, like the bundled catalog's `^0.1`.
 ///
 /// Example: for engine `0.1.7` it is `^0.1`.
-fn engine_requirement(engine: &Version) -> VersionReq {
+pub fn engine_requirement(engine: &Version) -> VersionReq {
     VersionReq::parse(&format!("^{}.{}", engine.major, engine.minor))
         .expect("a caret requirement of two numbers parses")
 }
 
-/// The empty `catalog.json`, byte-identical to what `bme catalog index` writes for it.
-fn empty_manifest(id: &str, title: &str) -> Vec<u8> {
-    pretty(&Manifest {
+/// The `catalog.json` that indexes `records`, byte-identical to what `bme catalog index` writes.
+///
+/// Example: with no records it is the empty catalog `catalog init` writes.
+pub fn manifest_bytes(
+    id: &str,
+    title: &str,
+    version: Version,
+    engine: VersionReq,
+    records: &[(String, Vec<u8>)],
+) -> Result<Vec<u8>> {
+    Ok(pretty(&Manifest {
         schema: CATALOG_SCHEMA.to_string(),
         id: id.to_string(),
-        version: INITIAL_VERSION,
+        version,
         title: title.to_string(),
-        engine: engine_requirement(&engine_version()),
+        engine,
         description: None,
-        files: Vec::new(),
-    })
+        files: index_files(records)?,
+    }))
 }
 
 /// The README with `{id}` and `{title}` filled in. The id goes first so a title
@@ -151,15 +198,33 @@ fn render_readme(id: &str, title: &str) -> String {
         .replace("{title}", title)
 }
 
-fn scaffold(id: &str, title: &str) -> Scaffold {
-    Scaffold {
-        files: vec![
-            ("README.md", render_readme(id, title).into_bytes()),
-            (".gitignore", GITIGNORE.as_bytes().to_vec()),
-            (".gitattributes", GITATTRIBUTES.as_bytes().to_vec()),
-            ("catalog.json", empty_manifest(id, title)),
-        ],
-    }
+/// Every file of the repository: scaffold files, `records`, then `catalog.json`.
+fn scaffold(
+    id: &str,
+    title: &str,
+    mut records: Vec<(String, Vec<u8>)>,
+) -> Result<Vec<(String, Vec<u8>)>> {
+    let manifest = manifest_bytes(
+        id,
+        title,
+        INITIAL_VERSION,
+        engine_requirement(&engine_version()),
+        &records,
+    )?;
+    let mut files = vec![
+        (
+            "README.md".to_string(),
+            render_readme(id, title).into_bytes(),
+        ),
+        (".gitignore".to_string(), GITIGNORE.as_bytes().to_vec()),
+        (
+            ".gitattributes".to_string(),
+            GITATTRIBUTES.as_bytes().to_vec(),
+        ),
+    ];
+    files.append(&mut records);
+    files.push(("catalog.json".to_string(), manifest));
+    Ok(files)
 }
 
 /// Create each empty directory below `root`. If one fails, remove `root` again so
@@ -263,7 +328,14 @@ mod tests {
 
     #[test]
     fn empty_manifest_declares_the_given_catalog() {
-        let bytes = empty_manifest("acme-x99", "Acme X99");
+        let bytes = manifest_bytes(
+            "acme-x99",
+            "Acme X99",
+            INITIAL_VERSION,
+            engine_requirement(&engine_version()),
+            &[],
+        )
+        .unwrap();
         let manifest: Manifest = parse_strict(&bytes, "catalog.json").unwrap();
         assert_eq!(manifest.schema, CATALOG_SCHEMA);
         assert_eq!(manifest.id, "acme-x99");
@@ -279,13 +351,76 @@ mod tests {
     }
 
     #[test]
-    fn scaffold_puts_catalog_json_last() {
-        let scaffold = scaffold("acme-x99", "Acme X99");
-        let names: Vec<&str> = scaffold.files.iter().map(|(name, _)| *name).collect();
+    fn scaffold_puts_catalog_json_last_and_records_between() {
+        let record = ("patches/P.json".to_string(), b"{}".to_vec());
+        let files = scaffold("acme-x99", "Acme X99", vec![record]).unwrap();
+        let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(
             names,
-            ["README.md", ".gitignore", ".gitattributes", "catalog.json"]
+            [
+                "README.md",
+                ".gitignore",
+                ".gitattributes",
+                "patches/P.json",
+                "catalog.json"
+            ]
         );
+        assert_eq!(SCAFFOLD_FILES[3], "catalog.json");
+    }
+
+    #[test]
+    fn manifest_bytes_index_the_records_and_stay_canonical() {
+        let records = vec![("patches/P.json".to_string(), b"{}\n".to_vec())];
+        let bytes = manifest_bytes(
+            "acme",
+            "Acme",
+            Version::new(1, 2, 3),
+            VersionReq::parse("^0.1").unwrap(),
+            &records,
+        )
+        .unwrap();
+        let manifest: Manifest = parse_strict(&bytes, "catalog.json").unwrap();
+        assert_eq!(manifest.version, Version::new(1, 2, 3));
+        assert_eq!(manifest.files.len(), 1);
+        assert_eq!(manifest.files[0].path, "patches/P.json");
+        assert_eq!(pretty(&manifest), bytes);
+    }
+
+    #[test]
+    fn manifest_bytes_reject_a_record_outside_the_layout() {
+        let records = vec![("notes/x.md".to_string(), Vec::new())];
+        let error = manifest_bytes(
+            "acme",
+            "Acme",
+            INITIAL_VERSION,
+            engine_requirement(&engine_version()),
+            &records,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, Code::CatalogInvalid, "{error}");
+    }
+
+    #[test]
+    fn write_repository_keeps_records_and_creates_only_the_missing_directories() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("repo");
+        let records = vec![("patches/P.json".to_string(), b"{}\n".to_vec())];
+        write_repository(&dir, "acme-x99", None, records).unwrap();
+        assert_eq!(fs::read(dir.join("patches/P.json")).unwrap(), b"{}\n");
+        for name in DIRECTORIES {
+            assert!(dir.join(name).is_dir(), "{name}");
+        }
+        let manifest: Manifest =
+            parse_strict(&fs::read(dir.join("catalog.json")).unwrap(), "catalog.json").unwrap();
+        assert_eq!(manifest.files.len(), 1);
+    }
+
+    #[test]
+    fn checked_title_defaults_to_the_id_and_checks_both() {
+        assert_eq!(checked_title("acme", None).unwrap(), "acme");
+        assert_eq!(checked_title("acme", Some("Acme X99")).unwrap(), "Acme X99");
+        assert!(checked_title("official", None).is_err());
+        assert!(checked_title("acme", Some("two\nlines")).is_err());
     }
 
     #[test]

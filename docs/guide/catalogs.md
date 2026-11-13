@@ -37,6 +37,24 @@ Git tracks the catalog layout and nothing else: a new top-level path stays local
 
 Commit one record per commit, with its id in the scope (`feat(H11): record unbounded PCU mailbox waits`) and the re-indexed `catalog.json` in the same commit; check it with `bme catalog index . --check` and `bme catalog validate .`. Change `version` only in a release commit: `bme catalog update` refuses a version it already accepted with other content. Raise it, run `bme catalog index .`, sign `catalog.json` with minisign, commit `catalog.json.minisig` and tag the commit. Users register the tag's raw `catalog.json` URL with `bme catalog add --trust-key`. The generated `README.md` has the detail.
 
+## Share records between boards
+
+A defect two boards share keeps one id in every board catalog, such as `B02-B03` in the bundled catalog. Each catalog holds the same text and only its own build's variant.
+
+```sh
+bme catalog split official --board machinist-pr9-b85 -o pr9-repo --id pr9-b85
+bme catalog merge . ../other-board --check
+bme catalog merge . ../other-board -o both-boards --id both-boards
+```
+
+- `split SOURCE --board BOARD_ID -o DIR --id ID` starts a board repository from a catalog directory or `official`. It writes the `catalog init` scaffold plus the board's records, and lists every patch, finding, evidence record and provenance file it left out. A patch stays when one of the board's builds has an `applicable` variant. A finding stays when it affects one of the board's builds, and a `fixed-by-patch` finding left with no patch becomes `open`. Evidence stays when it names the board. Provenance stays under the id of a kept record. It fails when a kept patch requires a dropped patch or names a dropped finding.
+- `merge --check SOURCE SOURCE...` writes nothing. It exits 0 with the count of shared records when the catalogs agree, and fails with the record, field, both values and both catalog ids when a shared record drifted.
+- `merge SOURCE SOURCE... -o DIR --id ID` writes a catalog directory with the union, at version `0.1.0` unless `--version` says otherwise. Run it with `official` first to rebuild the bundled records.
+
+Records match by id. Board lists, patch variants, finding builds, code references and evidence are unioned in the order the sources are given. A finding that is `open` in one catalog and `fixed-by-patch` in another becomes `fixed-by-patch`. Every other field must be equal, and so must the `engine` requirement and the bytes of a provenance file. Patch relations (`requires`, `supersedes`, `conflicts`) and a finding's `patches` must agree on every patch both catalogs define. Code references of a build both catalogs list, and those without a build, must be equal too.
+
+A `not-applicable` variant for another board's build lives only in a catalog that defines both builds. A board catalog cannot carry it, so `split` drops it and a merge of board catalogs does not bring it back.
+
 ## Boards and firmware builds
 
 A board profile names the vendor, model and revision, and how the revision is known (`observed`, `unverified`, `unknown`). It lists the firmware builds it ships. Patch variants are keyed by firmware build id, not by board, so two boards that ship the same build share one variant.
