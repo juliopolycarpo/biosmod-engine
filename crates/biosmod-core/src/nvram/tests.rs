@@ -870,6 +870,47 @@ fn read_field_needs_variable_storage() {
 }
 
 #[test]
+fn read_field_accepts_a_size_that_any_declaration_of_the_variable_store_agrees_with() {
+    let image = Image::parse(nvram_image(&[nvar_sample_store()])).unwrap();
+    let mut report = scan_image(&image);
+    let mut modules = ifr::decode_image(&image, None, None).unwrap().modules;
+    // A second form set declares `Setup` with 0x30 bytes, ahead of the 0x40-byte declaration.
+    for set in modules
+        .iter_mut()
+        .flat_map(|m| &mut m.module.package_lists)
+        .flat_map(|l| &mut l.form_sets)
+    {
+        if let Some(at) = set.varstores.iter().position(|v| v.name == "Setup") {
+            let mut shorter = set.varstores[at].clone();
+            shorter.size = 0x30;
+            set.varstores.insert(at, shorter);
+        }
+    }
+    check_sizes(&mut report, &modules);
+    let checked: Vec<bool> = report
+        .variables
+        .iter()
+        .filter(|v| v.name == "Setup" && v.guid == SETUP_VARSTORE_GUID && v.size == 0x40)
+        .map(|v| v.size_mismatch)
+        .collect();
+    assert!(
+        !checked.is_empty() && checked.iter().all(|m| !m),
+        "(check_sizes with two declarations): expected no mismatch for 0x40 | received {checked:?}"
+    );
+    let field = read_field(&report, &modules, "ACPI Sleep State", None, true).unwrap();
+    let flagged: Vec<(&str, usize)> = field
+        .values
+        .iter()
+        .filter(|v| v.size_mismatch)
+        .map(|v| (v.store.as_str(), v.record_size))
+        .collect();
+    assert!(
+        flagged.is_empty(),
+        "(read_field with two declarations): expected no size mismatch | received {flagged:?}"
+    );
+}
+
+#[test]
 fn check_sizes_marks_records_that_differ_from_the_ifr_variable_store() {
     let wrong = nvar_store(
         &[

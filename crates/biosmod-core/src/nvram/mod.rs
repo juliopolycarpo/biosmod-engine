@@ -226,26 +226,47 @@ pub fn scan_bytes(bytes: &[u8]) -> NvramReport {
 ///
 /// Example: `nvram::check_sizes(&mut report, &ifr::decode_image(&image, None, None)?.modules);`
 pub fn check_sizes(report: &mut NvramReport, modules: &[ModuleIfr]) {
-    let mut declared: Vec<(&str, Guid, usize)> = Vec::new();
-    for list in modules.iter().flat_map(|m| &m.module.package_lists) {
-        for store in list.form_sets.iter().flat_map(|set| &set.varstores) {
-            if store.kind == VarStoreKind::Buffer {
-                declared.push((&store.name, store.guid, usize::from(store.size)));
-            }
-        }
-    }
+    let declared = declared_buffer_stores(modules);
     for variable in &mut report.variables {
         if variable.state == RecordState::Orphan {
             continue;
         }
-        let sizes: Vec<usize> = declared
-            .iter()
-            .filter(|(name, guid, _)| *name == variable.name && *guid == variable.guid)
-            .map(|(_, _, size)| *size)
-            .collect();
+        let sizes = declared_sizes(&declared, &variable.name, variable.guid);
         variable.expected_size = sizes.first().copied();
-        variable.size_mismatch = !sizes.is_empty() && !sizes.contains(&variable.size);
+        variable.size_mismatch = size_disagrees(&sizes, variable.size);
     }
+}
+
+/// `(name, GUID, size)` of every buffer variable store the modules declare.
+pub(crate) fn declared_buffer_stores(modules: &[ModuleIfr]) -> Vec<(&str, Guid, usize)> {
+    let mut declared = Vec::new();
+    for list in modules.iter().flat_map(|m| &m.module.package_lists) {
+        for store in list.form_sets.iter().flat_map(|set| &set.varstores) {
+            if store.kind == VarStoreKind::Buffer {
+                declared.push((store.name.as_str(), store.guid, usize::from(store.size)));
+            }
+        }
+    }
+    declared
+}
+
+/// Sizes declared for the variable `name`/`guid`, in declaration order.
+pub(crate) fn declared_sizes(
+    declared: &[(&str, Guid, usize)],
+    name: &str,
+    guid: Guid,
+) -> Vec<usize> {
+    declared
+        .iter()
+        .filter(|(n, g, _)| *n == name && *g == guid)
+        .map(|(_, _, size)| *size)
+        .collect()
+}
+
+/// The shared size rule: a stored `size` disagrees only when the IFR declares the variable
+/// and none of its declarations has that size.
+pub(crate) fn size_disagrees(declared: &[usize], size: usize) -> bool {
+    !declared.is_empty() && !declared.contains(&size)
 }
 
 /// True for an all-0xFF (erased) slice.

@@ -2,7 +2,7 @@
 
 use super::{DefaultsClass, NvramReport, RecordState};
 use crate::error::{Code, Error, Result};
-use crate::ifr::{ModuleIfr, VarStoreKind};
+use crate::ifr::ModuleIfr;
 use crate::util::Guid;
 use serde::Serialize;
 
@@ -138,13 +138,8 @@ pub fn read_field(
     }
     let (name, guid, offset, width, standard_default, manufacturing_default) = first;
     let statement = candidates[0].statement;
-    let varstore_size = modules
-        .iter()
-        .flat_map(|m| &m.module.package_lists)
-        .flat_map(|l| &l.form_sets)
-        .flat_map(|set| &set.varstores)
-        .find(|v| v.name == name && v.guid == guid && v.kind == VarStoreKind::Buffer)
-        .map_or(0, |v| v.size);
+    let declared = super::declared_sizes(&super::declared_buffer_stores(modules), &name, guid);
+    let varstore_size = declared.first().copied().map_or(0, |size| size as u16);
     let mut question_ids: Vec<u16> = candidates.iter().filter_map(|c| c.id).collect();
     question_ids.sort_unstable();
     question_ids.dedup();
@@ -181,7 +176,7 @@ pub fn read_field(
                 value,
                 bytes: bytes.map(crate::util::hex),
                 equals_default: value.zip(wanted).map(|(stored, default)| stored == default),
-                size_mismatch: varstore_size != 0 && v.size != usize::from(varstore_size),
+                size_mismatch: super::size_disagrees(&declared, v.size),
             }
         })
         .collect();
