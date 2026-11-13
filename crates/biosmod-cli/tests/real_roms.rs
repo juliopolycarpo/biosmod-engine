@@ -1344,3 +1344,102 @@ fn mr9a_smart_fan_zero_policy_scenarios_pass_on_the_original_module() {
         );
     }
 }
+
+/// UncoreInitPeim of both stock images: module GUID and SHA-256 of each extracted PE32.
+const UNCORE_INIT_PEIM_GUID: &str = "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3";
+const UNCORE_INIT_PEIM_BOARDS: [(&str, &str, &str); 2] = [
+    (
+        "BME_ROM_MR9A",
+        "MR9A",
+        "2582bbe3fec0f81f6e14d20a79fd062ca66694010158fcd8e42f36ea09601000",
+    ),
+    (
+        "BME_ROM_PR9",
+        "PR9",
+        "a645b2ea89779bcc66bfc96581aebb686aa9a6a15e7b6b232e333b292e59ed42",
+    ),
+];
+
+/// The B02/B03 DIMM-counter replay on the original UncoreInitPeim of each board: with the page
+/// policy Enabled the SPD header is read at slave 0xA6 (slot 3) only, and with it Auto on page 1
+/// without the retained marker the header is unreadable.
+#[test]
+fn stock_uncore_init_peim_reproduces_the_dimm_counter_matrix() {
+    let Some(python) = replay_python() else {
+        return;
+    };
+    for (variable, board, expected_digest) in UNCORE_INIT_PEIM_BOARDS {
+        let Some(input) = rom(variable) else {
+            continue;
+        };
+        let sandbox = Sandbox::new();
+        let module = sandbox.path("UncoreInitPeim.pe");
+        let extracted = sandbox.run([
+            "extract",
+            s(&input),
+            "--guid",
+            UNCORE_INIT_PEIM_GUID,
+            "-o",
+            s(&module),
+            "--json",
+        ]);
+        assert_eq!(extracted.code, 0, "({board}): {}", extracted.stdout);
+        let digest = biosmod_core::util::sha256_hex(&std::fs::read(&module).unwrap());
+        assert_eq!(
+            digest, expected_digest,
+            "({board} UncoreInitPeim {UNCORE_INIT_PEIM_GUID}): expected sha256 {expected_digest} | received {digest}"
+        );
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tools/replay/examples/b02_b03_dimm_counter.py");
+        let run = sandbox.run_with_env(
+            [
+                "replay",
+                "script",
+                s(&script),
+                "--module",
+                s(&module),
+                "--json",
+            ],
+            &[("BME_REPLAY_PYTHON", &python)],
+        );
+        if run.code != 0 && run.stdout.contains("TOOL_UNAVAILABLE") {
+            eprintln!(
+                "skipped: the replay runtime is not usable ({})",
+                run.json()["error"]["message"]
+            );
+            return;
+        }
+        assert_eq!(run.code, 0, "({board}): {}", run.stdout);
+        let reply = run.json();
+        let documents = reply["data"]["documents"]
+            .as_array()
+            .expect("documents is an array");
+        let summary = documents.last().expect("a summary document");
+        assert_eq!(
+            (
+                summary["cases"].as_u64(),
+                summary["mismatches"].as_u64(),
+                &summary["passed"]
+            ),
+            (Some(8), Some(0), &serde_json::json!(true)),
+            "({board}): expected 8 cases, 0 mismatches, passed | received {summary}"
+        );
+        let enabled: Vec<_> = documents
+            .iter()
+            .filter(|document| document["policy"] == "enabled")
+            .collect();
+        assert_eq!(
+            enabled.len(),
+            4,
+            "({board}): expected 4 Enabled cases | received {}",
+            enabled.len()
+        );
+        for document in enabled {
+            assert_eq!(
+                document["header_read_slaves"],
+                serde_json::json!(["0xa6"]),
+                "({board}): expected the Enabled path to read slot 3 only | received {document}"
+            );
+        }
+    }
+}

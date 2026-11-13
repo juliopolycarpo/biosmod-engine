@@ -421,6 +421,49 @@ class ExampleHarnessTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_RUNTIME, "unicorn and pefile are not installed in this interpreter")
+class DimmCounterHarnessTest(unittest.TestCase):
+    """The B02/B03 harness needs a stock module for a real run (see the real-ROM test)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import runpy
+
+        path = os.path.join(os.path.dirname(__file__), "..", "replay", "examples", "b02_b03_dimm_counter.py")
+        cls.example = runpy.run_path(path, run_name="b02_b03")
+
+    def test_both_boards_name_the_same_nine_routines_by_distinct_digests(self):
+        boards = self.example["BOARDS"]
+        self.assertEqual(sorted(entry["board"] for entry in boards.values()), ["MR9A", "PR9"])
+        names = [sorted(entry["rva"]) for entry in boards.values()]
+        self.assertEqual(names[0], names[1])
+        self.assertEqual(len(names[0]), 9)
+
+    def test_the_modeled_matrix_separates_the_slot_counter_from_the_page_reset(self):
+        expected = self.example["expected_for"]
+        enabled = expected(0, False, True)
+        self.assertEqual(enabled["header_read_slaves"], ["0xa6"])  # B02: slot 3, not 0xa0/0xa2/0xa4
+        self.assertEqual((enabled["detected_ddr4"], enabled["upper_spd_byte"]), (False, 0x55))
+        auto_page_one = expected(1, False, False)  # B03: page-1 bytes read as the header
+        self.assertEqual((auto_page_one["detected_ddr4"], auto_page_one["device_type"]), (False, 0))
+        self.assertEqual(expected(1, True, False)["upper_spd_byte"], 0xAA)
+
+    def test_a_module_that_is_not_a_reviewed_original_is_refused_by_digest(self):
+        module = pe_builder.pe(True, RETURN_7)
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "m.pe")
+            with open(path, "wb") as handle:
+                handle.write(module)
+            replay._modules[:] = [path]
+            try:
+                with self.assertRaises(SystemExit) as caught:
+                    self.example["main"]()
+            finally:
+                replay._modules[:] = []
+        self.assertIn("--module sha256: expected one of", str(caught.exception))
+        self.assertIn("received %s" % sha(module), str(caught.exception))
+
+
+@unittest.skipUnless(HAVE_RUNTIME, "unicorn and pefile are not installed in this interpreter")
 class MainTest(unittest.TestCase):
     def test_parse_splits_modules_and_script_arguments(self):
         self.assertEqual(
