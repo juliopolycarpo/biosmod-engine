@@ -84,6 +84,6 @@ Um registro que não pode ser decodificado aparece em `issues` com o offset na i
 ## Limites
 
 - Os offsets são offsets da imagem. Só volumes de nível superior; armazenamentos dentro de seções comprimidas não são procurados.
-- A tabela de GUIDs do NVAR é achada voltando do fim do arquivo até o separador apagado; um armazenamento sem espaço livre antes da tabela pode ser lido errado.
+- A tabela de GUIDs do NVAR é achada voltando do fim do arquivo até um slot apagado, mas nunca além do último registro que fecha corretamente, então um armazenamento sem vão apagado antes da tabela mantém seus registros. Dano logo antes de uma tabela sem vão ainda pode ser lido como entradas da tabela. Quando os registros citam mais índices de GUID do que cabem depois deles, a leitura relata `GUID table: expected N entries after the last record`.
 - O layout do cabeçalho estendido (byte de atributos, byte de checksum opcional, tamanho no final) segue o `nvram.h` do UEFITool. Nenhum dump original o usa, então esse caminho, GUIDs embutidos, nomes NVAR em UCS-2 e todo o suporte a VSS são verificados apenas com armazenamentos sintéticos. Checksums, timestamps e dados HMAC não são verificados.
 - Nem todo dump traz uma região NVRAM ativa: a imagem original do MR9A só tem o armazenamento `StdDefaults`, então todo valor que ela mostra é um padrão salvo. Valores gravados pelo Setup exigem um dump lido de uma placa que já salvou o Setup.

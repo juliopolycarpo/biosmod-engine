@@ -84,6 +84,6 @@ A record that cannot be decoded is listed under `issues` with its image offset a
 ## Limits
 
 - Offsets are image offsets. Top-level volumes only; stores inside compressed sections are not searched.
-- The NVAR GUID table is found by scanning back from the file end until the erased separator; a store with no free space before the table can be misread.
+- The NVAR GUID table is found by scanning back from the file end until an erased slot, but never past the last record that frames correctly, so a store with no erased gap before the table keeps its records. Damage right in front of a gapless table can still be read as table entries. When the records name more GUID indexes than fit after them, the walk reports `GUID table: expected N entries after the last record`.
 - Extended-header layout (attribute byte, optional checksum byte, trailing size) follows UEFITool's `nvram.h`. No stock dump uses it, so that path, inline GUIDs, UCS-2 NVAR names and all VSS support are checked against synthetic stores only. Checksums, timestamps and HMAC data are not verified.
 - A live NVRAM region is not part of every dump: the stock MR9A image holds only the `StdDefaults` store, so every value it shows is a saved default. Values Setup wrote need a dump read from a board that has saved Setup.

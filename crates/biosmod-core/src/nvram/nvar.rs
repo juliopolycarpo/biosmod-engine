@@ -115,9 +115,22 @@ fn parse_into(source: Source<'_>, report: &mut NvramReport) {
         defaults,
         file_guid,
     } = source;
-    let table = guid_table(bytes);
+    let GuidTable {
+        guids: table,
+        overlap,
+    } = guid_table(bytes);
     let limit = bytes.len() - 16 * table.len();
     let mut issues = Vec::new();
+    if let Some(overlap) = overlap {
+        issues.push(Issue {
+            store: label.clone(),
+            offset: base + overlap.records_end,
+            message: format!(
+                "GUID table: expected {} entries after the last record | received {}",
+                overlap.needed, overlap.available
+            ),
+        });
+    }
     let entries = walk(&bytes[..limit], &table, &label, base, &mut issues);
     let by_offset: HashMap<usize, usize> = entries
         .iter()
@@ -258,16 +271,93 @@ fn defaults_class(name: &str) -> Option<DefaultsClass> {
     }
 }
 
-/// GUIDs stored at the end of the store, index 0 last. The table ends where the erased
-/// separator before the records begins; a table is never longer than the store.
-fn guid_table(bytes: &[u8]) -> Vec<Guid> {
-    let mut table = Vec::new();
-    let mut end = bytes.len();
-    while end >= 16 && !is_erased(&bytes[end - 16..end]) {
-        table.push(Guid::from_slice(&bytes[end - 16..end]));
-        end -= 16;
+/// The GUID table of a store and, when the records leave too little room for it, the gap.
+struct GuidTable {
+    guids: Vec<Guid>,
+    overlap: Option<Overlap>,
+}
+
+/// Records that name more GUID indexes than fit between the last record and the store end.
+struct Overlap {
+    records_end: usize,
+    needed: usize,
+    available: usize,
+}
+
+/// GUIDs stored at the end of the store, index 0 last.
+///
+/// The table never reaches into the records: it holds at most the 16-byte slots after the
+/// last structurally valid record, and ends earlier where an erased slot separates it from
+/// them. Without that bound a store whose table directly follows the records (no erased
+/// gap) would have its last records read as table entries.
+fn guid_table(bytes: &[u8]) -> GuidTable {
+    let Extent {
+        end,
+        guid_indexes_needed,
+    } = records_extent(bytes);
+    let available = (bytes.len() - end) / 16;
+    let mut guids = Vec::new();
+    let mut table_end = bytes.len();
+    while guids.len() < available && !is_erased(&bytes[table_end - 16..table_end]) {
+        guids.push(Guid::from_slice(&bytes[table_end - 16..table_end]));
+        table_end -= 16;
     }
-    table
+    let overlap = (guid_indexes_needed > available).then_some(Overlap {
+        records_end: end,
+        needed: guid_indexes_needed,
+        available,
+    });
+    GuidTable { guids, overlap }
+}
+
+/// Where the records of a store end and how many GUID table entries they name.
+struct Extent {
+    /// Offset just past the last structurally valid record.
+    end: usize,
+    /// Highest GUID index named by a variable record, plus one.
+    guid_indexes_needed: usize,
+}
+
+/// Walk the record framing of the whole store (no table needed) the way [`walk`] does:
+/// skip erased runs and resynchronise on damage. The table bytes at the end do not frame as
+/// records, so the walk runs out there and `end` marks the last record before them.
+fn records_extent(bytes: &[u8]) -> Extent {
+    let mut extent = Extent {
+        end: 0,
+        guid_indexes_needed: 0,
+    };
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if bytes[offset] == 0xFF && is_erased(&bytes[offset..(offset + 4).min(bytes.len())]) {
+            match bytes[offset..].iter().position(|b| *b != 0xFF) {
+                Some(skip) => offset += skip,
+                None => break,
+            }
+            continue;
+        }
+        let remaining = bytes.len() - offset;
+        if !bytes[offset..].starts_with(SIGNATURE) {
+            offset = resync(bytes, offset + 1);
+            continue;
+        }
+        if remaining < HEADER {
+            break;
+        }
+        let size = usize::from(u16::from_le_bytes([bytes[offset + 4], bytes[offset + 5]]));
+        if size < HEADER || size > remaining {
+            offset = resync(bytes, offset + 4);
+            continue;
+        }
+        let attributes = bytes[offset + 9];
+        if attributes & (FLAG_DATA_ONLY | FLAG_GUID) == 0
+            && let Some(index) = bytes[offset..offset + size].get(HEADER)
+        {
+            extent.guid_indexes_needed = extent.guid_indexes_needed.max(usize::from(*index) + 1);
+        }
+        offset += size;
+        extent.end = offset;
+    }
+    extent
 }
 
 /// Split the records area into structurally valid entries; damaged parts become issues.

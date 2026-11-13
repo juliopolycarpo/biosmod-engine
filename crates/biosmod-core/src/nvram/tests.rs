@@ -296,6 +296,61 @@ fn nvar_link_loops_are_cut_and_reported() {
     );
 }
 
+/// Records back to back with the GUID table right behind them and no erased gap.
+fn gapless_store(records: &[Vec<u8>], guids: &[Guid]) -> Vec<u8> {
+    let mut store: Vec<u8> = records.concat();
+    // The table grows towards the records: index 0 is the last 16 bytes.
+    for guid in guids.iter().rev() {
+        store.extend_from_slice(&guid.0);
+    }
+    store
+}
+
+#[test]
+fn nvar_guid_table_stops_at_the_last_record_when_no_erased_gap_separates_them() {
+    let store = gapless_store(
+        &[
+            nvar_record(0x82, b"\0One\0\x01"),
+            nvar_record(0x82, b"\0Two\0\x02"),
+        ],
+        &[SETUP_VARSTORE_GUID],
+    );
+    let report = scan_bytes(&store);
+    assert_eq!(
+        report
+            .variables
+            .iter()
+            .map(|v| v.name.as_str())
+            .collect::<Vec<_>>(),
+        ["One", "Two"],
+        "(records of a gapless store)"
+    );
+    assert!(report.issues.is_empty(), "(issues): {:?}", report.issues);
+    assert_eq!(
+        report.stores[0].guid_table_entries, 1,
+        "(GUID table entries): expected 1 | received {}",
+        report.stores[0].guid_table_entries
+    );
+}
+
+#[test]
+fn nvar_reports_a_guid_table_that_overlaps_the_records() {
+    // The record names GUID index 2 but only one table entry follows the records.
+    let store = gapless_store(
+        &[nvar_record(0x82, b"\x02Wide\0\x01")],
+        &[SETUP_VARSTORE_GUID],
+    );
+    let report = scan_bytes(&store);
+    let messages: Vec<&str> = report.issues.iter().map(|i| i.message.as_str()).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m
+                .starts_with("GUID table: expected 3 entries after the last record | received 1")),
+        "(overlapping table): {messages:?}"
+    );
+}
+
 #[test]
 fn nvar_data_only_record_linking_to_itself_is_cut_at_the_loop() {
     // `next` 0 points at the record itself; the chain must stop there with one issue.
