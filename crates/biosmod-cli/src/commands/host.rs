@@ -203,6 +203,13 @@ fn suspend_pm_test(stage: &str, output: &Path) -> Result<Reply> {
 ///
 /// Example: with `FakePowerSysfs`, `pm_test_to(&surfaces, &fake, Stage::Freezer, dir)`
 /// replies with `report.status == "pass"`.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
 pub fn pm_test_to(
     surfaces: &HostSurfaces,
     power: &dyn HostWrite,
