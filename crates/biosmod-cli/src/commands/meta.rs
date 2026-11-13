@@ -71,6 +71,11 @@ pub const GUIDES: &[(&str, &str, &str)] = &[
         "installing and running the analysis toolchain",
         include_str!("../../../../docs/guide/ghidra.md"),
     ),
+    (
+        "replay",
+        "the Python runtime that replays firmware against simulated hardware",
+        include_str!("../../../../docs/guide/replay.md"),
+    ),
 ];
 
 /// JSON Schema of the stdout envelope.
@@ -113,10 +118,11 @@ fn commands() -> Value {
         {"name": "case record", "writes": ["case artifacts", "case.json", "the command's own outputs"], "network": false, "summary": "run a bme command in-process and store its JSON output and output files with digests, argv and versions"},
         {"name": "case status", "writes": [], "network": false, "summary": "verify inputs and artifacts; CASE_DRIFT when one is changed or missing; stale results are reported"},
         {"name": "case export", "writes": ["catalog submission directory"], "network": false, "summary": "board, build, findings and evidence from a case as a catalog bme catalog validate accepts"},
-        {"name": "tools doctor|paths", "writes": [], "network": false},
+        {"name": "tools doctor|paths", "writes": [], "network": false, "summary": "doctor also checks the replay runtime once installed; `doctor replay` requires it"},
         {"name": "tools status", "writes": [], "network": false, "summary": "every tool's version, location and install command; a missing tool is a row, not a failure"},
-        {"name": "tools set|unset", "writes": ["config"], "network": false, "summary": "choose an existing Ghidra directory or flashrom executable"},
+        {"name": "tools set|unset", "writes": ["config"], "network": false, "summary": "choose an existing Ghidra directory, flashrom executable or replay Python environment"},
         {"name": "tools setup ghidra", "writes": ["tool install", "cache"], "network": true},
+        {"name": "tools setup replay", "writes": ["Python environment"], "network": true, "summary": "create a virtual environment with hash-locked Unicorn, Capstone and pefile; --offline --wheelhouse installs from local wheels"},
         {"name": "tools analyze", "writes": ["Ghidra project", "exports"], "network": false},
         {"name": "diag breadcrumbs decode|read", "writes": [], "network": false, "summary": "read uses ports 72h/73h only"},
         {"name": "diag acpi capture", "writes": ["capture directory"], "network": false, "summary": "copy ACPI tables, sleep states and sleep kernel messages into a hashed bundle with an evidence record (Linux, root)"},

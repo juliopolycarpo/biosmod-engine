@@ -92,6 +92,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | fontes e manutenção de catálogos |
 | `case init/record/status/export` | registrar uma investigação, rascunhar uma placa desconhecida, exportar uma submissão |
 | `tools status/set/unset/doctor/setup ghidra/analyze/paths` | ver, localizar e instalar o Ghidra 12.2 com ghidra-firmware-utils |
+| `tools setup replay` | ambiente Python com Unicorn, Capstone e pefile fixados por hash |
 | `diag breadcrumbs decode/read` | diagnóstico de checkpoint MRC do MR9A (read usa somente portas 72h/73h) |
 | `diag acpi capture` | pacote com hashes das tabelas ACPI, estado de suspensão e mensagens de suspensão do kernel, com registro de evidência (Linux, root) |
 | `diag smbios` | decodifica a tabela SMBIOS: BIOS, sistema, placa e dispositivos de memória com larguras e velocidades dos slots; sem root, só campos de nível de modelo (Linux) |

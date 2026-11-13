@@ -18,6 +18,8 @@ pub struct Invocation {
     pub args: Vec<OsString>,
     pub env: Vec<(String, OsString)>,
     pub timeout: Duration,
+    /// Working directory; the caller's own when `None`.
+    pub cwd: Option<PathBuf>,
     /// Send stdout and stderr to this file instead of a temporary capture.
     pub log: Option<PathBuf>,
     /// Append to `log` instead of truncating it, so successive runs share one file.
@@ -31,6 +33,7 @@ impl Invocation {
             args: Vec::new(),
             env: Vec::new(),
             timeout: Duration::from_secs(300),
+            cwd: None,
             log: None,
             append_log: false,
         }
@@ -63,6 +66,14 @@ impl Invocation {
 
     pub fn timeout(mut self, timeout: Duration) -> Invocation {
         self.timeout = timeout;
+        self
+    }
+
+    /// Run in `dir`, so a stray file in the caller's directory cannot shadow a module.
+    ///
+    /// Example: `Invocation::new("python").cwd(Path::new("/tmp/staging"))`
+    pub fn cwd(mut self, dir: &Path) -> Invocation {
+        self.cwd = Some(dir.to_path_buf());
         self
     }
 
@@ -193,6 +204,9 @@ impl Runner for System {
             .stdin(Stdio::null())
             .stdout(out.try_clone().map_err(io)?)
             .stderr(err.try_clone().map_err(io)?);
+        if let Some(dir) = &invocation.cwd {
+            command.current_dir(dir);
+        }
         for (key, value) in &invocation.env {
             command.env(key, value);
         }

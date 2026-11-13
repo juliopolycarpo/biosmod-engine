@@ -124,6 +124,9 @@ pub struct ToolsConfig {
     /// flashrom executable to use instead of the one found in `PATH`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flashrom: Option<PathBuf>,
+    /// Python interpreter or virtual environment for `bme replay`, instead of the managed one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_python: Option<PathBuf>,
 }
 
 /// The configuration file.

@@ -4,6 +4,7 @@
 //! job. Each row says what was found, where it came from and how to install it, so
 //! the command line and the desktop app can show the same facts.
 
+use super::replay::{self, ReplayHome};
 use super::{Env, GhidraHome, Runner, ghidra_checks, ghidra_version, java_check};
 use crate::commands::Ctx;
 use crate::flash::{
@@ -25,7 +26,7 @@ const STATUS_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// The id of every row `tools status` reports, in report order. `bme capabilities` advertises
 /// it, so clients and tests read the list from the engine instead of keeping their own copy.
-pub const TOOL_IDS: [&str; 8] = [
+pub const TOOL_IDS: [&str; 9] = [
     "ghidra",
     "firmware-utils",
     "java",
@@ -34,6 +35,7 @@ pub const TOOL_IDS: [&str; 8] = [
     "flashrom",
     "nasm",
     "iasl",
+    "replay",
 ];
 
 /// How healthy one tool is for the work bme asks of it.
@@ -100,6 +102,8 @@ pub enum Locatable {
     Ghidra,
     /// The flashrom executable.
     Flashrom,
+    /// A Python interpreter or virtual environment with the pinned replay packages.
+    Replay,
 }
 
 impl Locatable {
@@ -107,6 +111,7 @@ impl Locatable {
         match self {
             Locatable::Ghidra => "ghidra",
             Locatable::Flashrom => "flashrom",
+            Locatable::Replay => "replay",
         }
     }
 }
@@ -194,6 +199,8 @@ fn lossy(path: &Path) -> String {
 pub struct Probe<'a> {
     pub env: &'a Env<'a>,
     pub ghidra: &'a GhidraHome,
+    /// The interpreter `bme replay` would run.
+    pub replay: &'a ReplayHome,
     /// Process environment lookup.
     pub get: &'a dyn Fn(&str) -> Option<OsString>,
     /// `tools.flashrom` from the configuration.
@@ -208,7 +215,7 @@ pub struct Probe<'a> {
 
 /// Inspect every tool. Never fails: problems become rows.
 ///
-/// Example: `status(&probe)` returns rows for ghidra, firmware-utils, java, jdk, git and flashrom.
+/// Example: `status(&probe)` returns rows for ghidra, firmware-utils, java, jdk, git, flashrom, nasm and replay.
 pub fn status(probe: &Probe) -> Vec<ToolRow> {
     let java = java_rows(probe);
     let git = git_row(probe);
@@ -225,6 +232,7 @@ pub fn status(probe: &Probe) -> Vec<ToolRow> {
     rows.push(flashrom_row(probe));
     rows.push(optional_program_row(probe, &NASM));
     rows.push(optional_program_row(probe, &IASL));
+    rows.push(replay_row(probe));
     rows
 }
 
@@ -676,6 +684,117 @@ fn optional_program_row(probe: &Probe, program: &OptionalProgram) -> ToolRow {
     }
 }
 
+/// How `tools setup replay` runs, or why it cannot right now.
+///
+/// Setup writes only to bme's own directory, so a saved or environment interpreter blocks it
+/// the way a saved Ghidra does. It also needs `python3` 3.10 or newer with `venv`.
+///
+/// Example: with `BME_REPLAY_PYTHON` set the install is blocked by unsetting the variable.
+fn replay_install(probe: &Probe, health: Health) -> Install {
+    let home = probe.replay;
+    let venv = replay::managed_venv(&probe.env.data);
+    let blocked = match home.origin {
+        "managed" => replay::leftover_venv(&venv)
+            .map(|dir| {
+                format!(
+                    "{} exists but bme did not install it: move it away, or run `bme tools setup replay --force` to delete and replace it",
+                    dir.display()
+                )
+            })
+            .or_else(|| super::check_recovery(&venv).err().map(|e| e.message))
+            .or_else(|| {
+                // A healthy runtime needs no setup, so skip the extra probe.
+                let python = PathBuf::from(if cfg!(windows) { "python" } else { "python3" });
+                (health != Health::Ready)
+                    .then(|| {
+                        replay::base_python_issue(probe.env.runner, &python, STATUS_PROBE_TIMEOUT)
+                    })
+                    .flatten()
+            }),
+        "config" => Some(
+            "a saved interpreter is in use and bme installs only into its own directory: run `bme tools unset replay`, then `bme tools setup replay`"
+                .to_string(),
+        ),
+        other => Some(format!(
+            "{other} points elsewhere and bme installs only into its own directory: unset it, then run `bme tools setup replay`"
+        )),
+    };
+    let available = blocked.is_none();
+    Install {
+        method: "bme",
+        command: available.then(|| replay::SETUP_COMMAND.to_string()),
+        automatic: available,
+        blocked,
+    }
+}
+
+/// The replay runtime: one version probe of the interpreter bme would run.
+///
+/// Optional, because every other command works without it; `replay` commands fail with
+/// `TOOL_UNAVAILABLE` and the setup command instead.
+fn replay_row(probe: &Probe) -> ToolRow {
+    let home = probe.replay;
+    let (health, version, detail) = if !home.python.is_file() {
+        (
+            Health::Missing,
+            None,
+            format!(
+                "{}: not found; the runtime is installed by `{}`",
+                home.python.display(),
+                replay::SETUP_COMMAND
+            ),
+        )
+    } else {
+        match replay::probe_versions(probe.env.runner, &home.python, STATUS_PROBE_TIMEOUT) {
+            Err(message) => (Health::Missing, None, message),
+            Ok(versions) if !versions.python_ok() => (
+                Health::Attention,
+                None,
+                format!(
+                    "expected Python >= {}.{} | received {}",
+                    replay::PYTHON_MIN.0,
+                    replay::PYTHON_MIN.1,
+                    versions.python
+                ),
+            ),
+            Ok(versions) => {
+                let mismatches = versions.mismatches();
+                if mismatches.is_empty() {
+                    (
+                        Health::Ready,
+                        Some(versions.summary()),
+                        format!(
+                            "Python {} and the pinned packages are present",
+                            versions.python
+                        ),
+                    )
+                } else if versions.packages.values().all(Option::is_none) {
+                    (Health::Missing, None, mismatches.join("; "))
+                } else {
+                    (
+                        Health::Attention,
+                        Some(versions.summary()),
+                        mismatches.join("; "),
+                    )
+                }
+            }
+        }
+    };
+    ToolRow {
+        id: "replay",
+        name: "Replay runtime",
+        purpose: "runs firmware code against simulated hardware in a separate Python environment (optional)",
+        health,
+        version,
+        path: Some(lossy(&home.python)),
+        origin: home.origin,
+        detail,
+        install: replay_install(probe, health),
+        custom_location: true,
+        optional: true,
+    }
+}
+
 /// Render rows as a table followed by one next step per tool that needs attention.
 ///
 /// Example: `render(&status(&probe))` ends with `Every tool is ready.` when nothing is missing.
@@ -737,11 +856,13 @@ pub fn render(rows: &[ToolRow]) -> String {
 pub fn run_status(ctx: &Ctx) -> Result<Reply> {
     let env = super::env(ctx, &System, &crate::transport::Offline);
     let home = super::ghidra_home(&ctx.config, &env.data, &env.profile);
+    let replay_home = super::replay_home_now(ctx);
     let get = |key: &str| std::env::var_os(key).filter(|v| !v.is_empty());
     let os_release = std::fs::read_to_string("/etc/os-release").ok();
     let rows = status(&Probe {
         env: &env,
         ghidra: &home,
+        replay: &replay_home,
         get: &get,
         flashrom: ctx.config.tools.flashrom.as_deref(),
         sbin: &SBIN_DIRECTORIES,
@@ -772,6 +893,10 @@ fn validate(runner: &dyn Runner, tool: Locatable, path: &Path) -> Result<String>
                 ));
             }
             Ok(ghidra_version(path).unwrap_or_else(|| "unknown version".into()))
+        }
+        Locatable::Replay => {
+            let (_, versions) = replay::validate_location(runner, path)?;
+            Ok(versions.summary())
         }
         Locatable::Flashrom => {
             if !path.is_file() {
@@ -818,6 +943,7 @@ fn overriding_variable(tool: Locatable) -> Option<&'static str> {
     let name = match tool {
         Locatable::Ghidra => "GHIDRA_INSTALL_DIR",
         Locatable::Flashrom => FLASHROM_OVERRIDE,
+        Locatable::Replay => replay::OVERRIDE,
     };
     std::env::var_os(name)
         .filter(|v| !v.is_empty())
@@ -834,6 +960,7 @@ pub fn set(ctx: &Ctx, runner: &dyn Runner, tool: Locatable, path: &Path) -> Resu
     let previous = match tool {
         Locatable::Ghidra => config.tools.ghidra_home.replace(absolute.clone()),
         Locatable::Flashrom => config.tools.flashrom.replace(absolute.clone()),
+        Locatable::Replay => config.tools.replay_python.replace(absolute.clone()),
     };
     config.save(&ctx.paths)?;
     let shadow = overriding_variable(tool);
@@ -874,6 +1001,7 @@ pub fn unset(ctx: &Ctx, tool: Locatable) -> Result<Reply> {
     let previous = match tool {
         Locatable::Ghidra => config.tools.ghidra_home.take(),
         Locatable::Flashrom => config.tools.flashrom.take(),
+        Locatable::Replay => config.tools.replay_python.take(),
     };
     if previous.is_some() {
         config.save(&ctx.paths)?;
