@@ -1,10 +1,13 @@
 //! Turn the documents of a scenario run into a pass/fail verdict per expectation.
 //!
 //! The runtime emits one document per expectation and a closing summary. bme does not take the
-//! runtime's word for the count: a missing, repeated or out-of-range expectation is a failed
-//! tool, not a passing scenario.
+//! runtime's word for any of it. It derives what each expectation wants from the scenario it
+//! validated, checks the runtime evaluated that expectation, and decides pass or fail itself
+//! from the `received` value. A missing, repeated or reordered expectation, a different
+//! `expected`, or a `passed` that contradicts `received` is a failed tool, not a verdict.
 
-use biosmod_core::scenario::Scenario;
+use biosmod_core::scenario::{Expectation, Scenario};
+use biosmod_core::util::hex;
 use biosmod_core::{Code, Error, Result};
 use serde::Serialize;
 use serde_json::Value;
@@ -158,13 +161,64 @@ fn bad(message: String) -> Error {
     Error::new(Code::ToolFailed, message)
 }
 
+/// The `kind` an expectation spells in the document.
+fn kind_of(expectation: &Expectation) -> &'static str {
+    match expectation {
+        Expectation::Return { .. } => "return",
+        Expectation::Register { .. } => "register",
+        Expectation::Port { .. } => "port",
+        Expectation::Variable { .. } => "variable",
+        Expectation::ServiceCalls { .. } => "service-calls",
+    }
+}
+
+/// What an expectation wants, as the runtime reports values: an unsigned number, or the
+/// lowercase hex of a variable's bytes.
+fn expected_of(expectation: &Expectation) -> Value {
+    match expectation {
+        Expectation::Return { equals }
+        | Expectation::Register { equals, .. }
+        | Expectation::Port { equals, .. } => Value::from(equals.0),
+        Expectation::Variable { equals, .. } => Value::from(hex(&equals.0)),
+        Expectation::ServiceCalls { count, .. } => Value::from(count.0),
+    }
+}
+
+/// The runtime's `received`, in the shape `expected_of` uses: null (nothing was read), an
+/// unsigned number, or a lowercase hex string for a variable.
+fn received_of(expectation: &Expectation, index: usize, document: &Value) -> Result<Value> {
+    let received = &document["received"];
+    let ok = match (expectation, received) {
+        (_, Value::Null) => true,
+        (Expectation::Variable { .. }, Value::String(_)) => true,
+        (Expectation::Variable { .. }, _) => false,
+        (_, number) => number.is_u64(),
+    };
+    if !ok {
+        return Err(bad(format!(
+            "expectation {index} received: expected null | {} | received {received}",
+            if matches!(expectation, Expectation::Variable { .. }) {
+                "a hex string"
+            } else {
+                "an unsigned integer"
+            }
+        )));
+    }
+    Ok(match received {
+        Value::String(text) => Value::from(text.to_ascii_lowercase()),
+        other => other.clone(),
+    })
+}
+
 /// Read the verdicts out of the emitted `documents`.
 ///
 /// Example: for a scenario with two expectations, two `{"expectation": i, ...}` documents and a
 /// `{"summary": true, "passed": true}` document pass; a third expectation document fails with
-/// `expectation documents: expected 2 | received 3`.
+/// `expectation documents: expected 2 | received 3`. A document whose `passed` is true while
+/// `received` differs from the scenario's value fails with
+/// `expectation 0 passed: expected false (from received 9) | received true`.
 pub fn outcome(scenario: &Scenario, documents: &[Value]) -> Result<Outcome> {
-    let mut verdicts = Vec::new();
+    let mut raw = Vec::new();
     let mut summary = None;
     for document in documents {
         if document.get("summary").is_some() {
@@ -174,26 +228,20 @@ pub fn outcome(scenario: &Scenario, documents: &[Value]) -> Result<Outcome> {
                 ));
             }
         } else if document.get("expectation").is_some() {
-            verdicts.push(verdict(document)?);
+            raw.push(document);
         }
     }
-    if verdicts.len() != scenario.expect.len() {
+    if raw.len() != scenario.expect.len() {
         return Err(bad(format!(
             "expectation documents: expected {} | received {}",
             scenario.expect.len(),
-            verdicts.len()
+            raw.len()
         )));
-    }
-    for (position, verdict) in verdicts.iter().enumerate() {
-        if verdict.index != position {
-            return Err(bad(format!(
-                "expectation document {position}: expected index {position} | received {}",
-                verdict.index
-            )));
-        }
     }
     let summary =
         summary.ok_or_else(|| bad("summary document: expected 1 | received none".into()))?;
+    // The runtime's overall verdict can only veto: a scenario passes when bme's own recount
+    // passes and the runtime does not say otherwise.
     let reported = summary
         .get("passed")
         .and_then(Value::as_bool)
@@ -202,35 +250,77 @@ pub fn outcome(scenario: &Scenario, documents: &[Value]) -> Result<Outcome> {
                 "summary passed: expected a boolean | received {summary}"
             ))
         })?;
+    let error = run_error(summary)?;
+    let mut verdicts = Vec::new();
+    for (position, (document, spec)) in raw.iter().zip(&scenario.expect).enumerate() {
+        verdicts.push(verdict(position, document, spec, error.is_some())?);
+    }
     Ok(Outcome {
-        passed: reported && verdicts.iter().all(|v| v.passed),
-        error: run_error(summary)?,
+        passed: reported && error.is_none() && verdicts.iter().all(|v| v.passed),
+        error,
         verdicts,
     })
 }
 
-fn verdict(document: &Value) -> Result<Verdict> {
+/// Check one expectation document against the expectation it claims to evaluate.
+fn verdict(
+    position: usize,
+    document: &Value,
+    spec: &Expectation,
+    run_failed: bool,
+) -> Result<Verdict> {
     let field = |name: &str| {
         document.get(name).ok_or_else(|| {
             bad(format!(
-                "expectation document: expected {name} | received {document}"
+                "expectation document {position}: expected {name} | received {document}"
             ))
         })
     };
+    let index = field("expectation")?.as_u64().ok_or_else(|| {
+        bad(format!(
+            "expectation index: expected an integer | received {document}"
+        ))
+    })?;
+    if index != position as u64 {
+        return Err(bad(format!(
+            "expectation document {position}: expected index {position} | received {index}"
+        )));
+    }
+    let kind = kind_of(spec);
+    let reported_kind = field("kind")?.as_str().unwrap_or_default();
+    if reported_kind != kind {
+        return Err(bad(format!(
+            "expectation {position} kind: expected {kind} | received {reported_kind:?}"
+        )));
+    }
+    let expected = expected_of(spec);
+    let reported_expected = field("expected")?;
+    // A run that stopped before evaluating reports no expected value.
+    let evaluated = !(run_failed && reported_expected.is_null());
+    if evaluated && *reported_expected != expected {
+        return Err(bad(format!(
+            "expectation {position} expected: expected {expected} (from the scenario) | received {reported_expected}"
+        )));
+    }
+    let reported_passed = field("passed")?.as_bool().ok_or_else(|| {
+        bad(format!(
+            "expectation passed: expected a boolean | received {document}"
+        ))
+    })?;
+    field("received")?;
+    let received = received_of(spec, position, document)?;
+    let passed = !received.is_null() && received == expected;
+    if reported_passed != passed {
+        return Err(bad(format!(
+            "expectation {position} passed: expected {passed} (from received {received}) | received {reported_passed}"
+        )));
+    }
     Ok(Verdict {
-        index: field("expectation")?.as_u64().ok_or_else(|| {
-            bad(format!(
-                "expectation index: expected an integer | received {document}"
-            ))
-        })? as usize,
-        kind: field("kind")?.as_str().unwrap_or_default().to_string(),
-        passed: field("passed")?.as_bool().ok_or_else(|| {
-            bad(format!(
-                "expectation passed: expected a boolean | received {document}"
-            ))
-        })?,
-        expected: field("expected")?.clone(),
-        received: field("received")?.clone(),
+        index: position,
+        kind: kind.to_string(),
+        passed,
+        expected,
+        received,
     })
 }
 
