@@ -66,6 +66,70 @@
         "digests"
       ],
       "type": "object"
+    },
+    "ReplayInput": {
+      "additionalProperties": false,
+      "description": "One input file of a replay: its role, name and digest.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "description": "`harness`, `scenario` or `module`.",
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "role",
+        "name",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "ReplayRun": {
+      "additionalProperties": false,
+      "description": "How an emulated run produced an evidence record: enough to repeat it and to notice that\nan input or the runtime changed.\n\nExample: a record from `bme replay script fan.py --module SioDxeInit.pe` lists `fan.py`\nand `SioDxeInit.pe` under `inputs` and the Unicorn version under `runtime`.",
+      "properties": {
+        "harness": {
+          "description": "Harness script or scenario file name.",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Every file the run read.",
+          "items": {
+            "$ref": "#/$defs/ReplayInput"
+          },
+          "type": "array"
+        },
+        "output_sha256": {
+          "$ref": "#/$defs/Digest256",
+          "description": "SHA-256 of the JSON documents the run emitted, one per line."
+        },
+        "runtime": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Interpreter and package versions that ran it, by name.",
+          "type": "object"
+        },
+        "scenario": {
+          "description": "Scenario id when a `bme.scenario/1` document drove the run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "harness",
+        "runtime",
+        "inputs",
+        "output_sha256"
+      ],
+      "type": "object"
     }
   },
   "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/bme.evidence-1.schema.json",
@@ -136,6 +200,17 @@
         "$ref": "#/$defs/EvidencePatch"
       },
       "type": "array"
+    },
+    "replay": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReplayRun"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The harness, runtime and digests of an emulated run (`bme replay`)."
     },
     "schema": {
       "const": "bme.evidence/1",

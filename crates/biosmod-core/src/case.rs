@@ -743,6 +743,7 @@ pub fn evidence_record(case: &Case, artifact: &Artifact, board: &str, firmware: 
         limits: "Draft evidence from an unreviewed case. The artifact file is not part of this catalog; check it by its digest.".into(),
         source: Some("bme case export".into()),
         host: None,
+        replay: None,
     }
 }
 

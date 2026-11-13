@@ -180,6 +180,103 @@ pub fn noise(size: usize) -> Vec<u8> {
     out
 }
 
+/// Preferred image base of [`pe`] images.
+pub const PE_IMAGE_BASE: u64 = 0x1000_0000;
+/// RVA of the code and of the entry point in [`pe`] images.
+pub const PE_CODE_RVA: u32 = 0x1000;
+
+/// A minimal PE32 (`wide` false) or PE32+ (`wide` true) image with `code` at RVA
+/// [`PE_CODE_RVA`] and the entry point there, preferred base [`PE_IMAGE_BASE`].
+///
+/// `relocations` are RVAs inside the code section that hold an absolute address (`HIGHLOW`
+/// for PE32, `DIR64` for PE32+); they go into a `.reloc` section grouped by 4 KiB page.
+///
+/// Example: `pe(true, &[0xB8, 7, 0, 0, 0, 0xC3], &[])` is a driver whose entry returns 7.
+pub fn pe(wide: bool, code: &[u8], relocations: &[u32]) -> Vec<u8> {
+    const FILE_ALIGN: usize = 0x200;
+    let mut pages: BTreeMap<u32, Vec<u16>> = BTreeMap::new();
+    for rva in relocations {
+        let kind: u16 = if wide { 10 } else { 3 };
+        pages
+            .entry(rva & !0xFFF)
+            .or_default()
+            .push((kind << 12) | (rva & 0xFFF) as u16);
+    }
+    let mut reloc = Vec::new();
+    for (page, mut entries) in pages {
+        if entries.len() % 2 == 1 {
+            entries.push(0); // pad the block to four bytes
+        }
+        reloc.extend_from_slice(&page.to_le_bytes());
+        reloc.extend_from_slice(&((8 + 2 * entries.len()) as u32).to_le_bytes());
+        for entry in entries {
+            reloc.extend_from_slice(&entry.to_le_bytes());
+        }
+    }
+    let sections: Vec<(&[u8; 8], u32, &[u8], u32)> = {
+        let mut list = vec![(b".text\0\0\0", PE_CODE_RVA, code, 0x6000_0020)];
+        if !reloc.is_empty() {
+            list.push((b".reloc\0\0", 0x2000, reloc.as_slice(), 0x4200_0040));
+        }
+        list
+    };
+    let optional = if wide { 0xF0 } else { 0xE0 };
+    let headers = 0x40 + 4 + 20 + optional + 40 * sections.len();
+    let header_size = align(headers, FILE_ALIGN);
+    let mut out = vec![0u8; header_size];
+    out[..2].copy_from_slice(b"MZ");
+    out[0x3C..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+    let mut at = 0x40;
+    out[at..at + 4].copy_from_slice(b"PE\0\0");
+    at += 4;
+    let machine: u16 = if wide { 0x8664 } else { 0x014C };
+    out[at..at + 2].copy_from_slice(&machine.to_le_bytes());
+    out[at + 2..at + 4].copy_from_slice(&(sections.len() as u16).to_le_bytes());
+    out[at + 16..at + 18].copy_from_slice(&(optional as u16).to_le_bytes());
+    out[at + 18..at + 20].copy_from_slice(&0x0002u16.to_le_bytes()); // executable image
+    at += 20;
+    let last = sections.last().expect("one section");
+    let image_size = align(last.1 as usize + last.2.len(), 0x1000) as u32;
+    out[at..at + 2].copy_from_slice(&(if wide { 0x20Bu16 } else { 0x10B }).to_le_bytes());
+    out[at + 16..at + 20].copy_from_slice(&PE_CODE_RVA.to_le_bytes()); // entry point
+    let (base_at, tail) = if wide { (24, 0x70) } else { (28, 0x60) };
+    if wide {
+        out[at + base_at..at + base_at + 8].copy_from_slice(&PE_IMAGE_BASE.to_le_bytes());
+    } else {
+        out[at + base_at..at + base_at + 4].copy_from_slice(&(PE_IMAGE_BASE as u32).to_le_bytes());
+    }
+    let after_base = at + base_at + if wide { 8 } else { 4 };
+    out[after_base..after_base + 4].copy_from_slice(&0x1000u32.to_le_bytes()); // section alignment
+    out[after_base + 4..after_base + 8].copy_from_slice(&(FILE_ALIGN as u32).to_le_bytes());
+    out[at + 56..at + 60].copy_from_slice(&image_size.to_le_bytes());
+    out[at + 60..at + 64].copy_from_slice(&(header_size as u32).to_le_bytes());
+    out[at + 68..at + 70].copy_from_slice(&11u16.to_le_bytes()); // EFI boot service driver
+    let directories = at + tail - 4;
+    out[directories..directories + 4].copy_from_slice(&16u32.to_le_bytes());
+    if !reloc.is_empty() {
+        let entry = at + tail; // directory 0 is exports; the base relocation table is directory 5
+        let entry = entry + 5 * 8;
+        out[entry..entry + 4].copy_from_slice(&0x2000u32.to_le_bytes());
+        out[entry + 4..entry + 8].copy_from_slice(&(reloc.len() as u32).to_le_bytes());
+    }
+    let mut table = at + optional;
+    let mut raw = header_size;
+    for (name, rva, body, flags) in &sections {
+        let padded = align(body.len(), FILE_ALIGN);
+        out[table..table + 8].copy_from_slice(*name);
+        out[table + 8..table + 12].copy_from_slice(&(body.len() as u32).to_le_bytes());
+        out[table + 12..table + 16].copy_from_slice(&rva.to_le_bytes());
+        out[table + 16..table + 20].copy_from_slice(&(padded as u32).to_le_bytes());
+        out[table + 20..table + 24].copy_from_slice(&(raw as u32).to_le_bytes());
+        out[table + 36..table + 40].copy_from_slice(&flags.to_le_bytes());
+        out.extend_from_slice(body);
+        out.resize(raw + padded, 0);
+        raw += padded;
+        table += 40;
+    }
+    out
+}
+
 /// A fake DSDT with a correct length field.
 pub fn acpi(body: &[u8]) -> Vec<u8> {
     let mut out = b"DSDT".to_vec();

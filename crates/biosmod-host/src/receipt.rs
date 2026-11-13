@@ -83,6 +83,7 @@ pub fn observation_record(identity: &HostIdentity, at: Timestamp, receipt: Recei
             kernel_release: identity.kernel_release.clone(),
             digests: receipt.digests,
         }),
+        replay: None,
     }
 }
 
