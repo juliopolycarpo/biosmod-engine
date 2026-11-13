@@ -133,6 +133,13 @@ fn superio_read(_device: &Path, output: Option<&Path>, _unbound_only: bool) -> R
 /// Read the chip through `ports` and optionally publish the bundle at `output`.
 ///
 /// Example: with `FakeSuperIoPorts` and fake surfaces, the reply's `reading.chip_id` is `"0xc562"`.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
 pub fn read_superio_to(
     surfaces: &HostSurfaces,
     ports: &mut dyn PortIo,
@@ -161,6 +168,13 @@ pub fn read_superio_to(
 }
 
 /// Human summary of a reading, whichever way it was taken.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
 fn render_superio(reading: &superio::Reading) -> String {
     match reading {
         superio::Reading::RawPorts(reading) => render_raw_superio(reading),
@@ -169,6 +183,13 @@ fn render_superio(reading: &superio::Reading) -> String {
 }
 
 /// What a bound driver publishes: the refusal reason first, then the attributes.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
 fn render_hwmon(reading: &biosmod_host::hwmon::HwmonReading) -> String {
     let mut text = format!("{}\n", reading.raw_access_refused);
     text += &format!(
@@ -188,6 +209,13 @@ fn render_hwmon(reading: &biosmod_host::hwmon::HwmonReading) -> String {
 }
 
 /// Raw reading: chip, logical devices, then one line per bank.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
 fn render_raw_superio(reading: &superio::SuperIoReading) -> String {
     let mut text = format!(
         "{} {} (ID {}) on configuration port {}\n",
