@@ -143,6 +143,7 @@ pub fn capabilities() -> Reply {
         "flash_workflow": 1,
         "tools_workflow": 1,
         "case_workflow": 1,
+        "tools": crate::toolchain::TOOL_IDS,
         "codec": biosmod_core::codec::identity(),
         "commands": commands(),
         "documents": schema::NAMES.iter().map(|(name, id)| json!({"name": name, "schema": id})).collect::<Vec<_>>(),
@@ -267,6 +268,16 @@ mod tests {
         assert!(
             codes.iter().any(|c| c["code"] == "CASE_DRIFT"),
             "(error_codes): expected CASE_DRIFT"
+        );
+    }
+
+    #[test]
+    fn capabilities_list_every_tool_row_in_report_order() {
+        let data = super::capabilities().data;
+        assert_eq!(
+            data["tools"],
+            serde_json::json!(crate::toolchain::TOOL_IDS),
+            "(capabilities tools): expected the tool id constant"
         );
     }
 

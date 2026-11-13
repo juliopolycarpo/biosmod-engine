@@ -881,3 +881,15 @@ fn iasl_reports_its_version_when_installed() {
     assert_eq!(row(&rows, "iasl").version.as_deref(), Some("20250404"));
     assert_eq!(row(&rows, "iasl").health, Health::Ready);
 }
+
+#[test]
+fn status_reports_exactly_the_rows_of_the_id_constant_in_order() {
+    let scene = Scene::new(FakeInstalledTools::complete());
+    let ghidra = pinned_ghidra(&scene);
+    let rows = scene.rows(&ghidra);
+    let ids: Vec<&str> = rows.iter().map(|row| row.id).collect();
+    assert_eq!(
+        ids, TOOL_IDS,
+        "(tools status ids): expected the TOOL_IDS order | received {ids:?}"
+    );
+}

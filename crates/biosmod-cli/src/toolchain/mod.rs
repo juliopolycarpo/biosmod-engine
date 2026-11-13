@@ -14,7 +14,7 @@ mod tests;
 
 pub use archive::{Limits, extract_zip};
 pub use runner::{Finished, Invocation, Runner, System};
-pub use status::{Locatable, run_status, set, unset};
+pub use status::{Locatable, TOOL_IDS, run_status, set, unset};
 
 use crate::commands::Ctx;
 use crate::config::{Config, io_error, write_atomic};

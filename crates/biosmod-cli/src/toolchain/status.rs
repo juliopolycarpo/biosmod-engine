@@ -23,6 +23,19 @@ use std::time::Duration;
 /// the GUI runs the whole report under its 120 s engine timeout after every tool change.
 const STATUS_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// The id of every row `tools status` reports, in report order. `bme capabilities` advertises
+/// it, so clients and tests read the list from the engine instead of keeping their own copy.
+pub const TOOL_IDS: [&str; 8] = [
+    "ghidra",
+    "firmware-utils",
+    "java",
+    "jdk",
+    "git",
+    "flashrom",
+    "nasm",
+    "iasl",
+];
+
 /// How healthy one tool is for the work bme asks of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
