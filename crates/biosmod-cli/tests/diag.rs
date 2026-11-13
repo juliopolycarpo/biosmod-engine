@@ -63,9 +63,16 @@ fn superio_read_against_a_plain_file_never_reaches_a_chip() {
     ]);
     assert_eq!(run.code, 1, "{}", run.stdout);
     let code = run.error_code();
+    // Off Linux the command refuses before opening anything.
+    let expected: &[&str] = if cfg!(target_os = "linux") {
+        &["HOST_REFUSED", "TARGET_NOT_FOUND"]
+    } else {
+        &["PLATFORM_UNSUPPORTED"]
+    };
     assert!(
-        code == "HOST_REFUSED" || code == "TARGET_NOT_FOUND",
-        "(error code): expected HOST_REFUSED | TARGET_NOT_FOUND | received {code}"
+        expected.contains(&code.as_str()),
+        "(error code): expected {} | received {code}",
+        expected.join(" | ")
     );
     assert_eq!(run.json()["command"], "diag superio read");
 }
