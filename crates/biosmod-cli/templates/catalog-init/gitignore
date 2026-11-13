@@ -1,0 +1,69 @@
+# Written by `bme catalog init`.
+#
+# Git tracks only the catalog layout listed here. Every other top-level file
+# or directory stays on this machine, work/ included. To publish a new
+# top-level path, add a `!/name` line for it.
+/*
+!/.gitattributes
+!/.github/
+!/.gitignore
+!/LICENSE*
+!/README*
+!/catalog.json
+!/catalog.json.minisig
+!/boards/
+!/evidence/
+!/findings/
+!/notes/
+!/patches/
+!/provenance/
+
+# Never tracked, in any directory.
+
+# Firmware images, chip dumps and extracted modules. They are vendor bytes,
+# and a chip dump carries serial numbers and MAC addresses.
+*.bin
+*.rom
+*.cap
+*.fd
+*.fv
+*.ffs
+*.efi
+*.pe
+*.te
+*.dump/
+
+# ACPI tables and their disassembly.
+*.aml
+*.dat
+*.dsl
+
+# Analysis projects, executables and tool output.
+*.gpr
+*.rep/
+*.exe
+*.dll
+*.so
+*.jar
+*.class
+*.pyc
+__pycache__/
+*.log
+
+# Archives, videos and datasheets.
+*.7z
+*.gz
+*.tar
+*.tgz
+*.xz
+*.zip
+*.zst
+*.mkv
+*.mov
+*.mp4
+*.webm
+*.pdf
+
+# Signing keys. Only catalog.json.minisig belongs in git.
+*.key
+*.pem

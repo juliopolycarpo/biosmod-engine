@@ -19,6 +19,9 @@ use std::path::{Path, PathBuf};
 
 pub fn run(ctx: &mut Ctx, command: CatalogCommand) -> Result<Reply> {
     match command {
+        CatalogCommand::Init { dir, id, title } => {
+            super::catalog_init::init(&dir, &id, title.as_deref())
+        }
         CatalogCommand::Validate { path } => validate(&path),
         CatalogCommand::Index { path, check } => index(&path, check),
         CatalogCommand::Add {

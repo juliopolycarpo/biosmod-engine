@@ -3,6 +3,7 @@
 mod capture_input;
 mod case;
 mod catalog;
+mod catalog_init;
 mod compare;
 mod compare_acpi;
 mod diag;

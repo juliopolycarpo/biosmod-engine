@@ -1,0 +1,3 @@
+# catalog.json records the SHA-256 of every catalog file, so their bytes must
+# be identical on every checkout.
+* text=auto eol=lf

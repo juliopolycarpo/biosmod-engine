@@ -15,6 +15,28 @@ provenance/...          supporting files (assembly sources, notes); hashed, neve
 
 O catálogo oficial é incorporado ao `bme`. `bme schema <name>` mostra o JSON Schema de cada documento. Esquemas cobrem a estrutura; `bme catalog validate` também verifica referências, geometria e hashes.
 
+## Iniciar um repositório de dispositivo
+
+```sh
+bme catalog init acme-x99 --id acme-x99 --title "Acme X99 family"
+```
+
+`init` grava um diretório para uma placa ou família de placas e não executa git. Ele recusa um diretório existente, um id fora da regra de identificadores (1-64 caracteres de `A-Za-z0-9._-`, começando por letra ou dígito) e o id `official`. `--title` usa o id por padrão.
+
+```
+catalog.json            empty bme.catalog/1 at version 0.1.0; `bme catalog index` keeps it current
+README.md               layout, work loop, commit convention and release rule
+.gitignore              allowlist of the paths git tracks
+.gitattributes          LF line endings, so the indexed hashes hold on every checkout
+boards/ findings/ patches/ evidence/ provenance/    the catalog records
+notes/                  investigation notes in prose
+work/                   dumps, cases, extracted modules, tool output; stays local
+```
+
+O git rastreia a estrutura do catálogo e nada além: um novo caminho no nível superior fica local até você adicionar uma linha `!/nome` ao `.gitignore`. O git não registra diretório vazio, então cada diretório chega a um clone com seu primeiro arquivo. Em qualquer diretório, o `.gitignore` também ignora imagens de firmware e módulos extraídos (`*.bin`, `*.rom`, `*.pe`), tabelas ACPI, arquivos compactados, PDFs e chaves. Um dump contém números de série e endereços MAC, então fica fora do histórico; cite-o por nome de arquivo, SHA-256 e tamanho. Copie o dump para `work/` e execute `bme case init work/dump.bin -o work/case`: `bme case status` procura as entradas ao lado do diretório do caso.
+
+Faça um commit por registro, com o id no escopo (`feat(H11): record unbounded PCU mailbox waits`) e o `catalog.json` reindexado no mesmo commit; confira com `bme catalog index . --check` e `bme catalog validate .`. Altere `version` apenas em um commit de release: `bme catalog update` recusa uma versão que já aceitou com outro conteúdo. Aumente-a, execute `bme catalog index .`, assine `catalog.json` com minisign, faça commit de `catalog.json.minisig` e crie uma tag no commit. Os usuários registram a URL raw do `catalog.json` da tag com `bme catalog add --trust-key`. O `README.md` gerado traz os detalhes.
+
 ## Placas e versões de firmware
 
 Um perfil de placa informa fabricante, modelo e revisão, e como a revisão é conhecida (`observed`, `unverified`, `unknown`). Ele lista as versões de firmware fornecidas. Variantes de patches são identificadas pelo ID da versão de firmware, não da placa; duas placas com a mesma versão compartilham uma variante.
