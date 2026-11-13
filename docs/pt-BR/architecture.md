@@ -19,6 +19,7 @@ A interface chama um `bme` compatível como subprocesso. Ela vincula a geração
 | Módulo | Função |
 |---|---|
 | `firmware` | regiões de descriptor, análise FV/FFS/seções com limites de profundidade e decodificação; `pe` para PE32/TE; `rebuild` para checksums, recodificação LZMA e reorganização de volume |
+| `ifr` | decodificador somente leitura dos formulários do Setup (UEFI IFR): listas de pacotes HII, pacotes de strings e de formulários, perguntas com offsets de varstore, opções, padrões e condições |
 | `codec` | wrapper liblzma: decodificação limitada e codificação que reproduz os parâmetros do fluxo original |
 | `catalog` | documentos tipados (`bme.catalog/1`, `bme.board/1`, `bme.patch/1`, `bme.evidence/1`) e carregamento por índice verificado |
 | `json` | análise estrita: chaves duplicadas e dados adicionais são erros |

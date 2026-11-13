@@ -49,6 +49,8 @@ pub enum Command {
     Guide { topic: Option<String> },
     /// List firmware volumes, files and the flash layout of an image.
     Inspect(InspectArgs),
+    /// Decode Setup forms (UEFI IFR): questions, varstore offsets, options, defaults and conditions.
+    Ifr(IfrArgs),
     /// Report known defects and patch states for an image.
     Scan(ScanArgs),
     /// Resolve a selection, dry-build it in memory and write a reviewable plan.
@@ -102,6 +104,19 @@ pub struct InspectArgs {
     /// List every FFS file.
     #[arg(long)]
     pub files: bool,
+}
+
+#[derive(Args)]
+pub struct IfrArgs {
+    /// A firmware image or one PE, TE or raw section holding HII packages.
+    #[arg(value_name = "ROM|PE")]
+    pub input: PathBuf,
+    /// Decode only this FFS file (images only); default: every PE with IFR.
+    #[arg(long)]
+    pub guid: Option<String>,
+    /// String language to use (default: en-US, else the first present).
+    #[arg(long, value_name = "TAG")]
+    pub language: Option<String>,
 }
 
 #[derive(Args)]
@@ -469,6 +484,7 @@ fn command_name(command: &Command) -> &'static str {
         Command::Schema { .. } => "schema",
         Command::Guide { .. } => "guide",
         Command::Inspect(_) => "inspect",
+        Command::Ifr(_) => "ifr",
         Command::Scan(_) => "scan",
         Command::Plan(_) => "plan",
         Command::Export(_) => "export",

@@ -364,3 +364,227 @@ impl Fixture {
         files
     }
 }
+
+/// FFS file GUID of the synthetic Setup module (`ifr_setup_image`).
+pub const SETUP_GUID: Guid = Guid::constant("899407D7-99FE-43D8-9A21-79EC328CAC21");
+/// Form set GUID of the synthetic Setup form.
+pub const SETUP_FORMSET_GUID: Guid = Guid::constant("7B59104A-C00D-4158-87FF-F04D6396A915");
+/// Variable store GUID of the synthetic `Setup` store.
+pub const SETUP_VARSTORE_GUID: Guid = Guid::constant("EC87D643-EBA4-4BB5-A1E5-3F3E36B20DA9");
+
+/// An HII package: `u24 length | u8 type` header plus `body`.
+pub fn hii_package(kind: u8, body: &[u8]) -> Vec<u8> {
+    let mut out = ((4 + body.len()) as u32).to_le_bytes()[..3].to_vec();
+    out.push(kind);
+    out.extend_from_slice(body);
+    out
+}
+
+/// An HII package list: GUID, total length, `packages` and the end package.
+pub fn hii_package_list(guid: Guid, packages: &[Vec<u8>]) -> Vec<u8> {
+    let mut body: Vec<u8> = packages.concat();
+    body.extend(hii_package(0xDF, &[]));
+    let mut out = guid.0.to_vec();
+    out.extend_from_slice(&((20 + body.len()) as u32).to_le_bytes());
+    out.extend(body);
+    out
+}
+
+/// A string package for `language` whose strings are numbered from 1 in UCS-2 blocks.
+pub fn hii_string_package(language: &str, strings: &[&str]) -> Vec<u8> {
+    let header_size = 46 + language.len() + 1;
+    let mut blocks = Vec::new();
+    for text in strings {
+        blocks.push(0x14);
+        for unit in text.encode_utf16() {
+            blocks.extend_from_slice(&unit.to_le_bytes());
+        }
+        blocks.extend_from_slice(&[0, 0]);
+    }
+    blocks.push(0x00);
+    let mut body = (header_size as u32).to_le_bytes().to_vec();
+    body.extend_from_slice(&(header_size as u32).to_le_bytes());
+    body.extend_from_slice(&[0; 32]);
+    body.extend_from_slice(&[0, 0]);
+    body.extend_from_slice(language.as_bytes());
+    body.push(0);
+    body.extend(blocks);
+    hii_package(0x04, &body)
+}
+
+/// An IFR opcode: opcode byte, length with the scope bit, then `payload`.
+pub fn ifr_op(opcode: u8, scope: bool, payload: &[u8]) -> Vec<u8> {
+    let length = (2 + payload.len()) as u8;
+    let mut out = vec![opcode, length | if scope { 0x80 } else { 0 }];
+    out.extend_from_slice(payload);
+    out
+}
+
+/// The `End` opcode that closes a scope.
+pub fn ifr_end() -> Vec<u8> {
+    ifr_op(0x29, false, &[])
+}
+
+/// The 11 bytes that start every question after the opcode header.
+fn ifr_question_header(prompt: u16, help: u16, id: u16, store: u16, offset: u16) -> Vec<u8> {
+    let mut out = Vec::new();
+    for value in [prompt, help, id, store, offset] {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    out.push(0x10);
+    out
+}
+
+/// A `OneOf` over a u16 value: question header, flags 0x11, then min, max and step.
+pub fn ifr_one_of_u16(
+    (prompt, help, id): (u16, u16, u16),
+    store: u16,
+    offset: u16,
+    (min, max): (u16, u16),
+) -> Vec<u8> {
+    let mut payload = ifr_question_header(prompt, help, id, store, offset);
+    payload.push(0x11);
+    for value in [min, max, 0] {
+        payload.extend_from_slice(&value.to_le_bytes());
+    }
+    ifr_op(0x05, true, &payload)
+}
+
+/// A `OneOfOption` with a u16 value; `flags` 0x10 is default, 0x20 manufacturing default.
+pub fn ifr_option_u16(label: u16, flags: u8, value: u16) -> Vec<u8> {
+    let mut payload = label.to_le_bytes().to_vec();
+    payload.extend_from_slice(&[flags, 1]);
+    payload.extend_from_slice(&value.to_le_bytes());
+    ifr_op(0x09, false, &payload)
+}
+
+/// A `CheckBox` with a scope for its `Default` opcodes.
+pub fn ifr_checkbox((prompt, help, id): (u16, u16, u16), store: u16, offset: u16) -> Vec<u8> {
+    let mut payload = ifr_question_header(prompt, help, id, store, offset);
+    payload.push(0);
+    ifr_op(0x06, true, &payload)
+}
+
+/// A `Numeric` over a u8 value.
+pub fn ifr_numeric_u8(
+    (prompt, help, id): (u16, u16, u16),
+    store: u16,
+    offset: u16,
+    (min, max, step): (u8, u8, u8),
+) -> Vec<u8> {
+    let mut payload = ifr_question_header(prompt, help, id, store, offset);
+    payload.extend_from_slice(&[0x10, min, max, step]);
+    ifr_op(0x07, true, &payload)
+}
+
+/// A `Default` opcode with a u8 value.
+pub fn ifr_default_u8(default_id: u16, value: u8) -> Vec<u8> {
+    let mut payload = default_id.to_le_bytes().to_vec();
+    payload.extend_from_slice(&[0, value]);
+    ifr_op(0x5B, false, &payload)
+}
+
+/// A `Subtitle` statement (its scope is closed by the caller).
+pub fn ifr_subtitle(prompt: u16) -> Vec<u8> {
+    let mut payload = prompt.to_le_bytes().to_vec();
+    payload.extend_from_slice(&[0, 0, 0]);
+    ifr_op(0x02, true, &payload)
+}
+
+/// An `EqIdVal` expression opcode.
+pub fn ifr_eq_id_val(question: u16, value: u16) -> Vec<u8> {
+    let mut payload = question.to_le_bytes().to_vec();
+    payload.extend_from_slice(&value.to_le_bytes());
+    ifr_op(0x12, false, &payload)
+}
+
+/// A form package holding one form set with the `Setup` variable store (id 1, 0x40 bytes),
+/// the standard default store and the given forms.
+pub fn ifr_form_package(forms: &[Vec<u8>]) -> Vec<u8> {
+    let mut formset = SETUP_FORMSET_GUID.0.to_vec();
+    formset.extend_from_slice(&[1, 0, 2, 0, 0]);
+    let mut varstore = SETUP_VARSTORE_GUID.0.to_vec();
+    varstore.extend_from_slice(&[1, 0, 0x40, 0]);
+    varstore.extend_from_slice(b"Setup\0");
+    let mut body = ifr_op(0x0E, true, &formset);
+    body.extend(ifr_op(0x24, false, &varstore));
+    body.extend(ifr_op(0x5C, false, &[0, 0, 0, 0]));
+    for form in forms {
+        body.extend_from_slice(form);
+    }
+    body.extend(ifr_end());
+    hii_package(0x02, &body)
+}
+
+/// The strings that [`ifr_setup_form`] refers to, numbered from 1.
+pub fn ifr_setup_strings() -> [&'static str; 12] {
+    [
+        "Setup",
+        "Setup root",
+        "Main",
+        "ACPI Sleep State",
+        "Highest sleep state",
+        "Suspend Disabled",
+        "S1 (CPU Stop Clock)",
+        "S3 (Suspend to RAM)",
+        "Enable Hibernation",
+        "Allows S4",
+        "Fan PWM",
+        "Section",
+    ]
+}
+
+/// One form with a suppressed `OneOf`, a grayed-out `CheckBox` and a `Numeric`.
+///
+/// The OneOf (question 0x19, `Setup` offset 0x0A, u16, options 0/1/2 with 2 the default)
+/// sits in `SuppressIf ideqval 0x9 == 1`; the CheckBox (0x20, offset 0x0D) carries explicit
+/// `Default` 1 values under `GrayOutIf ideqval 0x9 == 1`; the Numeric (0x21, offset 0x2C)
+/// is unconditional.
+pub fn ifr_setup_form() -> Vec<u8> {
+    let mut form = ifr_op(0x01, true, &[0x10, 0x27, 3, 0]);
+    form.extend(ifr_subtitle(12));
+    form.extend(ifr_end());
+    form.extend(ifr_op(0x0A, true, &[]));
+    form.extend(ifr_eq_id_val(9, 1));
+    form.extend(ifr_one_of_u16((4, 5, 0x19), 1, 0x0A, (0, 2)));
+    form.extend(ifr_option_u16(6, 0x00, 0));
+    form.extend(ifr_option_u16(7, 0x00, 1));
+    form.extend(ifr_option_u16(8, 0x30, 2));
+    form.extend(ifr_end());
+    form.extend(ifr_end());
+    form.extend(ifr_op(0x19, true, &[]));
+    form.extend(ifr_eq_id_val(9, 1));
+    form.extend(ifr_checkbox((9, 10, 0x20), 1, 0x0D));
+    form.extend(ifr_default_u8(0, 1));
+    form.extend(ifr_default_u8(1, 1));
+    form.extend(ifr_end());
+    form.extend(ifr_end());
+    form.extend(ifr_numeric_u8((11, 0, 0x21), 1, 0x2C, (0, 255, 1)));
+    form.extend(ifr_end());
+    form.extend(ifr_end());
+    form
+}
+
+/// A bare module: filler bytes around one package list with English and Portuguese strings.
+pub fn ifr_setup_module() -> Vec<u8> {
+    let english = hii_string_package("en-US", &ifr_setup_strings());
+    let shouted = ifr_setup_strings().map(str::to_uppercase);
+    let shouted: Vec<&str> = shouted.iter().map(String::as_str).collect();
+    let portuguese = hii_string_package("pt-BR", &shouted);
+    let list = hii_package_list(
+        Guid::constant("11111111-0000-0000-0000-000000000001"),
+        &[ifr_form_package(&[ifr_setup_form()]), english, portuguese],
+    );
+    let mut bytes = module(5, 96);
+    bytes.extend(list);
+    bytes.extend(module(6, 40));
+    bytes
+}
+
+/// A firmware image whose file `SETUP_GUID` holds [`ifr_setup_module`] as a PE32 section.
+pub fn ifr_setup_image() -> Vec<u8> {
+    let setup = ffs(SETUP_GUID, 0x07, &section(0x10, &ifr_setup_module()), 0);
+    let mut image = vec![0xFF; 0x1000];
+    image.extend(volume(&[setup], 0x4000));
+    image
+}

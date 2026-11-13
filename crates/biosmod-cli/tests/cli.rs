@@ -1162,3 +1162,216 @@ fn verify_independently_checks_two_tables_in_one_file() {
             .any(|check| check["check"] == "reproduced-from-catalog" && check["ok"] == true)
     );
 }
+
+#[test]
+fn ifr_decodes_a_bare_module_as_text_and_json() {
+    use biosmod_core::synthetic::{SETUP_VARSTORE_GUID, ifr_setup_module};
+    let sandbox = Sandbox::new();
+    let module = sandbox.path("setup.pe");
+    fs::write(&module, ifr_setup_module()).unwrap();
+
+    let text = sandbox.run(["ifr", s(&module)]);
+    assert_eq!(text.code, 0, "{}", text.stderr);
+    for expected in [
+        "FormSet 7B59104A-C00D-4158-87FF-F04D6396A915 \"Setup\"",
+        "Form 0x2710 \"Main\" (3 questions)",
+        "0x0019  one_of",
+        "\"ACPI Sleep State\"",
+        "Setup+0xa/2",
+        "0x0..0x2",
+        "2=\"S3 (Suspend to RAM)\" (default, mfg)",
+        "suppress: ideqval 0x9 == 1",
+        "grayout: ideqval 0x9 == 1",
+    ] {
+        assert!(
+            text.stdout.contains(expected),
+            "(ifr text): expected {expected:?} in\n{}",
+            text.stdout
+        );
+    }
+
+    let json = sandbox.run(["ifr", s(&module), "--json"]);
+    let doc = json.json();
+    assert_envelope(&doc);
+    assert_eq!(doc["command"], "ifr");
+    assert_eq!(doc["data"]["source"], "module");
+    let list = &doc["data"]["modules"][0]["package_lists"][0];
+    assert_eq!(list["language"], "en-US");
+    let sleep = &list["form_sets"][0]["forms"][0]["statements"][1];
+    assert_eq!(sleep["prompt"], "ACPI Sleep State");
+    assert_eq!(sleep["varstore"]["guid"], SETUP_VARSTORE_GUID.to_string());
+    assert_eq!(sleep["var_offset"], 0x0A);
+    assert_eq!(sleep["width"], 2);
+    assert_eq!(sleep["conditions"][0]["expression"], "ideqval 0x9 == 1");
+
+    let portuguese = sandbox
+        .run(["ifr", s(&module), "--language", "pt-BR", "--json"])
+        .json();
+    assert_eq!(
+        portuguese["data"]["modules"][0]["package_lists"][0]["form_sets"][0]["title"],
+        "SETUP"
+    );
+}
+
+#[test]
+fn ifr_scans_an_image_and_honors_guid() {
+    use biosmod_core::synthetic::{SETUP_GUID, ifr_setup_image};
+    let sandbox = Sandbox::new();
+    let rom = sandbox.path("rom.bin");
+    fs::write(&rom, ifr_setup_image()).unwrap();
+
+    let all = sandbox.run(["ifr", s(&rom), "--json"]).json();
+    assert_eq!(all["data"]["source"], "image");
+    assert_eq!(all["data"]["modules"][0]["guid"], SETUP_GUID.to_string());
+    let one = sandbox
+        .run(["ifr", s(&rom), "--guid", &SETUP_GUID.to_string(), "--json"])
+        .json();
+    assert_eq!(one["data"]["modules"], all["data"]["modules"]);
+
+    let absent = sandbox.run([
+        "ifr",
+        s(&rom),
+        "--guid",
+        "00000000-0000-0000-0000-00000000000A",
+        "--json",
+    ]);
+    assert_eq!(absent.error_code(), "TARGET_NOT_FOUND");
+}
+
+#[test]
+fn ifr_reports_inputs_without_forms_and_misused_guid() {
+    use biosmod_core::synthetic::SETUP_GUID;
+    let sandbox = Sandbox::new();
+    let (image, _) = sandbox.synthetic();
+    let none = sandbox.run(["ifr", s(&image), "--json"]);
+    assert_eq!(none.error_code(), "TARGET_NOT_FOUND");
+
+    let junk = sandbox.path("junk.bin");
+    fs::write(&junk, vec![0x5A; 512]).unwrap();
+    assert_eq!(
+        sandbox.run(["ifr", s(&junk), "--json"]).error_code(),
+        "TARGET_NOT_FOUND"
+    );
+    let guided = sandbox.run(["ifr", s(&junk), "--guid", &SETUP_GUID.to_string(), "--json"]);
+    assert_eq!(guided.error_code(), "USAGE");
+    assert!(
+        guided.stdout.contains("--guid needs a firmware image"),
+        "{}",
+        guided.stdout
+    );
+}
+
+#[test]
+fn ifr_names_offset_and_opcode_of_malformed_forms() {
+    use biosmod_core::synthetic::*;
+    let sandbox = Sandbox::new();
+    // FormSet scope closed twice: the second End at 0x31 has nothing to close.
+    let mut payload = SETUP_FORMSET_GUID.0.to_vec();
+    payload.extend_from_slice(&[0, 0, 0, 0, 0]);
+    let body = [ifr_op(0x0E, true, &payload), ifr_end(), ifr_end()].concat();
+    let list = hii_package_list(SETUP_GUID, &[hii_package(0x02, &body)]);
+    let module = sandbox.path("broken.pe");
+    fs::write(&module, list).unwrap();
+    let run = sandbox.run(["ifr", s(&module), "--json"]);
+    assert_eq!(run.error_code(), "FORMAT_INVALID");
+    assert!(
+        run.stdout.contains("opcode End (0x29) at 0x31"),
+        "(ifr error): expected the opcode and offset | received {}",
+        run.stdout
+    );
+}
+
+#[test]
+fn capabilities_list_the_ifr_command() {
+    let doc = Sandbox::new().run(["capabilities", "--json"]).json();
+    let names: Vec<&str> = doc["data"]["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"ifr"),
+        "(capabilities commands): expected ifr in {names:?}"
+    );
+}
+
+/// Image holding the good Setup module and a PE with a malformed form package.
+fn ifr_image_with_broken_module(include_setup: bool) -> Vec<u8> {
+    use biosmod_core::synthetic::*;
+    let mut payload = SETUP_FORMSET_GUID.0.to_vec();
+    payload.extend_from_slice(&[0, 0, 0, 0, 0]);
+    let body = [ifr_op(0x0E, true, &payload), ifr_end(), ifr_end()].concat();
+    let broken = hii_package_list(SETUP_GUID, &[hii_package(0x02, &body)]);
+    let mut files = vec![ffs(
+        biosmod_core::util::Guid::constant("00000000-0000-0000-0000-0000000000B1"),
+        0x07,
+        &section(0x10, &broken),
+        0,
+    )];
+    if include_setup {
+        files.insert(
+            0,
+            ffs(SETUP_GUID, 0x07, &section(0x10, &ifr_setup_module()), 0),
+        );
+    }
+    let mut image = vec![0xFF; 0x1000];
+    image.extend(volume(&files, 0x4000));
+    image
+}
+
+#[test]
+fn ifr_image_reports_a_broken_module_without_dropping_the_others() {
+    let sandbox = Sandbox::new();
+    let rom = sandbox.path("mixed.bin");
+    fs::write(&rom, ifr_image_with_broken_module(true)).unwrap();
+
+    let text = sandbox.run(["ifr", s(&rom)]);
+    assert_eq!(text.code, 0, "{}", text.stderr);
+    assert!(
+        text.stdout.contains("\"ACPI Sleep State\""),
+        "{}",
+        text.stdout
+    );
+    assert!(
+        text.stdout
+            .contains("warning: file 00000000-0000-0000-0000-0000000000B1: "),
+        "{}",
+        text.stdout
+    );
+    assert!(
+        text.stdout.contains("opcode End (0x29) at 0x31"),
+        "{}",
+        text.stdout
+    );
+
+    let doc = sandbox.run(["ifr", s(&rom), "--json"]).json();
+    assert_envelope(&doc);
+    assert_eq!(doc["data"]["modules"].as_array().unwrap().len(), 1);
+    let diagnostic = &doc["data"]["diagnostics"][0];
+    assert_eq!(diagnostic["guid"], "00000000-0000-0000-0000-0000000000B1");
+    assert_eq!(diagnostic["code"], "FORMAT_INVALID");
+
+    let targeted = sandbox.run([
+        "ifr",
+        s(&rom),
+        "--guid",
+        "00000000-0000-0000-0000-0000000000B1",
+        "--json",
+    ]);
+    assert_eq!(targeted.error_code(), "FORMAT_INVALID");
+}
+
+#[test]
+fn ifr_image_where_every_module_is_broken_fails_with_the_diagnostics() {
+    let sandbox = Sandbox::new();
+    let rom = sandbox.path("broken.bin");
+    fs::write(&rom, ifr_image_with_broken_module(false)).unwrap();
+    let run = sandbox.run(["ifr", s(&rom), "--json"]);
+    assert_eq!(run.error_code(), "FORMAT_INVALID");
+    assert!(
+        run.stdout.contains("no module decoded") && run.stdout.contains("0000B1"),
+        "{}",
+        run.stdout
+    );
+}

@@ -11,6 +11,7 @@
 | LZMA | decodificação limitada a 64 MiB por seção e 512 MiB por imagem; a recodificação reproduz as propriedades originais e é conferida por decodificação |
 | ACPI | DSDT em uma seção raw (`leaf: acpi-table`), checksum da tabela mantido pelo próprio hunk |
 | PE32/PE32+ | tabelas de seções, base da imagem, relocações de base e campos de desvio direto (para mascaramento de assinaturas) |
+| HII / IFR | listas de pacotes em bytes PE, TE ou raw (`bme ifr`): pacotes de strings (SCSU, UCS-2) e de formulários; somente leitura |
 | TE | correspondência de folhas executáveis e verificações da base da imagem; a cobertura de relocações retorna `FORMAT_UNSUPPORTED` |
 
 Limites: imagens de até 64 MiB, profundidade de aninhamento 16, arquivos de catálogo de até 8 MiB e 4096 arquivos por catálogo.
