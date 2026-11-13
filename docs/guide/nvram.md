@@ -79,7 +79,7 @@ nvar@0x800060:StdDefaults  active  standard  0x800077  0x6c  0x0     equal
 
 ## Corrupt records
 
-A record that cannot be decoded is listed under `issues` with its image offset and the invalid value within the expected shape (`record size: expected 10..=0x2a3 | received 32767`). The walk then resumes at the next `NVAR` signature or `0x55AA` marker, so one damaged record hides nothing after it. Bad GUID indexes, unterminated names, broken extended headers, links that point nowhere or into a loop, and VSS size fields that leave the store are all reported this way.
+A record that cannot be decoded is listed under `issues` with its image offset and the invalid value within the expected shape (`record size: expected 10..=0x2a3 | received 32767`). The walk then resumes at the next `NVAR` signature or `0x55AA` marker, so one damaged record hides nothing after it. Bad GUID indexes, unterminated names, broken extended headers, links that point nowhere or into a loop, two chains that both end active for one variable, and VSS size fields that leave the store are all reported this way.
 
 ## Limits
 

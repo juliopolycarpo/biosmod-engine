@@ -239,6 +239,22 @@ fn parse_into(source: Source<'_>, report: &mut NvramReport) {
     }
     drafts.sort_by_key(|d| d.offset);
 
+    // One variable has one live record; two chains that both end active leave the reader
+    // guessing, so name both.
+    let mut live: HashMap<(Guid, &str), usize> = HashMap::new();
+    for draft in drafts.iter().filter(|d| d.state == RecordState::Active) {
+        if let Some(first) = live.insert((draft.guid, draft.name.as_str()), draft.offset) {
+            issues.push(Issue {
+                store: label.clone(),
+                offset: draft.offset,
+                message: format!(
+                    "variable {} {}: expected one active record | received {first:#x} and {:#x}",
+                    draft.name, draft.guid, draft.offset
+                ),
+            });
+        }
+    }
+
     report.stores.push(Store {
         label: label.clone(),
         kind,

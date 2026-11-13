@@ -79,7 +79,7 @@ nvar@0x800060:StdDefaults  active  standard  0x800077  0x6c  0x0     equal
 
 ## Registros corrompidos
 
-Um registro que não pode ser decodificado aparece em `issues` com o offset na imagem e o valor inválido dentro do formato esperado (`record size: expected 10..=0x2a3 | received 32767`). A leitura então segue na próxima assinatura `NVAR` ou marcador `0x55AA`, de modo que um registro danificado não esconde o que vem depois. Índices de GUID inválidos, nomes sem terminador, cabeçalhos estendidos quebrados, ligações que apontam para lugar nenhum ou para um laço, e campos de tamanho VSS que saem do armazenamento são relatados assim.
+Um registro que não pode ser decodificado aparece em `issues` com o offset na imagem e o valor inválido dentro do formato esperado (`record size: expected 10..=0x2a3 | received 32767`). A leitura então segue na próxima assinatura `NVAR` ou marcador `0x55AA`, de modo que um registro danificado não esconde o que vem depois. Índices de GUID inválidos, nomes sem terminador, cabeçalhos estendidos quebrados, ligações que apontam para lugar nenhum ou para um laço, duas cadeias que terminam ativas para a mesma variável, e campos de tamanho VSS que saem do armazenamento são relatados assim.
 
 ## Limites
 

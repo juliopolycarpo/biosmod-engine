@@ -153,6 +153,32 @@ fn nvar_undecodable_newest_update_is_reported_and_the_previous_one_stays_active(
 }
 
 #[test]
+fn nvar_two_active_heads_for_one_variable_are_reported_with_both_offsets() {
+    let store = nvar_store(
+        &[
+            variable("Setup", 0, &[1], None),
+            variable("Other", 0, &[9], None),
+            variable("Setup", 0, &[2], None),
+        ],
+        &[SETUP_VARSTORE_GUID],
+        STORE_LENGTH,
+    );
+    let report = scan_bytes(&store);
+    let setup = records(&report, "Setup");
+    let (first, second) = (setup[0].offset, setup[1].offset);
+    assert_eq!(report.issues.len(), 1, "(issues): {:?}", report.issues);
+    let issue = &report.issues[0];
+    assert_eq!(issue.offset, second, "(issue offset)");
+    assert!(
+        issue.message.contains("expected one active record")
+            && issue.message.contains(&format!("{first:#x}"))
+            && issue.message.contains(&format!("{second:#x}")),
+        "(duplicate message): expected both offsets {first:#x} and {second:#x} | received {}",
+        issue.message
+    );
+}
+
+#[test]
 fn nvar_deleted_head_deletes_the_whole_chain() {
     let store = nvar_store(
         &[
