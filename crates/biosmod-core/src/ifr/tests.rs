@@ -329,6 +329,28 @@ fn string_package_blocks_skip_duplicate_and_reject_unknown_types() {
 }
 
 #[test]
+fn skip_blocks_past_u32_max_refuse_the_next_string_instead_of_overflowing() {
+    let mut package = hii_string_package("en-US", &[]);
+    // Replace the END block with 65_537 SKIP2 0xffff blocks (one more than fits a u32
+    // string id), then one UCS-2 string and END.
+    package.pop();
+    for _ in 0..65_537 {
+        package.extend_from_slice(&[0x21, 0xFF, 0xFF]);
+    }
+    package.extend_from_slice(&[0x14, b'x', 0, 0, 0, 0x00]);
+    let length = package.len();
+    package[..3].copy_from_slice(&(length as u32).to_le_bytes()[..3]);
+    let error = hii::decode_string_package(&package, 0, length).unwrap_err();
+    assert_eq!(error.code, Code::FormatInvalid);
+    assert!(
+        error
+            .message
+            .contains("string id 0xffffffff: expected <= 0xffff"),
+        "(saturated string id): expected the id refused | received {error}"
+    );
+}
+
+#[test]
 fn string_package_header_bounds_are_checked() {
     let mut package = hii_string_package("en-US", &["x"]);
     package[4..8].copy_from_slice(&0xFFFFu32.to_le_bytes());
