@@ -141,6 +141,24 @@ pub(super) fn sync_tools(ui: &AppWindow, state: &Desktop) {
         .map(|report| (report, state.settings.language));
 }
 
+/// The translated one-line purpose of a tool, or `None` when the app has none for `id`.
+///
+/// Example: `localized_purpose(&text, "iasl")` is the translation of "Disassembles ACPI tables
+/// for method diffs."; `"replay"` returns `None` until a string is added.
+fn localized_purpose(text: &UiText<'_>, id: &str) -> Option<SharedString> {
+    Some(match id {
+        "ghidra" => text.get_tool_purpose_ghidra(),
+        "firmware-utils" => text.get_tool_purpose_firmware_utils(),
+        "java" => text.get_tool_purpose_java(),
+        "jdk" => text.get_tool_purpose_jdk(),
+        "git" => text.get_tool_purpose_git(),
+        "flashrom" => text.get_tool_purpose_flashrom(),
+        "nasm" => text.get_tool_purpose_nasm(),
+        "iasl" => text.get_tool_purpose_iasl(),
+        _ => return None,
+    })
+}
+
 /// Build the cards for a `tools status` report in the selected language.
 ///
 /// Example: a `flashrom` row with health `missing` and a `sudo apt install flashrom` command
@@ -163,16 +181,9 @@ pub fn tool_rows(ui: &AppWindow, report: &Value) -> Vec<ToolRowData> {
                 "attention" => (text.get_tool_attention(), Tone::Attention),
                 _ => (text.get_tool_missing(), Tone::Danger),
             };
-            let purpose = match id {
-                "ghidra" => text.get_tool_purpose_ghidra(),
-                "firmware-utils" => text.get_tool_purpose_firmware_utils(),
-                "java" => text.get_tool_purpose_java(),
-                "jdk" => text.get_tool_purpose_jdk(),
-                "git" => text.get_tool_purpose_git(),
-                "flashrom" => text.get_tool_purpose_flashrom(),
-                "nasm" => text.get_tool_purpose_nasm(),
-                _ => row["purpose"].as_str().unwrap_or_default().into(),
-            };
+            // A tool without a translated purpose shows the engine's own sentence.
+            let purpose = localized_purpose(&text, id)
+                .unwrap_or_else(|| row["purpose"].as_str().unwrap_or_default().into());
             // Setup installs Ghidra and the extension together. The Ghidra card offers it; once
             // Ghidra is ready, the extension card is the one left to offer it.
             let own_install = (id == "ghidra" || (id == "firmware-utils" && ghidra_ready))

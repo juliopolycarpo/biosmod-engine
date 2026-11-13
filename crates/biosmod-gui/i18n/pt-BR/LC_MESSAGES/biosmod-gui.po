@@ -1294,6 +1294,11 @@ msgctxt "UiText"
 msgid "Assembles patch sources when you rebuild their hunks."
 msgstr "Monta o código-fonte dos patches quando você reconstrói seus trechos."
 
+#: ui/translations.slint:148
+msgctxt "UiText"
+msgid "Disassembles ACPI tables for method diffs."
+msgstr "Desmonta tabelas ACPI para comparar métodos."
+
 #: ui/translations.slint:146
 msgctxt "UiText"
 msgid "Reads and writes the SPI flash chip."

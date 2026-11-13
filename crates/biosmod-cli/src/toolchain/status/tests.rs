@@ -197,6 +197,59 @@ fn package_commands_follow_the_distribution_family() {
 }
 
 #[test]
+fn every_package_has_a_command_on_every_known_family() {
+    let packages = [
+        Package::Flashrom,
+        Package::Nasm,
+        Package::Iasl,
+        Package::Git,
+        Package::Jdk(21),
+    ];
+    let expected = [
+        (
+            UBUNTU,
+            [
+                "sudo apt install flashrom",
+                "sudo apt install nasm",
+                "sudo apt install acpica-tools",
+                "sudo apt install git",
+                "sudo apt install openjdk-21-jdk",
+            ],
+        ),
+        (
+            FEDORA,
+            [
+                "sudo dnf install flashrom",
+                "sudo dnf install nasm",
+                "sudo dnf install acpica-tools",
+                "sudo dnf install git",
+                "sudo dnf install java-21-openjdk-devel",
+            ],
+        ),
+        (
+            ARCH,
+            [
+                "sudo pacman -S flashrom",
+                "sudo pacman -S nasm",
+                "sudo pacman -S acpica",
+                "sudo pacman -S git",
+                "sudo pacman -S jdk21-openjdk",
+            ],
+        ),
+    ];
+    for (release, commands) in expected {
+        let received: Vec<String> = packages
+            .iter()
+            .map(|package| package_command(release, *package).unwrap())
+            .collect();
+        assert_eq!(
+            received, commands,
+            "(package commands for {release:?}): expected one command per package"
+        );
+    }
+}
+
+#[test]
 fn a_complete_installation_is_ready_with_versions_and_locations() {
     let mut scene = Scene::new(FakeInstalledTools::complete());
     scene.configured_flashrom = Some("/opt/fr/flashrom".into());
@@ -880,4 +933,16 @@ fn iasl_reports_its_version_when_installed() {
     let rows = scene.rows(&pinned_ghidra(&scene));
     assert_eq!(row(&rows, "iasl").version.as_deref(), Some("20250404"));
     assert_eq!(row(&rows, "iasl").health, Health::Ready);
+}
+
+#[test]
+fn status_reports_exactly_the_rows_of_the_id_constant_in_order() {
+    let scene = Scene::new(FakeInstalledTools::complete());
+    let ghidra = pinned_ghidra(&scene);
+    let rows = scene.rows(&ghidra);
+    let ids: Vec<&str> = rows.iter().map(|row| row.id).collect();
+    assert_eq!(
+        ids, TOOL_IDS,
+        "(tools status ids): expected the TOOL_IDS order | received {ids:?}"
+    );
 }

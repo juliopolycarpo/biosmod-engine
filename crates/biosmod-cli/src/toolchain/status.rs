@@ -23,6 +23,19 @@ use std::time::Duration;
 /// the GUI runs the whole report under its 120 s engine timeout after every tool change.
 const STATUS_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// The id of every row `tools status` reports, in report order. `bme capabilities` advertises
+/// it, so clients and tests read the list from the engine instead of keeping their own copy.
+pub const TOOL_IDS: [&str; 8] = [
+    "ghidra",
+    "firmware-utils",
+    "java",
+    "jdk",
+    "git",
+    "flashrom",
+    "nasm",
+    "iasl",
+];
+
 /// How healthy one tool is for the work bme asks of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -127,43 +140,42 @@ fn package_command(os_release: &str, package: Package) -> Option<String> {
         }
     }
     let is = |names: &[&str]| families.iter().any(|f| names.contains(&f.as_str()));
-    let (manager, name) = if is(&["debian", "ubuntu"]) {
-        (
-            "sudo apt install",
-            match package {
-                Package::Flashrom => "flashrom".to_string(),
-                Package::Nasm => "nasm".to_string(),
-                Package::Iasl => "acpica-tools".to_string(),
-                Package::Git => "git".to_string(),
-                Package::Jdk(n) => format!("openjdk-{n}-jdk"),
-            },
-        )
+    let (manager, family) = if is(&["debian", "ubuntu"]) {
+        ("sudo apt install", Family::Debian)
     } else if is(&["fedora", "rhel", "centos"]) {
-        (
-            "sudo dnf install",
-            match package {
-                Package::Flashrom => "flashrom".to_string(),
-                Package::Nasm => "nasm".to_string(),
-                Package::Iasl => "acpica-tools".to_string(),
-                Package::Git => "git".to_string(),
-                Package::Jdk(n) => format!("java-{n}-openjdk-devel"),
-            },
-        )
+        ("sudo dnf install", Family::Fedora)
     } else if is(&["arch"]) {
-        (
-            "sudo pacman -S",
-            match package {
-                Package::Flashrom => "flashrom".to_string(),
-                Package::Nasm => "nasm".to_string(),
-                Package::Iasl => "acpica".to_string(),
-                Package::Git => "git".to_string(),
-                Package::Jdk(n) => format!("jdk{n}-openjdk"),
-            },
-        )
+        ("sudo pacman -S", Family::Arch)
     } else {
         return None;
     };
-    Some(format!("{manager} {name}"))
+    Some(format!("{manager} {}", package.name(family)))
+}
+
+/// Distribution families whose package names bme knows.
+#[derive(Debug, Clone, Copy)]
+enum Family {
+    Debian,
+    Fedora,
+    Arch,
+}
+
+impl Package {
+    /// The package that provides this tool on `family`.
+    ///
+    /// Example: `Package::Iasl.name(Family::Arch)` is `"acpica"`.
+    fn name(self, family: Family) -> String {
+        match (self, family) {
+            (Package::Flashrom, _) => "flashrom".into(),
+            (Package::Nasm, _) => "nasm".into(),
+            (Package::Git, _) => "git".into(),
+            (Package::Iasl, Family::Arch) => "acpica".into(),
+            (Package::Iasl, _) => "acpica-tools".into(),
+            (Package::Jdk(n), Family::Debian) => format!("openjdk-{n}-jdk"),
+            (Package::Jdk(n), Family::Fedora) => format!("java-{n}-openjdk-devel"),
+            (Package::Jdk(n), Family::Arch) => format!("jdk{n}-openjdk"),
+        }
+    }
 }
 
 fn first_on_path(get: &dyn Fn(&str) -> Option<OsString>, name: &str) -> Option<PathBuf> {
@@ -211,8 +223,8 @@ pub fn status(probe: &Probe) -> Vec<ToolRow> {
     rows.extend(java);
     rows.push(git);
     rows.push(flashrom_row(probe));
-    rows.push(nasm_row(probe));
-    rows.push(iasl_row(probe));
+    rows.push(optional_program_row(probe, &NASM));
+    rows.push(optional_program_row(probe, &IASL));
     rows
 }
 
@@ -577,92 +589,88 @@ fn writable_by_others(path: &Path) -> bool {
     }
 }
 
-/// NASM assembles `catalog/provenance` sources when a maintainer rebuilds a patch's hunks.
-/// bme never runs it, so the row only detects it and never counts against `ready`.
-fn nasm_row(probe: &Probe) -> ToolRow {
-    let finished = probe.env.runner.run(
-        &Invocation::new("nasm")
-            .arg("--version")
-            .timeout(STATUS_PROBE_TIMEOUT),
-    );
-    let (health, version, detail) = match finished {
-        Ok(f) if f.success() => {
-            let line = f
-                .stdout
-                .lines()
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let version = line
-                .strip_prefix("NASM version ")
-                .and_then(|rest| rest.split_whitespace().next())
-                .map(str::to_string);
-            (Health::Ready, version, line)
-        }
-        Ok(f) => (Health::Missing, None, format!("nasm: {}", f.describe())),
-        Err(_) => (
-            Health::Missing,
-            None,
-            "not found in PATH; only needed to rebuild a patch from its assembly source".into(),
-        ),
-    };
-    ToolRow {
-        id: "nasm",
-        name: "NASM",
-        purpose: "assembles patch sources when you rebuild their hunks (optional)",
-        health,
-        version,
-        path: first_on_path(probe.get, "nasm").map(|p| lossy(&p)),
-        origin: "PATH",
-        detail,
-        install: system_install(probe, Package::Nasm),
-        custom_location: false,
-        optional: true,
-    }
+/// An optional program found on `PATH` and identified by its version banner. bme never needs it
+/// to run, so its row never counts against `ready`.
+struct OptionalProgram {
+    /// Row id, and the program name looked up on `PATH`.
+    id: &'static str,
+    name: &'static str,
+    purpose: &'static str,
+    /// The argument that makes the program print its banner.
+    version_argument: &'static str,
+    /// Picks the banner line out of standard output.
+    banner_line: fn(&str) -> Option<&str>,
+    /// Reads the version from the banner line.
+    version: fn(&str) -> Option<&str>,
+    /// What the row says when the program is not found.
+    absent: &'static str,
+    package: Package,
 }
 
-/// `iasl` disassembles ACPI tables for `compare --acpi --disassemble`. It is optional: the
-/// comparison itself never needs it, so a missing `iasl` never counts against `ready`.
-fn iasl_row(probe: &Probe) -> ToolRow {
+/// NASM assembles `catalog/provenance` sources when a maintainer rebuilds a patch's hunks.
+const NASM: OptionalProgram = OptionalProgram {
+    id: "nasm",
+    name: "NASM",
+    purpose: "assembles patch sources when you rebuild their hunks (optional)",
+    version_argument: "--version",
+    banner_line: |out| out.lines().next(),
+    version: |line| {
+        line.strip_prefix("NASM version ")
+            .and_then(|rest| rest.split_whitespace().next())
+    },
+    absent: "not found in PATH; only needed to rebuild a patch from its assembly source",
+    package: Package::Nasm,
+};
+
+/// `iasl` disassembles ACPI tables for `compare --acpi --disassemble`; the comparison itself
+/// never needs it.
+const IASL: OptionalProgram = OptionalProgram {
+    id: "iasl",
+    name: "iasl",
+    purpose: "disassembles ACPI tables for method diffs (optional)",
+    version_argument: "-v",
+    // The banner ends with `... version 20250404`; take the line that carries it.
+    banner_line: |out| out.lines().find(|line| line.contains(" version ")),
+    version: |line| {
+        line.rsplit_once(" version ")
+            .and_then(|(_, rest)| rest.split_whitespace().next())
+    },
+    absent: "not found in PATH; only needed for `compare --acpi --disassemble`",
+    package: Package::Iasl,
+};
+
+fn optional_program_row(probe: &Probe, program: &OptionalProgram) -> ToolRow {
     let finished = probe.env.runner.run(
-        &Invocation::new("iasl")
-            .arg("-v")
+        &Invocation::new(program.id)
+            .arg(program.version_argument)
             .timeout(STATUS_PROBE_TIMEOUT),
     );
     let (health, version, detail) = match finished {
         Ok(f) if f.success() => {
-            // The banner ends with `... version 20250404`; take the line that carries it.
-            let line = f
-                .stdout
-                .lines()
-                .find(|l| l.contains(" version "))
+            let line = (program.banner_line)(&f.stdout)
                 .unwrap_or_default()
                 .trim()
                 .to_string();
-            let version = line
-                .rsplit_once(" version ")
-                .and_then(|(_, rest)| rest.split_whitespace().next())
-                .map(str::to_string);
+            let version = (program.version)(&line).map(str::to_string);
             (Health::Ready, version, line)
         }
-        Ok(f) => (Health::Missing, None, format!("iasl: {}", f.describe())),
-        Err(_) => (
+        Ok(f) => (
             Health::Missing,
             None,
-            "not found in PATH; only needed for `compare --acpi --disassemble`".into(),
+            format!("{}: {}", program.id, f.describe()),
         ),
+        Err(_) => (Health::Missing, None, program.absent.into()),
     };
     ToolRow {
-        id: "iasl",
-        name: "iasl",
-        purpose: "disassembles ACPI tables for method diffs (optional)",
+        id: program.id,
+        name: program.name,
+        purpose: program.purpose,
         health,
         version,
-        path: first_on_path(probe.get, "iasl").map(|p| lossy(&p)),
+        path: first_on_path(probe.get, program.id).map(|p| lossy(&p)),
         origin: "PATH",
         detail,
-        install: system_install(probe, Package::Iasl),
+        install: system_install(probe, program.package),
         custom_location: false,
         optional: true,
     }

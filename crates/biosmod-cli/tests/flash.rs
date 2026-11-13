@@ -283,19 +283,11 @@ fn tools_status_exits_zero_and_set_rejects_a_directory() {
         .iter()
         .map(|tool| tool["id"].as_str().unwrap())
         .collect();
+    let advertised = sandbox.run(["capabilities", "--json"]).json()["data"]["tools"].clone();
     assert_eq!(
-        ids,
-        [
-            "ghidra",
-            "firmware-utils",
-            "java",
-            "jdk",
-            "git",
-            "flashrom",
-            "nasm",
-            "iasl"
-        ],
-        "{document}"
+        serde_json::json!(ids),
+        advertised,
+        "(tools status ids): expected the ids `capabilities` advertises | {document}"
     );
 
     let directory = sandbox.path("not-a-program");
