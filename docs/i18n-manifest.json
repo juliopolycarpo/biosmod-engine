@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "298030cb1ecafefcbb5adae108c97821ea5c2d1a0d29efaeaad4c144d4c25702"
+      "sha256": "844478861a2788fa2b4d24673c174d7084de4418f2dd2e9e69b01a088e30bd83"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -14,7 +14,7 @@
     {
       "source": "docs/architecture.md",
       "translation": "docs/pt-BR/architecture.md",
-      "sha256": "a716bd60631f70cd07fdd97fa18caab32fdd5da153131ed3cf71fbcfdac38317"
+      "sha256": "963c80bf770894272e66794d43c7695a20420aa5106a8a2fbd88905fca75253c"
     },
     {
       "source": "docs/baseline.md",
@@ -24,7 +24,7 @@
     {
       "source": "docs/formats.md",
       "translation": "docs/pt-BR/formats.md",
-      "sha256": "f50b6bb733b4b40ba0ffebdb958cdb9104fef07bdfa34a5394fc1032df3bc17e"
+      "sha256": "b8cabf3a0feffdcb0ba67e630980207a39565747a48fbd539e469d17cee5bc8e"
     },
     {
       "source": "docs/guide/agents.md",
@@ -85,6 +85,11 @@
       "source": "docs/guide/ifr.md",
       "translation": "docs/pt-BR/guide/ifr.md",
       "sha256": "337f8850d9c860b20b425746c425c07343ac4d3a40dd3d43caba55e7544afb9a"
+    },
+    {
+      "source": "docs/guide/nvram.md",
+      "translation": "docs/pt-BR/guide/nvram.md",
+      "sha256": "e753007f2a8d5f7edc01bdc4ffdbb34cd60228b5a9247cc8c250e1089bc4b386"
     }
   ]
 }

@@ -20,6 +20,7 @@ The GUI invokes a compatible `bme` as a subprocess. It binds direct builds to th
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `firmware`                 | descriptor regions, FV/FFS/section parsing with depth and decode budgets; `pe` for PE32/TE; `rebuild` for checksums, LZMA re-encoding and volume reflow |
 | `ifr`                      | read-only decoder for Setup forms (UEFI IFR): HII package lists, string and form packages, questions with varstore offsets, options, defaults and conditions |
+| `nvram`                    | read-only reader for firmware variable stores: AMI NVAR (chains, GUID table, `StdDefaults`/`MfgDefaults`) and EDK II VSS/VSS2, with record states, IFR size checks and Setup field lookup |
 | `codec`                    | liblzma wrapper: bounded decoding and encoding that reproduces the original stream parameters                                                           |
 | `catalog`                  | typed documents (`bme.catalog/1`, `bme.board/1`, `bme.patch/1`, `bme.evidence/1`) and loading through a verified index                                  |
 | `json`                     | strict parsing: duplicate keys and trailing data are errors                                                                                             |

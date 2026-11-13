@@ -5,6 +5,7 @@ mod diag;
 mod firmware;
 mod ifr;
 mod meta;
+mod nvram;
 
 use crate::config::{Config, Paths, io_error};
 use crate::output::{Out, Reply};
@@ -12,6 +13,7 @@ use crate::sources::{self, LoadPolicy, Loaded};
 use crate::{Command, DevCommand, DiagCommand, SourceArgs, ToolsCommand};
 use biosmod_core::catalog::LeafKind;
 use biosmod_core::firmware::Image;
+use biosmod_core::ifr::ModuleDiagnostic;
 use biosmod_core::{Code, Error, Result};
 use std::fs;
 use std::io::Read;
@@ -68,6 +70,7 @@ pub fn run(command: Command, out: Out, offline: bool) -> Result<Reply> {
         Command::Guide { topic } => meta::guide(topic.as_deref()),
         Command::Inspect(args) => firmware::inspect(&args),
         Command::Ifr(args) => ifr::run(&args),
+        Command::Nvram(args) => nvram::run(&args),
         Command::Scan(args) => firmware::scan(&ctx, &args),
         Command::Plan(args) => firmware::plan(&ctx, &args),
         Command::Export(args) => firmware::export(&ctx, &args),
@@ -100,6 +103,18 @@ fn tools(ctx: &Ctx, command: ToolsCommand) -> Result<Reply> {
         } => toolchain::analyze(ctx, &project, &output, &modules, timeout),
         ToolsCommand::Paths => toolchain::paths(ctx),
     }
+}
+
+/// `file GUID name: message`, the wording for a module whose IFR could not be decoded.
+///
+/// Example: `let line = describe_diagnostic(&diagnostic);`
+pub(super) fn describe_diagnostic(diagnostic: &ModuleDiagnostic) -> String {
+    let name = diagnostic
+        .name
+        .as_deref()
+        .map(|n| format!(" {n}"))
+        .unwrap_or_default();
+    format!("file {}{name}: {}", diagnostic.guid, diagnostic.message)
 }
 
 /// Read a regular file, enforcing the bound even if its metadata underreports the size.
@@ -260,6 +275,33 @@ mod bounded_read_tests {
         assert!(
             error.message.contains("5 bytes exceed the limit of 4"),
             "{error}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_wording_tests {
+    use super::*;
+    use biosmod_core::util::Guid;
+
+    fn diagnostic(name: Option<&str>) -> ModuleDiagnostic {
+        ModuleDiagnostic {
+            guid: Guid::constant("00000000-0000-0000-0000-0000000000B1"),
+            name: name.map(str::to_owned),
+            code: Code::FormatInvalid,
+            message: "bad package".to_owned(),
+        }
+    }
+
+    #[test]
+    fn describe_diagnostic_names_the_file_guid_and_the_module_when_known() {
+        assert_eq!(
+            describe_diagnostic(&diagnostic(Some("Setup"))),
+            "file 00000000-0000-0000-0000-0000000000B1 Setup: bad package"
+        );
+        assert_eq!(
+            describe_diagnostic(&diagnostic(None)),
+            "file 00000000-0000-0000-0000-0000000000B1: bad package"
         );
     }
 }

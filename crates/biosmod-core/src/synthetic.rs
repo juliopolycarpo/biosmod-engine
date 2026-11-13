@@ -588,3 +588,290 @@ pub fn ifr_setup_image() -> Vec<u8> {
     image.extend(volume(&[setup], 0x4000));
     image
 }
+
+/// One record of a synthetic NVAR store; see [`nvar_store`].
+#[derive(Debug, Clone)]
+pub enum NvarSpec<'a> {
+    /// A variable record with an ASCII name and a GUID-table index.
+    /// `link` is the index (in the spec list) of the data-only update that follows it.
+    Variable {
+        name: &'a str,
+        guid_index: u8,
+        runtime: bool,
+        valid: bool,
+        data: &'a [u8],
+        link: Option<usize>,
+    },
+    /// A data-only update record.
+    DataOnly {
+        valid: bool,
+        data: &'a [u8],
+        link: Option<usize>,
+    },
+    /// Bytes placed verbatim (corrupt or unusual records).
+    Raw(Vec<u8>),
+}
+
+/// A raw NVAR record: `NVAR`, size, next 0xFFFFFF, attributes, then `payload`.
+pub fn nvar_record(attributes: u8, payload: &[u8]) -> Vec<u8> {
+    let mut out = b"NVAR".to_vec();
+    out.extend_from_slice(&((10 + payload.len()) as u16).to_le_bytes());
+    out.extend_from_slice(&[0xFF, 0xFF, 0xFF, attributes]);
+    out.extend_from_slice(payload);
+    out
+}
+
+/// An NVAR store of `length` bytes: the records of `specs`, erased space, and `guids` as the
+/// table at the very end (index 0 last), the way an AMI NVRAM file body is laid out.
+///
+/// Links are written as offsets relative to the linking record.
+///
+/// Example: `let store = nvar_store(&[NvarSpec::Raw(nvar_record(0x82, b"\0A\0\x01"))], &[SETUP_VARSTORE_GUID], 0xFA0);`
+pub fn nvar_store(specs: &[NvarSpec<'_>], guids: &[Guid], length: usize) -> Vec<u8> {
+    let mut records: Vec<Vec<u8>> = Vec::new();
+    for spec in specs {
+        records.push(match spec {
+            NvarSpec::Variable {
+                name,
+                guid_index,
+                runtime,
+                valid,
+                data,
+                ..
+            } => {
+                let mut payload = vec![*guid_index];
+                payload.extend_from_slice(name.as_bytes());
+                payload.push(0);
+                payload.extend_from_slice(data);
+                let flags = 0x02 | u8::from(*runtime) | if *valid { 0x80 } else { 0 };
+                nvar_record(flags, &payload)
+            }
+            NvarSpec::DataOnly { valid, data, .. } => {
+                nvar_record(0x08 | if *valid { 0x80 } else { 0 }, data)
+            }
+            NvarSpec::Raw(bytes) => bytes.clone(),
+        });
+    }
+    let starts: Vec<usize> = records
+        .iter()
+        .scan(0usize, |at, record| {
+            let start = *at;
+            *at += record.len();
+            Some(start)
+        })
+        .collect();
+    for (index, spec) in specs.iter().enumerate() {
+        let link = match spec {
+            NvarSpec::Variable { link, .. } | NvarSpec::DataOnly { link, .. } => *link,
+            NvarSpec::Raw(_) => None,
+        };
+        if let Some(target) = link {
+            let relative = (starts[target] - starts[index]) as u32;
+            records[index][6..9].copy_from_slice(&relative.to_le_bytes()[..3]);
+        }
+    }
+    let mut out: Vec<u8> = records.concat();
+    assert!(
+        out.len() + 16 * guids.len() < length,
+        "synthetic NVAR store: {} record bytes and {} GUIDs do not fit {length}",
+        out.len(),
+        guids.len()
+    );
+    out.resize(length, 0xFF);
+    for (index, guid) in guids.iter().enumerate() {
+        let end = length - 16 * index;
+        out[end - 16..end].copy_from_slice(&guid.0);
+    }
+    out
+}
+
+/// A volume of 0x1000 bytes whose one raw file (`NVRAM_FILE_GUID`) holds `store`, which must be
+/// 0xFA0 bytes so the GUID table ends exactly at the volume end, as in a real NVRAM volume.
+pub fn nvram_volume(store: &[u8]) -> Vec<u8> {
+    let file = ffs(crate::nvram::NVRAM_FILE_GUID, 0x01, store, 0);
+    volume(&[file], 0x1000)
+}
+
+/// [`ifr_setup_image`] followed by one NVRAM volume per entry of `stores`.
+pub fn nvram_image(stores: &[Vec<u8>]) -> Vec<u8> {
+    let mut image = ifr_setup_image();
+    for store in stores {
+        image.extend(nvram_volume(store));
+    }
+    image
+}
+
+/// Variable header style of a synthetic VSS store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VssFlavor {
+    /// EDK II `VARIABLE_STORE_HEADER` with the plain-variable GUID (28 bytes).
+    Plain,
+    /// EDK II header with the authenticated-variable GUID.
+    Authenticated,
+    /// `$VSS` header (16 bytes) with plain variable headers.
+    Dollar,
+}
+
+/// One record of a synthetic VSS store; see [`vss_store`].
+#[derive(Debug, Clone)]
+pub enum VssSpec<'a> {
+    Variable {
+        name: &'a str,
+        guid: Guid,
+        attributes: u32,
+        state: u8,
+        data: &'a [u8],
+    },
+    /// Bytes placed verbatim at the next 4-byte boundary.
+    Raw(Vec<u8>),
+}
+
+/// A VSS store of `length` bytes with variables laid out back to back.
+///
+/// `state` is the raw state byte: 0x3F added, 0x3E in deleted transition, 0x3D deleted,
+/// 0x7F header only.
+///
+/// Example: `let store = vss_store(VssFlavor::Plain, &[], 0x400);`
+pub fn vss_store(flavor: VssFlavor, specs: &[VssSpec<'_>], length: usize) -> Vec<u8> {
+    let mut out = match flavor {
+        VssFlavor::Plain => Guid::constant("DDCF3617-3275-4164-98B6-FE85707FFE7D")
+            .0
+            .to_vec(),
+        VssFlavor::Authenticated => Guid::constant("AAF32C78-947B-439A-A180-2E144EC37792")
+            .0
+            .to_vec(),
+        VssFlavor::Dollar => b"$VSS".to_vec(),
+    };
+    out.extend_from_slice(&(length as u32).to_le_bytes());
+    out.extend_from_slice(&[0x5A, 0xFE, 0, 0, 0, 0, 0, 0]);
+    for spec in specs {
+        out.resize(align(out.len(), 4), 0xFF);
+        match spec {
+            VssSpec::Variable {
+                name,
+                guid,
+                attributes,
+                state,
+                data,
+            } => {
+                let mut name_bytes: Vec<u8> =
+                    name.encode_utf16().flat_map(u16::to_le_bytes).collect();
+                name_bytes.extend_from_slice(&[0, 0]);
+                out.extend_from_slice(&[0xAA, 0x55, *state, 0]);
+                out.extend_from_slice(&attributes.to_le_bytes());
+                if flavor == VssFlavor::Authenticated {
+                    // Monotonic counter, timestamp, public key index.
+                    out.extend_from_slice(&[0; 28]);
+                }
+                out.extend_from_slice(&(name_bytes.len() as u32).to_le_bytes());
+                out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+                out.extend_from_slice(&guid.0);
+                out.extend(name_bytes);
+                out.extend_from_slice(data);
+            }
+            VssSpec::Raw(bytes) => out.extend_from_slice(bytes),
+        }
+    }
+    assert!(
+        out.len() <= length,
+        "synthetic VSS store: {} bytes do not fit {length}",
+        out.len()
+    );
+    out.resize(length, 0xFF);
+    out
+}
+
+/// A 0x40-byte `Setup` payload (the size of the synthetic IFR `Setup` store) with the sleep
+/// word at offset 0x0A set to `sleep`.
+pub fn setup_payload(sleep: u16) -> Vec<u8> {
+    let mut data = vec![0u8; 0x40];
+    data[0x0A..0x0C].copy_from_slice(&sleep.to_le_bytes());
+    data
+}
+
+/// A 0xFA0-byte NVAR store: a `StdDefaults` holder (sleep word 2, plus a `Setup` of another
+/// GUID), a three-record `Setup` chain (sleep 0, 1, then 2), a deleted `Gone` variable and an
+/// orphan update. GUID table: 0 defaults holder, 1 [`SETUP_VARSTORE_GUID`].
+pub fn nvar_sample_store() -> Vec<u8> {
+    let other = Guid::constant("80E1202E-2697-4264-9CC9-80762C3E5863");
+    let variable = |name, guid_index, data, link| NvarSpec::Variable {
+        name,
+        guid_index,
+        runtime: false,
+        valid: true,
+        data,
+        link,
+    };
+    let update = |data, link| NvarSpec::DataOnly {
+        valid: true,
+        data,
+        link,
+    };
+    let (v0, v1, v2) = (setup_payload(0), setup_payload(1), setup_payload(2));
+    let nested = nvar_store(
+        &[
+            variable("Setup", 0, &v2, None),
+            variable("Setup", 1, &[7; 6], None),
+        ],
+        &[SETUP_VARSTORE_GUID, other],
+        0x300,
+    );
+    nvar_store(
+        &[
+            variable("StdDefaults", 0, &nested, None),
+            variable("Setup", 1, &v0, Some(2)),
+            update(&v1, Some(3)),
+            update(&v2, None),
+            NvarSpec::Variable {
+                name: "Gone",
+                guid_index: 1,
+                runtime: true,
+                valid: false,
+                data: &[1, 2],
+                link: None,
+            },
+            update(&[9, 9], None),
+        ],
+        &[crate::nvram::AMI_DEFAULTS_GUID, SETUP_VARSTORE_GUID],
+        0xFA0,
+    )
+}
+
+/// Like [`ifr_setup_image`], but the Setup module's questions are built so that the prompt
+/// "Twin" names questions 0x30 (`Setup`+0x0A, default 0) and 0x31 (`Setup`+0x0C, none), "Dup"
+/// names 0x32 and 0x33 (same storage and default) and "Plain" names 0x34, a numeric without
+/// variable storage. One NVRAM volume per entry of `stores` follows the Setup volume.
+pub fn ifr_twin_prompt_image(stores: &[Vec<u8>]) -> Vec<u8> {
+    let mut form = ifr_op(0x01, true, &[0x10, 0x27, 3, 0]);
+    form.extend(ifr_one_of_u16((1, 2, 0x30), 1, 0x0A, (0, 2)));
+    form.extend(ifr_option_u16(3, 0x10, 0));
+    form.extend(ifr_end());
+    form.extend(ifr_one_of_u16((1, 2, 0x31), 1, 0x0C, (0, 2)));
+    form.extend(ifr_end());
+    form.extend(ifr_one_of_u16((4, 2, 0x32), 1, 0x0A, (0, 2)));
+    form.extend(ifr_option_u16(3, 0x10, 0));
+    form.extend(ifr_end());
+    form.extend(ifr_one_of_u16((5, 2, 0x33), 1, 0x0A, (0, 2)));
+    form.extend(ifr_option_u16(3, 0x10, 0));
+    form.extend(ifr_end());
+    form.extend(ifr_numeric_u8((6, 2, 0x34), 0, 0, (0, 1, 1)));
+    form.extend(ifr_end());
+    form.extend(ifr_end());
+    let strings = hii_string_package("en-US", &["Twin", "Help", "Zero", "Dup", "Dup", "Plain"]);
+    let list = hii_package_list(
+        Guid::constant("11111111-0000-0000-0000-000000000001"),
+        &[ifr_form_package(&[form]), strings],
+    );
+    let setup = ffs(
+        SETUP_GUID,
+        0x07,
+        &section(0x10, &[module(5, 16), list].concat()),
+        0,
+    );
+    let mut image = vec![0xFF; 0x1000];
+    image.extend(volume(&[setup], 0x4000));
+    for store in stores {
+        image.extend(nvram_volume(store));
+    }
+    image
+}

@@ -52,6 +52,11 @@ pub const GUIDES: &[(&str, &str, &str)] = &[
         include_str!("../../../../docs/guide/ifr.md"),
     ),
     (
+        "nvram",
+        "reading NVRAM variable stores: record states, defaults, Setup fields, size checks",
+        include_str!("../../../../docs/guide/nvram.md"),
+    ),
+    (
         "ghidra",
         "installing and running the analysis toolchain",
         include_str!("../../../../docs/guide/ghidra.md"),
@@ -77,6 +82,7 @@ fn commands() -> Value {
     json!([
         {"name": "inspect", "writes": [], "network": false, "summary": "volumes, files, descriptor regions"},
         {"name": "ifr", "writes": [], "network": false, "summary": "decode Setup forms (UEFI IFR): questions, varstore offsets, options, defaults, conditions"},
+        {"name": "nvram", "writes": ["variable data (--dump -o)"], "network": false, "summary": "list NVRAM variables (AMI NVAR, EDK II VSS) with record state, GUID, size and hash; --field compares a Setup question's stored value with its IFR default"},
         {"name": "scan", "writes": [], "network": false, "summary": "firmware detection and patch states"},
         {"name": "plan", "writes": ["plan file"], "network": false, "summary": "compatibility command for saving a plan"},
         {"name": "export", "writes": ["patch recipe"], "network": false, "summary": "save an exact recipe for patch IDs or recommendations"},
@@ -121,6 +127,7 @@ pub fn capabilities() -> Reply {
             "containers": ["Intel flash descriptor images", "bare BIOS regions", "EFI firmware volumes (FFS2/FFS3)"],
             "sections": ["FV image", "GUID-defined LZMA (EE4E5898)", "GUID-defined CRC32 (FC1BCDB2)", "PE32", "TE", "raw", "UI"],
             "leaves": ["pe32", "acpi-table"],
+            "variable_stores": ["AMI NVAR (records, chains, GUID table, StdDefaults/MfgDefaults)", "EDK II VSS/VSS2 and $VSS (plain and authenticated headers); read-only"],
             "rebuild": ["equal-size and appended hunks", "LZMA re-encoding byte-identical to liblzma", "free-space file reflow; XIP files never move"],
             "unsupported": ["compression sections (type 01: EFI standard, Tiano)", "other GUID-defined encodings such as Brotli", "capsule and signed update formats", "moving execute-in-place files"]
         },

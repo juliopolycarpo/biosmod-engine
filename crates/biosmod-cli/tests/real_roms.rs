@@ -4,7 +4,8 @@
 //!
 //! ```sh
 //! BME_ROM_MR9A=~/bios/MNX99MR9APRO_230322_original_90DEDD1D.bin \
-//! BME_ROM_PR9=~/bios/pr9-read1.bin cargo nextest run --locked --release --test real_roms --success-output final
+//! BME_ROM_PR9=~/bios/pr9-read1.bin \
+//! BME_ROM_MR9A_LIVE=path/to/a-dump-with-saved-setup.bin cargo nextest run --locked --release --test real_roms --success-output final
 //! ```
 //!
 //! Expected digests are the images built by x99-bios-fixes (Python) at commit
@@ -328,4 +329,277 @@ fn stock_images_decode_every_ifr_module_without_diagnostics() {
             "({var} ifr): expected question \"Memory Frequency\" | received none"
         );
     }
+}
+
+const SETUP_VARIABLE_GUID: &str = "EC87D643-EBA4-4BB5-A1E5-3F3E36B20DA9";
+
+/// `bme nvram --all-records --json` variables of the ROM named by `var`.
+fn nvram_records(var: &str) -> Option<Vec<serde_json::Value>> {
+    let input = rom(var)?;
+    let run = Sandbox::new().run(["nvram", s(&input), "--all-records", "--json"]);
+    assert_eq!(run.code, 0, "({var} nvram): {}", run.stdout);
+    let doc = run.json();
+    assert_eq!(
+        doc["data"]["issues"],
+        serde_json::json!([]),
+        "({var} nvram issues): expected a clean walk"
+    );
+    Some(doc["data"]["variables"].as_array().unwrap().clone())
+}
+
+/// Records named `name` with variable GUID `guid`, as (store, state, size) triples.
+fn named(records: &[serde_json::Value], name: &str, guid: &str) -> Vec<(String, String, u64)> {
+    records
+        .iter()
+        .filter(|v| v["name"] == name && v["guid"] == guid)
+        .map(|v| {
+            (
+                v["store"].as_str().unwrap().to_owned(),
+                v["state"].as_str().unwrap().to_owned(),
+                v["size"].as_u64().unwrap(),
+            )
+        })
+        .collect()
+}
+
+/// One stored value of a field: (store, state, value).
+type StoredValue = (String, String, u64);
+
+/// `bme nvram --field PROMPT --all-records --json`: the `field` document and its values.
+fn field_values(
+    var: &str,
+    prompt: &str,
+    question_id: Option<&str>,
+) -> Option<(serde_json::Value, Vec<StoredValue>)> {
+    let input = rom(var)?;
+    let mut args = vec![
+        "nvram",
+        s(&input),
+        "--field",
+        prompt,
+        "--all-records",
+        "--json",
+    ];
+    if let Some(id) = question_id {
+        args.extend(["--question-id", id]);
+    }
+    let run = Sandbox::new().run(args);
+    assert_eq!(
+        run.code, 0,
+        "({var} nvram --field {prompt:?}): {}",
+        run.stdout
+    );
+    let field = run.json()["data"]["field"].clone();
+    let values = field["values"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| {
+            (
+                v["store"].as_str().unwrap().to_owned(),
+                v["state"].as_str().unwrap().to_owned(),
+                v["value"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    Some((field, values))
+}
+
+#[test]
+fn pr9_nvram_lists_setup_0x6c_with_history_and_zero_sleep_default() {
+    let Some(records) = nvram_records("BME_ROM_PR9") else {
+        return;
+    };
+    let setup = named(&records, "Setup", SETUP_VARIABLE_GUID);
+    for store in ["nvar@0x800060", "nvar@0x840060"] {
+        assert!(
+            setup
+                .iter()
+                .any(|(s, state, size)| s == store && state == "active" && *size == 0x6C),
+            "(PR9 Setup in {store}): expected an active 0x6C-byte record | received {setup:?}"
+        );
+    }
+    assert!(
+        setup
+            .iter()
+            .any(|(s, state, size)| s == "nvar@0x840060:StdDefaults"
+                && state == "active"
+                && *size == 0x6C),
+        "(PR9 standard defaults): expected a 0x6C-byte Setup | received {setup:?}"
+    );
+    assert!(
+        setup
+            .iter()
+            .filter(|(s, state, _)| s == "nvar@0x840060" && state == "superseded")
+            .count()
+            >= 2,
+        "(PR9 live store history): expected superseded Setup records | received {setup:?}"
+    );
+    assert!(
+        records.iter().any(|v| v["state"] == "deleted"),
+        "(PR9 live store): expected deleted records"
+    );
+    assert!(
+        records.iter().all(|v| v["state"] != "orphan"),
+        "(PR9): expected no orphan data-only records"
+    );
+
+    let (field, values) = field_values("BME_ROM_PR9", "ACPI Sleep State", None).unwrap();
+    assert_eq!(
+        (
+            &field["question_ids"],
+            &field["offset"],
+            &field["width"],
+            &field["varstore_size"]
+        ),
+        (
+            &serde_json::json!([0x19]),
+            &serde_json::json!(0x0A),
+            &serde_json::json!(2),
+            &serde_json::json!(0x6C)
+        )
+    );
+    assert_eq!(field["standard_default"], 0);
+    let defaults: Vec<&(String, String, u64)> = values
+        .iter()
+        .filter(|(s, _, _)| s.ends_with(":StdDefaults"))
+        .collect();
+    assert!(
+        !defaults.is_empty() && defaults.iter().all(|(_, _, value)| *value == 0),
+        "(PR9 standard-default sleep word): expected 0 | received {values:?}"
+    );
+}
+
+#[test]
+fn pr9_live_store_sets_memory_frequency_away_from_the_auto_default() {
+    // Recorded from the stock dump: the live NVRAM copy of IntelSetup holds Memory Frequency
+    // 0xB (2133) while the standard default and the other store say 0 (Auto).
+    let Some((field, values)) = field_values("BME_ROM_PR9", "Memory Frequency", None) else {
+        return;
+    };
+    assert_eq!(field["offset"], 0x1248);
+    assert_eq!(field["standard_default"], 0);
+    let active = |store: &str| {
+        values
+            .iter()
+            .find(|(s, state, _)| s == store && state == "active")
+            .map(|(_, _, value)| *value)
+    };
+    assert_eq!(
+        active("nvar@0x840060"),
+        Some(0x0B),
+        "(PR9 live IntelSetup): {values:?}"
+    );
+    assert_eq!(
+        active("nvar@0x800060"),
+        Some(0),
+        "(PR9 first store IntelSetup): {values:?}"
+    );
+    assert_eq!(
+        active("nvar@0x840060:StdDefaults"),
+        Some(0),
+        "(PR9 defaults IntelSetup): {values:?}"
+    );
+}
+
+#[test]
+fn mr9a_nvram_lists_setup_0x7d_smart_fan_and_two_sleep_default() {
+    let Some(records) = nvram_records("BME_ROM_MR9A") else {
+        return;
+    };
+    // The stock image has no live NVRAM: every record is the holder or inside StdDefaults.
+    assert!(
+        records.iter().all(
+            |v| v["store"] == "nvar@0x800060" && v["name"] == "StdDefaults"
+                || v["store"] == "nvar@0x800060:StdDefaults"
+        ),
+        "(MR9A stock stores): expected only the defaults store"
+    );
+    assert_eq!(
+        named(&records, "Setup", SETUP_VARIABLE_GUID),
+        [(
+            "nvar@0x800060:StdDefaults".to_owned(),
+            "active".to_owned(),
+            0x7D
+        )]
+    );
+    assert_eq!(
+        named(
+            &records,
+            "NCT5532D_SMF",
+            "2634D36A-335D-4312-B210-77E3134A61A6"
+        ),
+        [(
+            "nvar@0x800060:StdDefaults".to_owned(),
+            "active".to_owned(),
+            28
+        )],
+        "(MR9A Smart Fan variable): expected the 28-byte NCT5532D_SMF"
+    );
+
+    let (field, values) = field_values("BME_ROM_MR9A", "ACPI Sleep State", None).unwrap();
+    assert_eq!(
+        (
+            &field["question_ids"],
+            &field["offset"],
+            &field["varstore_size"]
+        ),
+        (
+            &serde_json::json!([0x31]),
+            &serde_json::json!(0x2A),
+            &serde_json::json!(0x7D)
+        )
+    );
+    assert_eq!(
+        values,
+        [(
+            "nvar@0x800060:StdDefaults".to_owned(),
+            "active".to_owned(),
+            2
+        )],
+        "(MR9A standard-default sleep word)"
+    );
+}
+
+#[test]
+fn mr9a_stock_defaults_leave_memory_frequency_on_auto() {
+    // H03 (active IntelSetup records with Memory Frequency 13) is not visible on the stock
+    // image: it carries no live records. The defaults say Auto.
+    let Some((field, values)) = field_values("BME_ROM_MR9A", "Memory Frequency", None) else {
+        return;
+    };
+    assert_eq!(field["varstore_size"], 0x17CB);
+    assert_eq!(
+        values,
+        [(
+            "nvar@0x800060:StdDefaults".to_owned(),
+            "active".to_owned(),
+            0
+        )],
+        "(MR9A stock Memory Frequency)"
+    );
+}
+
+#[test]
+fn mr9a_installed_image_sets_memory_frequency_13_against_the_auto_default() {
+    // H03, from the read of the board that ran the audit (a dump with saved Setup values).
+    let Some((field, values)) = field_values("BME_ROM_MR9A_LIVE", "Memory Frequency", None) else {
+        return;
+    };
+    assert_eq!(field["standard_default"], 0);
+    let active: Vec<&(String, String, u64)> = values
+        .iter()
+        .filter(|(s, state, _)| state == "active" && !s.ends_with(":StdDefaults"))
+        .collect();
+    assert!(
+        !active.is_empty() && active.iter().all(|(_, _, value)| *value == 13),
+        "(MR9A installed active IntelSetup Memory Frequency): expected 13 (2400) | received {values:?}"
+    );
+    assert!(
+        values
+            .iter()
+            .filter(|(s, _, _)| s.ends_with(":StdDefaults"))
+            .all(|(_, _, value)| *value == 0),
+        "(MR9A installed defaults): expected Auto (0) | received {values:?}"
+    );
 }

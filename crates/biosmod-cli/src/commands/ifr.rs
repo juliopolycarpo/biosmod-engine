@@ -1,6 +1,6 @@
 //! `bme ifr`: decode the Setup forms (UEFI IFR) of a firmware image or a single PE.
 
-use super::{MAX_IMAGE_BYTES, read_bounded};
+use super::{MAX_IMAGE_BYTES, describe_diagnostic, read_bounded};
 use crate::IfrArgs;
 use crate::output::{Reply, table};
 use biosmod_core::firmware::Image;
@@ -72,7 +72,7 @@ pub fn run(args: &IfrArgs) -> Result<Reply> {
     }
     let mut text = render(&modules);
     for diagnostic in &diagnostics {
-        let _ = writeln!(text, "warning: {}", describe(diagnostic));
+        let _ = writeln!(text, "warning: {}", describe_diagnostic(diagnostic));
     }
     Ok(Reply::new(
         json!({"input": args.input.to_string_lossy(), "sha256": sha256, "source": source, "modules": modules, "diagnostics": diagnostics}),
@@ -81,19 +81,10 @@ pub fn run(args: &IfrArgs) -> Result<Reply> {
 }
 
 /// `GUID name: message` for a module that failed to decode.
-fn describe(diagnostic: &ModuleDiagnostic) -> String {
-    let name = diagnostic
-        .name
-        .as_deref()
-        .map(|n| format!(" {n}"))
-        .unwrap_or_default();
-    format!("file {}{name}: {}", diagnostic.guid, diagnostic.message)
-}
-
 fn describe_all(diagnostics: &[ModuleDiagnostic]) -> String {
     diagnostics
         .iter()
-        .map(describe)
+        .map(describe_diagnostic)
         .collect::<Vec<_>>()
         .join("; ")
 }

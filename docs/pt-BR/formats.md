@@ -12,6 +12,7 @@
 | ACPI | DSDT em uma seção raw (`leaf: acpi-table`), checksum da tabela mantido pelo próprio hunk |
 | PE32/PE32+ | tabelas de seções, base da imagem, relocações de base e campos de desvio direto (para mascaramento de assinaturas) |
 | HII / IFR | listas de pacotes em bytes PE, TE ou raw (`bme ifr`): pacotes de strings (SCSU, UCS-2) e de formulários; somente leitura |
+| Armazenamentos NVRAM | AMI NVAR (registros, cadeias `next`, tabela de GUIDs, armazenamentos aninhados `StdDefaults`/`MfgDefaults`) e EDK II VSS/VSS2 e `$VSS` (cabeçalhos simples e autenticados) via `bme nvram`; somente leitura |
 | TE | correspondência de folhas executáveis e verificações da base da imagem; a cobertura de relocações retorna `FORMAT_UNSUPPORTED` |
 
 Limites: imagens de até 64 MiB, profundidade de aninhamento 16, arquivos de catálogo de até 8 MiB e 4096 arquivos por catálogo.
