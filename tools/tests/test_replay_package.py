@@ -663,10 +663,71 @@ class ScenarioTest(unittest.TestCase):
     def test_parse_reads_the_scenario_form(self):
         self.assertEqual(
             replay_main.parse(["--scenario", "s.json", "--module", "a.pe"]),
-            (("scenario", "s.json"), ["a.pe"], []),
+            (("scenario", "s.json", None), ["a.pe"], []),
+        )
+        self.assertEqual(
+            replay_main.parse(["--scenario", "s.json", "--scenario-sha256", "ab", "--module", "a.pe"]),
+            (("scenario", "s.json", "ab"), ["a.pe"], []),
         )
         with self.assertRaises(SystemExit):
             replay_main.parse(["--scenario"])
+
+    def scenario_files(self, document, data, root):
+        path = os.path.join(root, "scenario.json")
+        with open(path, "w") as handle:
+            json.dump(document, handle)
+        module = os.path.join(root, "module.pe")
+        with open(module, "wb") as handle:
+            handle.write(data)
+        return path, module
+
+    def test_run_file_refuses_a_scenario_whose_bytes_differ_from_the_digest(self):
+        document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": 7}])
+        with tempfile.TemporaryDirectory() as root:
+            path, module = self.scenario_files(document, data, root)
+            with self.assertRaisesRegex(replay.ReplayError, "scenario sha256: expected " + "0" * 64):
+                scenario.run_file(path, [module], lambda doc: None, "0" * 64)
+            with open(path, "rb") as handle:
+                good = sha(handle.read())
+            documents = []
+            summary = scenario.run_file(path, [module], documents.append, good)
+        self.assertTrue(summary["passed"], documents)
+
+    def test_every_number_as_a_hex_string_runs_like_the_integers(self):
+        # bme sends the canonical form: every Word is a 0x string, in options too.
+        indexed = {
+            "name": "hwm",
+            "kind": "indexed-registers",
+            "options": {
+                "index_port": "0x2e",
+                "data_port": "0x2f",
+                "banks": "0x2",
+                "bank_register": "0x4e",
+                "default": "0x1",
+                "seed": "0x7",
+                "fixed_bank": "0x0",
+                "registers": {"0": {"0x10": "0x33"}},
+            },
+        }
+        ports = {"name": "pm", "kind": "port-registers", "options": {"values": {"0x404": "0x1400"}, "read_only": ["0x404"]}}
+        mmio = {
+            "name": "rcba",
+            "kind": "mmio-registers",
+            "base": "0xfed1c000",
+            "size": "0x1000",
+            "options": {"values": {"0x0": "0x1234"}, "default": "0x0"},
+        }
+        document, data = scenario_for(
+            READ_MMIO_FED1C000,
+            [
+                {"kind": "return", "equals": "0x1234"},
+                {"kind": "register", "device": "hwm", "bank": "0x0", "index": "0x10", "mask": "0xf", "equals": "0x3"},
+                {"kind": "port", "device": "pm", "port": "0x404", "equals": "0x1400"},
+            ],
+            hardware=[indexed, ports, mmio],
+        )
+        summary, documents = self.run_scenario(document, data)
+        self.assertTrue(summary["passed"], documents)
 
 
 if __name__ == "__main__":

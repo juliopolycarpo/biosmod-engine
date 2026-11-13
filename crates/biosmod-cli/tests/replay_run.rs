@@ -135,10 +135,23 @@ fn the_runtime_gets_the_scenario_and_the_module() {
     );
     assert_eq!(run.code, 0, "{}\n{}", run.stdout, run.stderr);
     let reply = run.json();
+    let argv = reply["data"]["documents"][1]["argv"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let words: Vec<&str> = argv.split(' ').collect();
+    assert_eq!(words[0], "--scenario", "(runtime argv) {argv}");
+    assert_ne!(
+        words[1],
+        s(&scenario),
+        "(scenario argument): expected bme's scratch copy | received the user's file"
+    );
+    assert_eq!(words[2], "--scenario-sha256", "(runtime argv) {argv}");
+    assert_eq!(words[3].len(), 64, "(scenario digest) {argv}");
     assert_eq!(
-        reply["data"]["documents"][1]["argv"],
-        format!("--scenario {} --module {}", s(&scenario), s(&module)),
-        "(runtime argv): expected the scenario and the module"
+        &words[4..],
+        ["--module", s(&module)],
+        "(runtime argv): expected the module last | received {argv}"
     );
 }
 

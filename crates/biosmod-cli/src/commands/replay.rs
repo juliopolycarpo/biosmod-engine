@@ -268,7 +268,8 @@ pub fn run(ctx: &Ctx, args: &ReplayRunArgs) -> Result<Reply> {
     let output = toolchain::run_replay_scenario(
         ctx,
         &ScenarioRun {
-            scenario: &args.scenario,
+            scenario: &scenario,
+            label: &args.scenario,
             module: &args.module,
             timeout: Duration::from_secs(args.timeout),
         },

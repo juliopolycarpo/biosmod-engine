@@ -10,6 +10,7 @@ import hashlib
 import json
 
 from . import devices
+from .devices import word  # noqa: F401  (kept as `scenario.word`)
 from .errors import ReplayError
 from .machine import Machine
 from .pe import load_pe
@@ -29,16 +30,6 @@ SYMBOLS = (
     "smm-table",
     "pei-services",
 )
-
-
-def word(value):
-    """An integer from a JSON integer or a `0x` string.
-
-    Example: `word("0x1658")` and `word(5720)` are both 5720.
-    """
-    if isinstance(value, bool) or not isinstance(value, (int, str)):
-        raise ReplayError("number: expected an integer or a 0x string | received %r" % (value,))
-    return value if isinstance(value, int) else int(value, 0)
 
 
 class Setup:
@@ -239,12 +230,21 @@ def run(scenario, data, emit):
     return summary
 
 
-def run_file(path, modules, emit):
-    """Load the scenario at `path` and run it against the single module in `modules`."""
+def run_file(path, modules, emit, sha256=None):
+    """Load the scenario at `path` and run it against the single module in `modules`.
+
+    With `sha256`, the file's bytes must hash to it: bme passes the digest of the canonical
+    JSON it validated, so a file swapped in between is refused.
+    """
     if len(modules) != 1:
         raise ReplayError("scenario modules: expected exactly one --module | received %d" % len(modules))
-    with open(path, encoding="utf-8") as handle:
-        scenario = json.load(handle)
+    with open(path, "rb") as handle:
+        raw = handle.read()
+    if sha256 is not None:
+        digest = hashlib.sha256(raw).hexdigest()
+        if digest != sha256.lower():
+            raise ReplayError("scenario sha256: expected %s | received %s" % (sha256.lower(), digest))
+    scenario = json.loads(raw.decode("utf-8"))
     with open(modules[0], "rb") as handle:
         data = handle.read()
     return run(scenario, data, emit)

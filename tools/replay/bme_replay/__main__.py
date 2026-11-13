@@ -13,7 +13,8 @@ from . import _modules
 def parse(argv):
     """Split `argv` into `(harness, modules, script_args)`.
 
-    With `--scenario FILE` first, `harness` is `("scenario", FILE)`.
+    With `--scenario FILE` first, `harness` is `("scenario", FILE, SHA256 or None)`; the digest
+    comes from `--scenario-sha256 HEX` and is checked against the file's bytes.
 
     Example: `parse(["h.py", "--module", "a.pe", "--", "x"])` is `("h.py", ["a.pe"], ["x"])`.
     """
@@ -23,7 +24,12 @@ def parse(argv):
     if harness == "--scenario":
         if not rest:
             raise SystemExit("--scenario: expected a path | received none")
-        harness, rest = ("scenario", rest[0]), rest[1:]
+        harness, rest = ["scenario", rest[0], None], rest[1:]
+        if rest[:1] == ["--scenario-sha256"]:
+            if len(rest) < 2:
+                raise SystemExit("--scenario-sha256: expected a digest | received none")
+            harness[2], rest = rest[1], rest[2:]
+        harness = tuple(harness)
     modules, script_args = [], []
     index = 0
     while index < len(rest):
@@ -47,7 +53,7 @@ def main(argv):
     if isinstance(harness, tuple):
         from . import emit, scenario
 
-        scenario.run_file(harness[1], modules, emit)
+        scenario.run_file(harness[1], modules, emit, harness[2])
         return
     sys.argv = [harness] + script_args
     # Isolated mode (`-I`) leaves sibling helper modules off the path.
