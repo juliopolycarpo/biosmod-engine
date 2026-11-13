@@ -20,14 +20,14 @@
     ],
     "references": [
       {
-        "build": "x99ha00m-20221202",
-        "module": "IioInit",
-        "location": "loops e622-e65c and e76c-e782 in e5e4 (caller e7f0)"
-      },
-      {
         "build": "mnx99mr9apro-230322",
         "module": "IioInit",
         "location": "loops e6b6-e6f0 and e800-e816 in e678 (caller e884)"
+      },
+      {
+        "build": "x99ha00m-20221202",
+        "module": "IioInit",
+        "location": "loops e622-e65c and e76c-e782 in e5e4 (caller e7f0)"
       }
     ]
   },
