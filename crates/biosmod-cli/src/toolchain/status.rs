@@ -140,43 +140,42 @@ fn package_command(os_release: &str, package: Package) -> Option<String> {
         }
     }
     let is = |names: &[&str]| families.iter().any(|f| names.contains(&f.as_str()));
-    let (manager, name) = if is(&["debian", "ubuntu"]) {
-        (
-            "sudo apt install",
-            match package {
-                Package::Flashrom => "flashrom".to_string(),
-                Package::Nasm => "nasm".to_string(),
-                Package::Iasl => "acpica-tools".to_string(),
-                Package::Git => "git".to_string(),
-                Package::Jdk(n) => format!("openjdk-{n}-jdk"),
-            },
-        )
+    let (manager, family) = if is(&["debian", "ubuntu"]) {
+        ("sudo apt install", Family::Debian)
     } else if is(&["fedora", "rhel", "centos"]) {
-        (
-            "sudo dnf install",
-            match package {
-                Package::Flashrom => "flashrom".to_string(),
-                Package::Nasm => "nasm".to_string(),
-                Package::Iasl => "acpica-tools".to_string(),
-                Package::Git => "git".to_string(),
-                Package::Jdk(n) => format!("java-{n}-openjdk-devel"),
-            },
-        )
+        ("sudo dnf install", Family::Fedora)
     } else if is(&["arch"]) {
-        (
-            "sudo pacman -S",
-            match package {
-                Package::Flashrom => "flashrom".to_string(),
-                Package::Nasm => "nasm".to_string(),
-                Package::Iasl => "acpica".to_string(),
-                Package::Git => "git".to_string(),
-                Package::Jdk(n) => format!("jdk{n}-openjdk"),
-            },
-        )
+        ("sudo pacman -S", Family::Arch)
     } else {
         return None;
     };
-    Some(format!("{manager} {name}"))
+    Some(format!("{manager} {}", package.name(family)))
+}
+
+/// Distribution families whose package names bme knows.
+#[derive(Debug, Clone, Copy)]
+enum Family {
+    Debian,
+    Fedora,
+    Arch,
+}
+
+impl Package {
+    /// The package that provides this tool on `family`.
+    ///
+    /// Example: `Package::Iasl.name(Family::Arch)` is `"acpica"`.
+    fn name(self, family: Family) -> String {
+        match (self, family) {
+            (Package::Flashrom, _) => "flashrom".into(),
+            (Package::Nasm, _) => "nasm".into(),
+            (Package::Git, _) => "git".into(),
+            (Package::Iasl, Family::Arch) => "acpica".into(),
+            (Package::Iasl, _) => "acpica-tools".into(),
+            (Package::Jdk(n), Family::Debian) => format!("openjdk-{n}-jdk"),
+            (Package::Jdk(n), Family::Fedora) => format!("java-{n}-openjdk-devel"),
+            (Package::Jdk(n), Family::Arch) => format!("jdk{n}-openjdk"),
+        }
+    }
 }
 
 fn first_on_path(get: &dyn Fn(&str) -> Option<OsString>, name: &str) -> Option<PathBuf> {
