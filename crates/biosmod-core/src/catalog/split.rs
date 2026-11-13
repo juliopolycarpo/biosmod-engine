@@ -2,9 +2,13 @@
 //!
 //! A single-board catalog cannot carry a foreign firmware build: validation
 //! rejects a variant for an unknown build, a code reference whose build is not
-//! in `affects.builds`, a finding that affects no build, and a board that lists
-//! a finding affecting none of its builds. [`split_board`] reduces every record
-//! to the board's builds and reports what it dropped.
+//! in `affects.builds`, and a board that lists a finding affecting none of its
+//! builds. [`split_board`] reduces every record to the board's builds and
+//! reports what it dropped.
+//!
+//! A `not-applicable` verdict stays: the patch keeps its variant and reason, and
+//! the finding it names stays with no affected build, because validation accepts
+//! such a finding when no patch that names it is applicable in the catalog.
 
 use super::{Board, Finding, FindingStatus, Patch, Variant, records::Records};
 use crate::error::{Code, Error, Result};
@@ -31,17 +35,20 @@ fn invalid(message: String) -> Error {
 
 /// Reduce `source` to the board `board_id`.
 ///
-/// - A patch stays when one of the board's builds has an `applicable` variant;
-///   its variants are cut to those builds and `requires`, `supersedes` and
-///   `conflicts` to the patches that stay.
-/// - A finding stays when `affects.builds` meets the board's builds; foreign
-///   builds and code references go, and a `fixed-by-patch` finding left with
-///   no patch becomes `open`.
+/// - A patch stays when one of the board's builds has a variant, `applicable` or
+///   `not-applicable`; its variants are cut to those builds and `requires`,
+///   `supersedes` and `conflicts` to the patches that stay.
+/// - A finding stays when `affects.builds` meets the board's builds or a kept
+///   patch lists it in `findings`. Foreign builds and code references go, so a
+///   finding kept through a patch may end with no build. A `fixed-by-patch`
+///   finding with no kept patch in `patches` becomes `open`.
 /// - Evidence stays when its `board` is `board_id`.
-/// - The board's `patches`, `findings` and `evidence` lists keep their order.
+/// - The board's `patches` and `evidence` lists keep their order. Its `findings`
+///   list keeps only the findings that affect one of the board's builds.
 ///
-/// Fails when the board is unknown, when a kept patch requires a dropped patch
-/// or names a dropped finding, or when kept evidence names a dropped patch.
+/// Fails when the board is unknown, when a kept patch requires a dropped patch,
+/// when a patch with an applicable variant lists a finding that affects none of the
+/// board's builds, or when kept evidence names a dropped patch.
 ///
 /// Example: `let split = split_board(&records, "acme-x99")?;`
 pub fn split_board(source: &Records, board_id: &str) -> Result<Split> {
@@ -60,14 +67,26 @@ pub fn split_board(source: &Records, board_id: &str) -> Result<Split> {
     let kept_patches: BTreeSet<&str> = source
         .patches
         .values()
-        .filter(|patch| runs_on(patch, &builds))
+        .filter(|patch| has_variant_for(patch, &builds))
         .map(|patch| patch.id.as_str())
         .collect();
-    let kept_findings: BTreeSet<&str> = source
+    let board_findings: BTreeSet<&str> = source
         .findings
         .values()
         .filter(|finding| affects_any(finding, &builds))
         .map(|finding| finding.id.as_str())
+        .collect();
+    // A patch's verdict for this board keeps the finding it names, even with no affected build.
+    let kept_findings: BTreeSet<&str> = board_findings
+        .iter()
+        .copied()
+        .chain(
+            kept_patches
+                .iter()
+                .flat_map(|id| &source.patches[*id].findings)
+                .map(String::as_str)
+                .filter(|id| source.findings.contains_key(*id)),
+        )
         .collect();
     let kept_evidence: BTreeSet<&str> = source
         .evidence
@@ -79,10 +98,14 @@ pub fn split_board(source: &Records, board_id: &str) -> Result<Split> {
     let mut records = Records::default();
     for id in &kept_patches {
         let patch = reduce_patch(&source.patches[*id], board_id, &builds, &kept_patches)?;
-        if let Some(finding) = patch
-            .findings
-            .iter()
-            .find(|finding| !kept_findings.contains(finding.as_str()))
+        // An applicable patch cannot name a finding that affects none of the board's builds:
+        // validation accepts a finding without a build only for a patch with no applicable variant.
+        // A name that is no finding of the catalog stays as it is; validation does not check it.
+        if runs_on(&patch)
+            && let Some(finding) = patch.findings.iter().find(|finding| {
+                source.findings.contains_key(finding.as_str())
+                    && !board_findings.contains(finding.as_str())
+            })
         {
             return Err(invalid(format!(
                 "patch {id}: findings: expected only findings that affect board {board_id} | received {finding}, which affects none of its builds"
@@ -107,7 +130,7 @@ pub fn split_board(source: &Records, board_id: &str) -> Result<Split> {
             .find(|patch| !kept_patches.contains(patch.id.as_str()))
         {
             return Err(invalid(format!(
-                "evidence {id}: patches: expected only patches with an applicable variant for board {board_id} | received {}",
+                "evidence {id}: patches: expected only patches with a variant for board {board_id} | received {}",
                 patch.id
             )));
         }
@@ -117,7 +140,7 @@ pub fn split_board(source: &Records, board_id: &str) -> Result<Split> {
     }
     records.boards.insert(
         board_id.to_string(),
-        reduce_board(board, &kept_patches, &kept_findings, &kept_evidence),
+        reduce_board(board, &kept_patches, &board_findings, &kept_evidence),
     );
 
     let dropped = Dropped {
@@ -128,13 +151,24 @@ pub fn split_board(source: &Records, board_id: &str) -> Result<Split> {
     Ok(Split { records, dropped })
 }
 
-/// Whether `patch` has an `applicable` variant for one of `builds`.
+/// Whether `patch` has a variant, applicable or not, for one of `builds`.
 ///
-/// Example: a patch with only a `not-applicable` variant for the board's build is false.
-fn runs_on(patch: &Patch, builds: &BTreeSet<&str>) -> bool {
-    patch.variants.iter().any(|(build, variant)| {
-        builds.contains(build.as_str()) && matches!(variant, Variant::Applicable(_))
-    })
+/// Example: a patch with only a `not-applicable` variant for the board's build is true.
+fn has_variant_for(patch: &Patch, builds: &BTreeSet<&str>) -> bool {
+    patch
+        .variants
+        .keys()
+        .any(|build| builds.contains(build.as_str()))
+}
+
+/// Whether `patch` has an `applicable` variant.
+///
+/// Example: a patch reduced to one `not-applicable` variant is false.
+fn runs_on(patch: &Patch) -> bool {
+    patch
+        .variants
+        .values()
+        .any(|variant| matches!(variant, Variant::Applicable(_)))
 }
 
 /// Whether `finding` affects one of `builds`.
@@ -172,7 +206,7 @@ fn reduce_patch(
 ) -> Result<Patch> {
     if let Some(missing) = patch.requires.iter().find(|id| !kept.contains(id.as_str())) {
         return Err(invalid(format!(
-            "patch {}: requires: expected patches with an applicable variant for board {board_id} | received {missing}, which has none",
+            "patch {}: requires: expected patches with a variant for board {board_id} | received {missing}, which has none",
             patch.id
         )));
     }
@@ -187,6 +221,8 @@ fn reduce_patch(
 }
 
 /// Cut a kept finding to the board's builds, patches and evidence.
+///
+/// A finding kept through a patch that does not apply to the board ends with no build.
 fn reduce_finding(
     finding: &Finding,
     builds: &BTreeSet<&str>,
@@ -213,15 +249,18 @@ fn reduce_finding(
 }
 
 /// Cut the board's record lists to the records that stay, keeping their order.
+///
+/// `board_findings` holds the findings that affect the board: a board may not list a finding
+/// that only records a verdict.
 fn reduce_board(
     board: &Board,
     kept_patches: &BTreeSet<&str>,
-    kept_findings: &BTreeSet<&str>,
+    board_findings: &BTreeSet<&str>,
     kept_evidence: &BTreeSet<&str>,
 ) -> Board {
     let mut reduced = board.clone();
     reduced.patches = retain_kept(&board.patches, kept_patches);
-    reduced.findings = retain_kept(&board.findings, kept_findings);
+    reduced.findings = retain_kept(&board.findings, board_findings);
     reduced.evidence = retain_kept(&board.evidence, kept_evidence);
     reduced
 }
@@ -241,7 +280,8 @@ mod tests {
     const B: &str = "build-b";
 
     /// Two boards, `board-a` (build-a) and `board-b` (build-b); `S` runs on both,
-    /// `PA` only on A (with a not-applicable B variant), `PB` only on B.
+    /// `PA` only on A (with a not-applicable B variant), `PB` only on B (with a
+    /// not-applicable A variant).
     fn two_boards() -> Records {
         let mut r = Records::default();
         r.boards.insert(
@@ -250,7 +290,7 @@ mod tests {
                 "board-a",
                 &[A],
                 &["S", "PA", "PB"],
-                &["F-S", "F-A", "F-B"],
+                &["F-S", "F-A"],
                 &["E-A"],
             ),
         );
@@ -293,13 +333,48 @@ mod tests {
         );
     }
 
+    /// `two_boards` plus `PX`, a patch with a variant for build B only.
+    fn two_boards_with_foreign_patch() -> Records {
+        let mut records = two_boards();
+        records
+            .patches
+            .insert("PX".into(), patch("PX", &[(B, true)]));
+        records
+    }
+
     #[test]
-    fn patch_without_an_applicable_variant_is_dropped_with_its_board_entry() {
+    fn patch_with_only_a_not_applicable_variant_for_the_board_is_kept() {
         let split = split_board(&two_boards(), "board-a").unwrap();
-        assert_eq!(split.dropped.patches, ["PB"]);
+        assert_eq!(split.dropped.patches, Vec::<String>::new());
         let kept: Vec<&str> = split.records.patches.keys().map(String::as_str).collect();
-        assert_eq!(kept, ["PA", "S"]);
-        assert_eq!(split.records.boards["board-a"].patches, ["S", "PA"]);
+        assert_eq!(kept, ["PA", "PB", "S"]);
+        assert_eq!(split.records.boards["board-a"].patches, ["S", "PA", "PB"]);
+        assert!(
+            matches!(
+                split.records.patches["PB"].variants[A],
+                Variant::NotApplicable(_)
+            ),
+            "(PB variant for {A}): expected the not-applicable verdict kept"
+        );
+    }
+
+    #[test]
+    fn patch_without_a_variant_for_the_board_is_dropped_with_its_board_entry() {
+        let mut records = two_boards_with_foreign_patch();
+        records
+            .boards
+            .get_mut("board-b")
+            .unwrap()
+            .patches
+            .push("PX".into());
+        let split = split_board(&records, "board-a").unwrap();
+        assert_eq!(split.dropped.patches, ["PX"]);
+        assert!(!split.records.patches.contains_key("PX"));
+        let split = split_board(&records, "board-b").unwrap();
+        assert_eq!(
+            split.records.boards["board-b"].patches,
+            ["S", "PB", "PA", "PX"]
+        );
     }
 
     #[test]
@@ -313,22 +388,22 @@ mod tests {
 
     #[test]
     fn requires_on_a_dropped_patch_fails_naming_both() {
-        let mut records = two_boards();
-        records.patches.get_mut("PA").unwrap().requires = vec!["PB".into()];
+        let mut records = two_boards_with_foreign_patch();
+        records.patches.get_mut("PA").unwrap().requires = vec!["PX".into()];
         let error = split_board(&records, "board-a").unwrap_err();
         assert_eq!(error.code, Code::CatalogInvalid);
         assert_eq!(
             error.message,
-            "patch PA: requires: expected patches with an applicable variant for board board-a | received PB, which has none"
+            "patch PA: requires: expected patches with a variant for board board-a | received PX, which has none"
         );
     }
 
     #[test]
     fn supersedes_and_conflicts_are_cut_to_kept_patches() {
-        let mut records = two_boards();
+        let mut records = two_boards_with_foreign_patch();
         let pa = records.patches.get_mut("PA").unwrap();
-        pa.supersedes = vec!["S".into(), "PB".into()];
-        pa.conflicts = vec!["PB".into()];
+        pa.supersedes = vec!["S".into(), "PX".into()];
+        pa.conflicts = vec!["PX".into()];
         let split = split_board(&records, "board-a").unwrap();
         let pa = &split.records.patches["PA"];
         assert_eq!(pa.supersedes, ["S"]);
@@ -344,7 +419,15 @@ mod tests {
     }
 
     #[test]
-    fn kept_patch_naming_a_dropped_finding_fails_naming_both() {
+    fn requires_on_a_patch_that_does_not_apply_here_survives() {
+        let mut records = two_boards();
+        records.patches.get_mut("PA").unwrap().requires = vec!["PB".into()];
+        let split = split_board(&records, "board-a").unwrap();
+        assert_eq!(split.records.patches["PA"].requires, ["PB"]);
+    }
+
+    #[test]
+    fn applicable_patch_naming_a_finding_without_a_build_here_fails_naming_both() {
         let mut records = two_boards();
         records.patches.get_mut("S").unwrap().findings = vec!["F-B".into()];
         let error = split_board(&records, "board-a").unwrap_err();
@@ -352,6 +435,60 @@ mod tests {
             error.message,
             "patch S: findings: expected only findings that affect board board-a | received F-B, which affects none of its builds"
         );
+    }
+
+    #[test]
+    fn finding_named_by_a_patch_that_does_not_apply_stays_with_no_build() {
+        let mut records = two_boards();
+        // PB does not apply to build-a, and names the defect of build-b it does not fix there.
+        records.patches.get_mut("PB").unwrap().findings = vec!["F-B".into()];
+        let split = split_board(&records, "board-a").unwrap();
+        assert_eq!(split.dropped.findings, Vec::<String>::new());
+        let verdict = &split.records.findings["F-B"];
+        assert!(
+            verdict.affects.builds.is_empty(),
+            "(F-B affects.builds): expected none | received {:?}",
+            verdict.affects.builds
+        );
+        assert!(
+            verdict.owner.references.is_empty(),
+            "(F-B owner.references): expected the foreign code reference cut"
+        );
+        assert_eq!(verdict.patches, ["PB"]);
+        assert_eq!(verdict.status, FindingStatus::FixedByPatch);
+    }
+
+    #[test]
+    fn board_findings_list_leaves_out_a_finding_kept_only_for_its_verdict() {
+        let mut records = two_boards();
+        records.patches.get_mut("PB").unwrap().findings = vec!["F-B".into()];
+        // A source that lists the finding on the board anyway: the split must not carry it over.
+        records
+            .boards
+            .get_mut("board-a")
+            .unwrap()
+            .findings
+            .push("F-B".into());
+        let split = split_board(&records, "board-a").unwrap();
+        assert!(split.records.findings.contains_key("F-B"));
+        assert_eq!(split.records.boards["board-a"].findings, ["F-S", "F-A"]);
+    }
+
+    #[test]
+    fn a_name_that_is_no_finding_of_the_catalog_does_not_stop_the_split() {
+        let mut records = two_boards();
+        records.patches.get_mut("S").unwrap().findings = vec!["GHOST".into()];
+        let split = split_board(&records, "board-a").unwrap();
+        assert_eq!(split.records.patches["S"].findings, ["GHOST"]);
+        assert!(!split.records.findings.contains_key("GHOST"));
+    }
+
+    #[test]
+    fn unknown_finding_named_by_a_patch_that_does_not_apply_is_not_invented() {
+        let mut records = two_boards();
+        records.patches.get_mut("PB").unwrap().findings = vec!["GHOST".into()];
+        let split = split_board(&records, "board-a").unwrap();
+        assert!(!split.records.findings.contains_key("GHOST"));
     }
 
     #[test]
@@ -389,11 +526,11 @@ mod tests {
 
     #[test]
     fn fixed_finding_left_without_a_patch_becomes_open() {
-        let mut records = two_boards();
-        // F-X is fixed only by PB, which board-a drops; board-a still sees the defect.
+        let mut records = two_boards_with_foreign_patch();
+        // F-X is fixed only by PX, which board-a drops; board-a still sees the defect.
         records
             .findings
-            .insert("F-X".into(), fixed_finding("F-X", &[A, B], &["PB"]));
+            .insert("F-X".into(), fixed_finding("F-X", &[A, B], &["PX"]));
         let split = split_board(&records, "board-a").unwrap();
         let reduced = &split.records.findings["F-X"];
         assert_eq!(reduced.status, FindingStatus::Open);
@@ -403,6 +540,19 @@ mod tests {
             FindingStatus::FixedByPatch
         );
         assert_eq!(split.records.findings["F-S"].patches, ["S"]);
+    }
+
+    #[test]
+    fn fixed_finding_stays_fixed_while_a_patch_that_does_not_apply_is_left() {
+        let mut records = two_boards();
+        // F-X is fixed by PB, which has a not-applicable variant for build-a: the verdict stays.
+        records
+            .findings
+            .insert("F-X".into(), fixed_finding("F-X", &[A, B], &["PB"]));
+        let split = split_board(&records, "board-a").unwrap();
+        let reduced = &split.records.findings["F-X"];
+        assert_eq!(reduced.status, FindingStatus::FixedByPatch);
+        assert_eq!(reduced.patches, ["PB"]);
     }
 
     #[test]
@@ -423,22 +573,22 @@ mod tests {
 
     #[test]
     fn kept_evidence_naming_a_dropped_patch_fails() {
-        let mut records = two_boards();
+        let mut records = two_boards_with_foreign_patch();
         records
             .evidence
-            .insert("E-A".into(), evidence("E-A", "board-a", A, &["PB"]));
+            .insert("E-A".into(), evidence("E-A", "board-a", A, &["PX"]));
         let error = split_board(&records, "board-a").unwrap_err();
         assert_eq!(
             error.message,
-            "evidence E-A: patches: expected only patches with an applicable variant for board board-a | received PB"
+            "evidence E-A: patches: expected only patches with a variant for board board-a | received PX"
         );
     }
 
     #[test]
     fn board_lists_keep_their_order() {
         let split = split_board(&two_boards(), "board-b").unwrap();
-        // board-b lists S, PB, PA; PA has only a not-applicable B variant.
-        assert_eq!(split.records.boards["board-b"].patches, ["S", "PB"]);
+        // board-b lists S, PB, PA; PA has only a not-applicable B variant and stays.
+        assert_eq!(split.records.boards["board-b"].patches, ["S", "PB", "PA"]);
         assert_eq!(split.records.boards["board-b"].findings, ["F-S", "F-B"]);
     }
 
@@ -450,11 +600,20 @@ mod tests {
     }
 
     #[test]
-    fn runs_on_needs_an_applicable_variant_for_a_board_build() {
+    fn has_variant_for_counts_a_not_applicable_variant_of_a_board_build() {
         let builds = BTreeSet::from([A]);
-        assert!(runs_on(&patch("P", &[(A, true)]), &builds));
-        assert!(!runs_on(&patch("P", &[(A, false), (B, true)]), &builds));
-        assert!(!runs_on(&patch("P", &[(B, true)]), &builds));
+        assert!(has_variant_for(&patch("P", &[(A, true)]), &builds));
+        assert!(has_variant_for(
+            &patch("P", &[(A, false), (B, true)]),
+            &builds
+        ));
+        assert!(!has_variant_for(&patch("P", &[(B, true)]), &builds));
+    }
+
+    #[test]
+    fn runs_on_needs_an_applicable_variant() {
+        assert!(runs_on(&patch("P", &[(A, false), (B, true)])));
+        assert!(!runs_on(&patch("P", &[(A, false)])));
     }
 
     #[test]

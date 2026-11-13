@@ -847,6 +847,7 @@ pub fn submission_files(
         description: Some(
             "Draft submission exported by `bme case export`; board, build, findings and evidence are unreviewed.".into(),
         ),
+        sources: vec![],
         files: index_files(&files)?,
     };
     files.push(("catalog.json".into(), pretty(&manifest)));

@@ -53,7 +53,7 @@ bme catalog merge . ../other-board --check   # fails with the record, field and 
 bme derive --patch B02-B03 --from-firmware <other build id> --component <module> --module Module.pe > draft.json
 ```
 
-`bme derive` drafts the variant for this board's build from the other board's record; review it hunk by hunk (`bme guide porting`). Keep a `not-applicable` variant for the other board's build out of this repository: only a catalog that defines both builds can hold it. To start from the bundled records, run `bme catalog split official --board <board id> -o <dir> --id <id>`.
+`bme derive` drafts the variant for this board's build from the other board's record; review it hunk by hunk (`bme guide porting`). A patch that does not apply to this board's build gets a `not-applicable` variant with its reason. Copy the other board's finding with an empty `affects.builds` and no code reference of that build, and list it in the patch's `findings` but not in the board's. `bme catalog split` keeps these records, and merging the board catalogs brings them back. To start from the bundled records, run `bme catalog split official --board <board id> -o <dir> --id <id>`.
 
 ## Commits
 

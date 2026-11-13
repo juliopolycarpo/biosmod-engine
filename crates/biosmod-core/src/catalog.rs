@@ -28,7 +28,7 @@ pub mod merge;
 pub mod records;
 pub mod split;
 
-pub use merge::{MergeInput, Merged, Shared, merge_catalogs};
+pub use merge::{MergeInput, Merged, PinCheck, PinState, Shared, check_pins, merge_catalogs};
 pub use records::Records;
 pub use split::{Dropped, Split, split_board};
 
@@ -66,7 +66,22 @@ pub struct Manifest {
     pub engine: VersionReq,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The catalogs a merge built this one from, in merge order. Omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<CatalogSource>,
     pub files: Vec<FileEntry>,
+}
+
+/// A source catalog of a merge, pinned by the digest of its `catalog.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogSource {
+    /// The `id` in the source's `catalog.json`.
+    pub id: String,
+    #[schemars(with = "String")]
+    pub version: Version,
+    /// SHA-256 of the exact bytes of the source's `catalog.json`.
+    pub manifest_sha256: Digest256,
 }
 
 /// One indexed file.

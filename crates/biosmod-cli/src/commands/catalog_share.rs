@@ -6,19 +6,18 @@
 //! trust flag, like `bme catalog validate <path>`.
 
 use super::catalog_init::{
-    INITIAL_VERSION, SCAFFOLD_FILES, checked_title, engine_requirement, manifest_bytes,
+    INITIAL_VERSION, SCAFFOLD_FILES, bundled_title, checked_title, manifest_bytes_with,
     write_repository,
 };
 use crate::output::{Reply, display_path};
 use crate::publish::{check_outputs, publish_directory};
 use crate::sources::{DirSource, OFFICIAL, builtin_source};
 use biosmod_core::catalog::{
-    Catalog, FileKind, FileSource, MemorySource, MergeInput, Records, Scope, Shared,
-    merge_catalogs, split_board,
+    Catalog, CatalogSource, FileKind, FileSource, MemorySource, MergeInput, PinCheck, PinState,
+    Records, Scope, Shared, check_pins, merge_catalogs, split_board,
 };
 use biosmod_core::json::pretty;
 use biosmod_core::util::Digest256;
-use biosmod_core::validation::engine_version;
 use biosmod_core::{Code, Error, Result};
 use semver::{Version, VersionReq};
 use serde::Serialize;
@@ -31,7 +30,11 @@ struct Origin {
     /// The id in its `catalog.json`.
     id: String,
     version: Version,
+    /// SHA-256 of the exact `catalog.json` bytes.
+    manifest_sha256: Digest256,
     engine: VersionReq,
+    /// The pins its `catalog.json` lists, empty unless it was written by a merge.
+    sources: Vec<CatalogSource>,
     records: Records,
     /// Provenance files as `(path, bytes)`, in index order.
     provenance: Vec<(String, Vec<u8>)>,
@@ -75,7 +78,9 @@ fn read_files(files: &dyn FileSource) -> Result<Origin> {
     Ok(Origin {
         id: catalog.manifest.id.clone(),
         version: catalog.manifest.version.clone(),
+        manifest_sha256: catalog.manifest_sha256,
         engine: catalog.manifest.engine.clone(),
+        sources: catalog.manifest.sources.clone(),
         records: Records::of(&catalog),
         provenance,
     })
@@ -142,11 +147,14 @@ pub fn split(
         .partition(|(path, _)| split.records.keeps_provenance(path));
     let mut records = record_files(&split.records);
     records.extend(kept);
-    let manifest = manifest_bytes(
+    // The split keeps the source's engine requirement, so merging it back never disagrees on it.
+    let manifest = manifest_bytes_with(
         id,
         title,
         INITIAL_VERSION,
-        engine_requirement(&engine_version()),
+        origin.engine.clone(),
+        None,
+        Vec::new(),
         &records,
     )?;
     check_loads(&records, manifest)?;
@@ -156,7 +164,7 @@ pub fn split(
         .map(String::from)
         .collect();
     let dropped_provenance: Vec<String> = dropped.into_iter().map(|(path, _)| path).collect();
-    let repository = write_repository(dir, id, Some(title), records)?;
+    let repository = write_repository(dir, id, Some(title), origin.engine.clone(), records)?;
 
     let shown = &repository.directory;
     let kept_ids = |ids: Vec<&String>| ids.into_iter().cloned().collect::<Vec<String>>();
@@ -216,9 +224,11 @@ pub enum MergeOutput<'a> {
     Check,
     Write {
         dir: &'a Path,
-        id: &'a str,
+        /// `None` writes the catalog bundled with `bme`, whose id is the reserved `official`.
+        id: Option<&'a str>,
         title: Option<&'a str>,
         version: Option<&'a str>,
+        description: Option<&'a str>,
     },
 }
 
@@ -241,8 +251,18 @@ pub fn merge(sources: &[String], output: MergeOutput<'_>) -> Result<Reply> {
             id,
             title,
             version,
+            description,
         } => {
-            let title = checked_title(id, *title)?;
+            let (id, title) = match id {
+                Some(id) => (*id, checked_title(id, *title)?),
+                None => (OFFICIAL, bundled_title(*title)?),
+            };
+            if description.is_some_and(|text| text.trim().is_empty()) {
+                return Err(Error::new(
+                    Code::Usage,
+                    "description: expected non-empty text | received an empty value",
+                ));
+            }
             let version = match version {
                 Some(text) => Version::parse(text).map_err(|e| {
                     Error::new(
@@ -253,7 +273,7 @@ pub fn merge(sources: &[String], output: MergeOutput<'_>) -> Result<Reply> {
                 None => INITIAL_VERSION,
             };
             check_outputs(&[dir], &[])?;
-            Some((*dir, *id, title, version))
+            Some((*dir, id, title, version, *description))
         }
     };
     let origins = sources
@@ -264,6 +284,9 @@ pub fn merge(sources: &[String], output: MergeOutput<'_>) -> Result<Reply> {
         .iter()
         .map(|origin| MergeInput {
             catalog_id: &origin.id,
+            version: &origin.version,
+            manifest_sha256: origin.manifest_sha256,
+            sources: &origin.sources,
             engine: &origin.engine,
             records: &origin.records,
             provenance: &origin.provenance,
@@ -273,11 +296,19 @@ pub fn merge(sources: &[String], output: MergeOutput<'_>) -> Result<Reply> {
     let mut files = record_files(&merged.records);
     files.extend(merged.provenance.iter().cloned());
 
-    let (id, title, version) = match &target {
-        Some((_, id, title, version)) => (*id, *title, version.clone()),
-        None => ("merge-check", "merge check", INITIAL_VERSION),
+    let (id, title, version, description) = match &target {
+        Some((_, id, title, version, description)) => (*id, *title, version.clone(), *description),
+        None => ("merge-check", "merge check", INITIAL_VERSION, None),
     };
-    let manifest = manifest_bytes(id, title, version.clone(), merged.engine.clone(), &files)?;
+    let manifest = manifest_bytes_with(
+        id,
+        title,
+        version.clone(),
+        merged.engine.clone(),
+        description,
+        merged.sources.clone(),
+        &files,
+    )?;
     let catalog = check_loads(&files, manifest.clone())?;
     let counts = json!({
         "boards": catalog.boards.len(),
@@ -304,12 +335,16 @@ pub fn merge(sources: &[String], output: MergeOutput<'_>) -> Result<Reply> {
         merged.shared.evidence.len(),
         merged.shared.provenance.len()
     );
-    let Some((dir, id, title, version)) = target else {
+    let Some((dir, id, title, version, _)) = target else {
+        let pins = check_pins(&inputs);
         return Ok(Reply::new(
-            json!({"agree": true, "catalogs": ids, "merged": counts, "shared": shared}),
+            json!({
+                "agree": true, "catalogs": ids, "merged": counts, "shared": shared, "pins": pins,
+            }),
             format!(
-                "The catalogs agree: {}\n\x20 merged   {summary}\n\x20 shared   {shared_text}\n",
-                ids.join(", ")
+                "The catalogs agree: {}\n\x20 merged   {summary}\n\x20 shared   {shared_text}\n{}",
+                ids.join(", "),
+                pin_lines(&pins)
             ),
         ));
     };
@@ -324,13 +359,41 @@ pub fn merge(sources: &[String], output: MergeOutput<'_>) -> Result<Reply> {
     Ok(Reply::new(
         json!({
             "directory": shown, "id": id, "title": title, "version": version.to_string(),
-            "catalogs": ids, "merged": counts, "shared": shared,
+            "catalogs": ids, "merged": counts, "shared": shared, "sources": merged.sources,
+            "description": description,
         }),
         format!(
             "Merged {} into {shown}\n\x20 catalog   {id} {version}\n\x20 merged    {summary}\n\x20 shared    {shared_text}\nNext:\n\x20 bme catalog validate {shown}\n",
             ids.join(", ")
         ),
     ))
+}
+
+/// One line per pin check, or nothing: which catalog lists the source, and whether its
+/// current `catalog.json` still has the pinned digest.
+///
+/// The source is named as it was given, so two sources with one id read `dev (#1)` and
+/// `dev (#2)` and the moved one can be told apart.
+///
+/// Example: `  pin      rebuilt lists pr9-b85 0.1.0: pinned`.
+fn pin_lines(pins: &[PinCheck]) -> String {
+    pins.iter()
+        .map(|pin| {
+            let state = match pin.state {
+                PinState::Pinned => pin.state.label().to_string(),
+                PinState::Moved => format!(
+                    "{} (pinned {}, current {})",
+                    pin.state.label(),
+                    pin.pinned,
+                    pin.current
+                ),
+            };
+            format!(
+                "  pin      {} lists {} {}: {state}\n",
+                pin.listed_by, pin.source, pin.version
+            )
+        })
+        .collect()
 }
 
 fn shared_json(shared: &Shared) -> serde_json::Value {
@@ -346,7 +409,9 @@ fn shared_json(shared: &Shared) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::catalog_init::{engine_requirement, manifest_bytes};
     use crate::sources::builtin_source;
+    use biosmod_core::validation::engine_version;
 
     fn official() -> Origin {
         read_files(&builtin_source()).unwrap()
