@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "1ec01fc38a4c732f1df20da7af4ef3a3a4f728dc7d92e2a20fc24e5fa22a5228"
+      "sha256": "e15c6c473756bc82ccfff1a8fc3656949bb053701883be1ea32e36d9e2b1dd4f"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -39,7 +39,7 @@
     {
       "source": "docs/guide/catalogs.md",
       "translation": "docs/pt-BR/guide/catalogs.md",
-      "sha256": "8884b1a071bb057a213a5faa3c025ad56551b96c6ffb316dd4e8a0021346f147"
+      "sha256": "447ba7efc4a15c649cd76c2b8eb67f3aec1351448db8d2870f751b4944393d99"
     },
     {
       "source": "docs/guide/diagnostics.md",
@@ -104,7 +104,7 @@
     {
       "source": "docs/guide/cases.md",
       "translation": "docs/pt-BR/guide/cases.md",
-      "sha256": "5de6c44778f12f282f6a4ff30c4cf0b408d7118fed0891e83f47a8719a02914f"
+      "sha256": "86ab80a58e7a93980ab5fa85c4f998178553dbf6c702235d3575ba837d156a6a"
     }
   ]
 }

@@ -344,6 +344,17 @@ pub struct CompareArgs {
 
 #[derive(Subcommand)]
 pub enum CatalogCommand {
+    /// Scaffold a device repository: an empty catalog, notes directories and a .gitignore that keeps firmware out of git.
+    Init {
+        /// New directory (must not exist).
+        dir: PathBuf,
+        /// Catalog id: 1-64 characters [A-Za-z0-9._-] starting alphanumeric; not `official`.
+        #[arg(long)]
+        id: String,
+        /// Catalog title (default: the id).
+        #[arg(long)]
+        title: Option<String>,
+    },
     /// Validate a catalog directory (or board file) without registering it.
     Validate { path: PathBuf },
     /// Regenerate catalog.json's file index (lengths and hashes).
@@ -763,6 +774,7 @@ fn command_name(command: &Command) -> &'static str {
         Command::Derive(_) => "derive",
         Command::Compare(_) => "compare",
         Command::Catalog(c) => match c {
+            CatalogCommand::Init { .. } => "catalog init",
             CatalogCommand::Validate { .. } => "catalog validate",
             CatalogCommand::Index { .. } => "catalog index",
             CatalogCommand::Add { .. } => "catalog add",

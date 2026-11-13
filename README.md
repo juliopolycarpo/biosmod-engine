@@ -90,6 +90,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 | `compare`, `compare --functions`, `compare --acpi`                 | pair two images' modules by GUID, two `tools analyze` exports by function, or two ACPI namespaces by method |
 | `derive`                                                           | draft a variant for another build by unique signatures        |
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | catalog sources and maintenance                               |
+| `catalog init`                                                     | start a device repository: empty catalog, notes, `.gitignore` |
 | `case init/record/status/export`                                   | record an investigation, draft an unknown board, export a submission |
 | `tools status/set/unset/doctor/setup ghidra/analyze/paths`         | see, locate and install Ghidra 12.2 with ghidra-firmware-utils |
 | `tools setup replay`                                               | Python environment with hash-locked Unicorn, Capstone and pefile |

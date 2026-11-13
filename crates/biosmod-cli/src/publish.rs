@@ -181,13 +181,6 @@ pub fn publish_file(output: &Path, bytes: &[u8]) -> Result<()> {
 /// `PUBLISH_INCOMPLETE` naming it.
 ///
 /// Example: `publish_directory(Path::new("capture"), &[("a/b.bin", &bytes[..])])?`.
-#[cfg_attr(
-    not(target_os = "linux"),
-    allow(
-        dead_code,
-        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
-    )
-)]
 pub fn publish_directory(output: &Path, files: &[(&str, &[u8])]) -> Result<()> {
     check_outputs(&[output], &[])?;
     create_new_directory(output)?;

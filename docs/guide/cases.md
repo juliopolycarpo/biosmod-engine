@@ -20,6 +20,8 @@ Dumps are listed by file name, SHA-256 and size, never copied into the case. Not
 bme case init dump.bin -o work/mr9a-case
 ```
 
+To keep dumps and cases in a git repository that never tracks the dumps, start with `bme catalog init` (see [catalogs](catalogs.md)).
+
 `init` refuses an existing directory. It hashes the dump, scans it with detector signatures and stores that scan as `artifacts/001-scan.json`. Then it drafts, from what the image says about itself:
 
 - a firmware build: the id and version string come from the build banner (`X99H BIOS Date: 12/02/2022 Ver: X99HA00M` becomes `x99ha00m-20221202`), the size from the image, and `drafts/firmware.json` adds the banner strings and the GUID, length and SHA-256 of every PE32 and ACPI module. An image without a banner gets `fw-<sha256 prefix>`.
