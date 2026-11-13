@@ -1169,3 +1169,190 @@ pub fn ifr_twin_prompt_image(stores: &[Vec<u8>]) -> Vec<u8> {
     }
     image
 }
+
+/// A string that must never reach a report: the fixture plants it in every serial,
+/// UUID and asset tag field.
+pub const SMBIOS_SECRET: &str = "SECRET-SERIAL";
+
+/// One SMBIOS structure: the four-byte header (type, length, handle), the formatted
+/// fields in `body` (everything after the header), then the string set.
+///
+/// Example: `smbios_structure(127, 0xFFFF, &[], &[])` is the end-of-table marker.
+pub fn smbios_structure(kind: u8, handle: u16, body: &[u8], strings: &[&str]) -> Vec<u8> {
+    let mut out = vec![kind, (4 + body.len()) as u8];
+    out.extend_from_slice(&handle.to_le_bytes());
+    out.extend_from_slice(body);
+    for text in strings {
+        out.extend_from_slice(text.as_bytes());
+        out.push(0);
+    }
+    // Terminates the set; a structure without strings gets its two NULs here.
+    out.push(0);
+    if strings.is_empty() {
+        out.push(0);
+    }
+    out
+}
+
+/// Place `bytes` in a structure body at the specification's `offset`, which counts
+/// the four header bytes the body does not hold.
+fn put_field(body: &mut [u8], offset: usize, bytes: &[u8]) {
+    let start = offset - 4;
+    body[start..start + bytes.len()].copy_from_slice(bytes);
+}
+
+/// A memory device slot for [`smbios_memory_device`].
+#[derive(Debug, Clone)]
+pub struct SmbiosSlot {
+    pub handle: u16,
+    pub total_width: u16,
+    pub data_width: u16,
+    /// The raw size word: MiB, or KiB with bit 15, or `0x7FFF` for the extended size.
+    pub size_word: u16,
+    pub extended_size_mib: u32,
+    pub speed: u16,
+    pub configured_speed: u16,
+    pub memory_type: u8,
+    pub form_factor: u8,
+    pub rank: u8,
+    pub locator: &'static str,
+    pub bank: &'static str,
+    pub manufacturer: &'static str,
+    pub part_number: &'static str,
+}
+
+impl SmbiosSlot {
+    /// An 8 GiB DDR4 DIMM whose total and data widths are both 72 bits, the shape the
+    /// MR9A reports (finding R01).
+    pub fn populated_72_bit() -> SmbiosSlot {
+        SmbiosSlot {
+            handle: 0x1100,
+            total_width: 72,
+            data_width: 72,
+            size_word: 8192,
+            extended_size_mib: 0,
+            speed: 2666,
+            configured_speed: 2133,
+            memory_type: 0x1A,
+            form_factor: 0x09,
+            rank: 1,
+            locator: "DIMM_A1",
+            bank: "BANK 0",
+            manufacturer: "Synthetic Memory",
+            part_number: "SYN-DDR4-8G",
+        }
+    }
+
+    /// An empty slot: size 0, unknown widths and type.
+    pub fn empty(locator: &'static str) -> SmbiosSlot {
+        SmbiosSlot {
+            handle: 0x1101,
+            total_width: 0xFFFF,
+            data_width: 0xFFFF,
+            size_word: 0,
+            extended_size_mib: 0,
+            speed: 0,
+            configured_speed: 0,
+            memory_type: 0x02,
+            form_factor: 0x09,
+            rank: 0,
+            locator,
+            bank: "BANK 1",
+            manufacturer: "",
+            part_number: "",
+        }
+    }
+}
+
+/// A type 17 structure with the SMBIOS 3.2 formatted length (0x28), a serial number
+/// string and an asset tag string that the decoder must not report.
+///
+/// Example: `smbios_memory_device(&SmbiosSlot::populated_72_bit())`.
+pub fn smbios_memory_device(slot: &SmbiosSlot) -> Vec<u8> {
+    let mut strings: Vec<&str> = Vec::new();
+    // One-based index of a string, or 0 for an empty one.
+    let mut index = |text: &'static str| -> u8 {
+        if text.is_empty() {
+            return 0;
+        }
+        strings.push(text);
+        strings.len() as u8
+    };
+    let locator = index(slot.locator);
+    let bank = index(slot.bank);
+    let manufacturer = index(slot.manufacturer);
+    let serial = index(SMBIOS_SECRET);
+    let asset = index(SMBIOS_SECRET);
+    let part = index(slot.part_number);
+    // Offsets below are the specification's, minus the four header bytes.
+    let mut body = vec![0u8; 0x28 - 4];
+    let mut put = |offset: usize, bytes: &[u8]| put_field(&mut body, offset, bytes);
+    put(0x08, &slot.total_width.to_le_bytes());
+    put(0x0A, &slot.data_width.to_le_bytes());
+    put(0x0C, &slot.size_word.to_le_bytes());
+    put(0x0E, &[slot.form_factor]);
+    put(0x10, &[locator, bank, slot.memory_type]);
+    put(0x15, &slot.speed.to_le_bytes());
+    put(0x17, &[manufacturer, serial, asset, part, slot.rank]);
+    put(0x1C, &slot.extended_size_mib.to_le_bytes());
+    put(0x20, &slot.configured_speed.to_le_bytes());
+    smbios_structure(17, slot.handle, &body, &strings)
+}
+
+/// The structures of the SMBIOS fixture, in table order: BIOS, system, baseboard, a
+/// processor (a type the decoder skips), two memory slots and the end marker.
+pub fn smbios_fixture_structures() -> Vec<Vec<u8>> {
+    let mut bios = [0u8; 0x18 - 4];
+    put_field(&mut bios, 0x04, &[1, 2]);
+    put_field(&mut bios, 0x08, &[3, 0x7F]);
+    let mut system = [0u8; 0x1B - 4];
+    put_field(&mut system, 0x04, &[1, 2, 3, 4]);
+    put_field(&mut system, 0x08, &[0x11; 16]);
+    put_field(&mut system, 0x19, &[5, 6]);
+    let mut baseboard = [0u8; 0x0F - 4];
+    put_field(&mut baseboard, 0x04, &[1, 2, 3, 4, 5]);
+    vec![
+        smbios_structure(
+            0,
+            0,
+            &bios,
+            &["Synthetic Firmware Vendor", "5.11", "03/22/2023"],
+        ),
+        smbios_structure(
+            1,
+            1,
+            &system,
+            &[
+                "SYNTHETIC",
+                "Synthetic System",
+                "V1",
+                SMBIOS_SECRET,
+                "SKU-1",
+                "Synthetic Family",
+            ],
+        ),
+        smbios_structure(
+            2,
+            2,
+            &baseboard,
+            &[
+                "SYNTHETIC",
+                "Synthetic Board",
+                "V1.2",
+                SMBIOS_SECRET,
+                SMBIOS_SECRET,
+            ],
+        ),
+        smbios_structure(4, 4, &[0u8; 0x30 - 4], &["Synthetic CPU"]),
+        smbios_memory_device(&SmbiosSlot::populated_72_bit()),
+        smbios_memory_device(&SmbiosSlot::empty("DIMM_B1")),
+        smbios_structure(127, 0xFFFF, &[], &[]),
+    ]
+}
+
+/// The SMBIOS fixture as the kernel exposes it: all structures back to back.
+///
+/// Example: `smbios::parse(&smbios_table())?.memory_devices.len()` is 2.
+pub fn smbios_table() -> Vec<u8> {
+    smbios_fixture_structures().concat()
+}

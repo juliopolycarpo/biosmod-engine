@@ -13,7 +13,7 @@ use biosmod_host::bundle::{Bundle, EVIDENCE_FILE, MANIFEST_FILE};
 use biosmod_host::files::HostWrite;
 use biosmod_host::ports::PortIo;
 use biosmod_host::suspend::{self, Stage, Status};
-use biosmod_host::{HostSurfaces, acpi, superio};
+use biosmod_host::{HostSurfaces, acpi, smbios, superio};
 use serde_json::json;
 use std::path::Path;
 
@@ -167,6 +167,97 @@ pub fn read_superio_to(
         }),
         text,
     ))
+}
+
+pub fn run_smbios(output: Option<&Path>) -> Result<Reply> {
+    if let Some(output) = output {
+        check_outputs(&[output], &[])?;
+    }
+    #[cfg(target_os = "linux")]
+    return on_this_machine(|surfaces| smbios_to(surfaces, output));
+    #[cfg(not(target_os = "linux"))]
+    Err(unsupported("diag smbios"))
+}
+
+/// Read the SMBIOS facts through `surfaces` and optionally publish the bundle at `output`.
+///
+/// Example: with fake surfaces over a tree holding the DMI table, the reply's
+/// `report.memory_devices[0].total_width_bits` is `72`.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
+pub fn smbios_to(surfaces: &HostSurfaces, output: Option<&Path>) -> Result<Reply> {
+    let capture = smbios::capture(surfaces)?;
+    if let Some(output) = output {
+        publish_bundle(output, &capture.bundle)?;
+    }
+    let mut text = render_smbios(&capture.report);
+    if let Some(output) = output {
+        text += &format!("Saved to {}\n", output.display());
+    }
+    Ok(Reply::new(
+        json!({
+            "report": capture.report,
+            "directory": output.map(display_path),
+        }),
+        text,
+    ))
+}
+
+/// Human summary: identity lines, then one line per memory device or why there are none.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "shared by the Linux commands and the fake-backed tests; other platforms refuse earlier"
+    )
+)]
+fn render_smbios(report: &smbios::SmbiosReport) -> String {
+    let or_unknown = |value: &Option<String>| value.clone().unwrap_or_else(|| "unknown".into());
+    let mut text = String::new();
+    if let Some(bios) = &report.bios {
+        text += &format!(
+            "BIOS      {} {} {}\n",
+            or_unknown(&bios.vendor),
+            or_unknown(&bios.version),
+            bios.release_date.as_deref().unwrap_or("")
+        );
+    }
+    if let Some(system) = &report.system {
+        text += &format!(
+            "System    {} {} {}\n",
+            or_unknown(&system.manufacturer),
+            or_unknown(&system.product_name),
+            system.version.as_deref().unwrap_or("")
+        );
+    }
+    if let Some(board) = &report.baseboard {
+        text += &format!(
+            "Baseboard {} {} {}\n",
+            or_unknown(&board.manufacturer),
+            or_unknown(&board.product),
+            board.version.as_deref().unwrap_or("")
+        );
+    }
+    match (&report.memory_devices, &report.unavailable) {
+        (Some(devices), _) => {
+            text += &format!("Memory devices: {}\n", devices.len());
+            for device in devices {
+                text += &format!("  {}\n", smbios::describe_device(device));
+            }
+        }
+        (None, reason) => {
+            text += &format!(
+                "Memory devices: unavailable ({})\n",
+                reason.as_deref().unwrap_or("not reported")
+            );
+        }
+    }
+    text
 }
 
 pub fn run_suspend(command: SuspendCommand) -> Result<Reply> {
@@ -482,6 +573,91 @@ mod tests {
             stage,
             output,
         )
+    }
+
+    fn smbios_reply(files: &dyn biosmod_host::HostFiles, output: Option<&Path>) -> Result<Reply> {
+        let log = FakeKernelLog::new();
+        smbios_to(
+            &HostSurfaces {
+                files,
+                kernel_log: &log,
+                privilege: &FakePrivilege::user(1000),
+                clock: &FixedClock,
+            },
+            output,
+        )
+    }
+
+    fn sysfs_with_dmi_table() -> FakeSysfs {
+        FakeSysfs::mr9a().file(
+            "sys/firmware/dmi/tables/DMI",
+            biosmod_core::synthetic::smbios_table(),
+        )
+    }
+
+    #[test]
+    fn smbios_reply_lists_both_widths_of_every_slot() {
+        let sysfs = sysfs_with_dmi_table();
+        let reply = smbios_reply(&sysfs.files(), None).unwrap();
+        assert_eq!(reply.data["report"]["source"], "dmi-table");
+        let device = &reply.data["report"]["memory_devices"][0];
+        assert_eq!(
+            (&device["total_width_bits"], &device["data_width_bits"]),
+            (&json!(72), &json!(72))
+        );
+        assert!(
+            reply.text.contains(
+                "DIMM_A1 (BANK 0): 8192 MiB DDR4 DIMM, total width 72 bits, data width 72 bits"
+            ),
+            "{}",
+            reply.text
+        );
+        assert!(
+            reply.text.contains("DIMM_B1 (BANK 1): empty"),
+            "{}",
+            reply.text
+        );
+        assert_eq!(reply.data["directory"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn smbios_without_the_table_says_unavailable_in_both_outputs() {
+        let sysfs = sysfs_with_dmi_table();
+        let files = biosmod_host::testkit::RootOnlyFiles::new(
+            sysfs.files(),
+            ["/sys/firmware/dmi/tables/DMI"],
+        );
+        let reply = smbios_reply(&files, None).unwrap();
+        assert_eq!(reply.data["report"]["source"], "sysfs-class-dmi");
+        assert!(reply.data["report"]["memory_devices"].is_null());
+        assert!(
+            reply
+                .text
+                .contains("Memory devices: unavailable (/sys/firmware/dmi/tables/DMI"),
+            "{}",
+            reply.text
+        );
+        assert!(
+            reply.text.contains("Baseboard MACHINIST E5-MR9A PRO V1.2"),
+            "{}",
+            reply.text
+        );
+    }
+
+    #[test]
+    fn smbios_output_is_a_new_directory_without_the_raw_table() {
+        let out = tempfile::tempdir().unwrap();
+        let target = out.path().join("smbios");
+        let sysfs = sysfs_with_dmi_table();
+        smbios_reply(&sysfs.files(), Some(&target)).unwrap();
+        let mut names: Vec<_> = std::fs::read_dir(&target)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["evidence.json", "manifest.json", "smbios.json"]);
+        let again = smbios_reply(&sysfs.files(), Some(&target)).unwrap_err();
+        assert_eq!(again.code, Code::OutputExists, "{again}");
     }
 
     #[test]

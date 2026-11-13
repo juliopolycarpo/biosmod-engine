@@ -2,9 +2,9 @@
 
 English | [Brazilian Portuguese](../pt-BR/guide/diagnostics.md)
 
-Several findings rest on what the running machine reports, such as the ACPI tables the kernel published, the sleep states it offers and the registers of the fan controller and how far a suspend gets. `bme diag` reads those facts, hashes them and writes a receipt, so someone else can check a claim from the files alone. The MRC checkpoint reader has [its own guide](breadcrumbs.md).
+Several findings rest on what the running machine reports, such as the ACPI tables the kernel published, the sleep states it offers and the registers of the fan controller, how far a suspend gets and what the firmware says about the memory. `bme diag` reads those facts, hashes them and writes a receipt, so someone else can check a claim from the files alone. The MRC checkpoint reader has [its own guide](breadcrumbs.md).
 
-All of it needs Linux. Commands that read protected files or ports need root; run them with `sudo` or `pkexec`.
+All of it needs Linux. Commands that read protected files or ports need root (`diag smbios` degrades without it); run them with `sudo` or `pkexec`.
 
 ## Shared rules
 
@@ -93,10 +93,28 @@ Then it reads `/sys/power/suspend_stats` and the kernel log, flushes file buffer
 
 The verdict is the machine's own counters: **pass** is exactly one more `success` and no more `fail`. A counted failure is **fail**; a run that could not arm or trigger the test, with no counter moving, is **error**. The report has the counters before and after, their delta, the start and finish times and the kernel messages that appeared during the run. It is saved as `pm-test.json` and `kernel/delta.log` with the manifest and the evidence record. A **fail** or **error** is still saved, and then the command exits with `HOST_FAILED` and the report in the error details.
 
+## SMBIOS identity and memory devices
+
+```sh
+sudo bme diag smbios
+bme diag smbios --json -o smbios-2026-11-12
+```
+
+Decodes the firmware's SMBIOS structure table: BIOS information (type 0), system (type 1), baseboard (type 2) and every memory device (type 17). For each slot it reports the total and data width in bits, the size, form factor, memory type, locators, rated and configured speed, manufacturer, part number and rank. An empty slot has size 0; a field the firmware leaves out or marks unknown is `null`, never zero.
+
+The widths are reported as the firmware states them, side by side: a 72/72 slot, as the MR9A's table lists, decodes as 72/72. The command does not interpret them; whether 72 bits means check bits are in use is a question for the memory controller, not for this table.
+
+**Root and not root.** Root reads `/sys/firmware/dmi/tables/DMI` and gets everything above. Without root that file is unreadable, so the command falls back to the model-level fields in `/sys/class/dmi/id` (BIOS, system and board vendor, name and version) and says so: `source` is `sysfs-class-dmi`, `memory_devices` is `null`, and `unavailable` explains why. Memory devices are **unavailable**, which is different from none: an empty list would read as a machine without memory. A table that exists but does not decode is an error (`FORMAT_INVALID`, with the offset), not a partial result.
+
+Serial numbers, the system UUID, asset tags and the SKU are not decoded, and the raw table is never saved, because it contains them. With `-o DIR` the report is saved as `smbios.json` with `manifest.json` and `evidence.json`; the receipt lists one line per slot.
+
+The decoder lives in `biosmod-core` (`smbios::parse`) and takes bytes, so it is tested with a synthetic table builder and no machine.
+
 ## Limits
 
 - The tables are what the kernel published at this boot. Firmware patches tables during POST and the OS may load dynamic ones, so they can differ from the tables stored in the image on the chip.
 - The kernel messages cover what the ring buffer still holds; a long uptime may have dropped an earlier suspend.
 - The Super I/O reading is a snapshot: temperatures, fan speeds and duty cycles move. Register meanings come from the chip's map, not from this board's wiring; which header a fan channel drives is not established. Probing writes the entry key to ports 2Eh and 4Eh, as every Super I/O driver does; a different device decoding those ports would see it.
 - A pm-test pass says the kernel's steps up to that stage worked. It does not say the machine can enter and leave the sleep state: no real sleep happens, and the platform's own resume path is not exercised. Intermittent failures need repeated runs. The stages and the guards were written from the kernel's documented behavior and tested against an in-memory fake of `/sys/power`; no run on real hardware backs them yet.
+- SMBIOS is what the firmware chose to describe. Slot widths and speeds are its claims about the modules, and the table can disagree with what the memory controller trains. Only types 0, 1, 2 and 17 are decoded; a type 17 shorter than the specification's newest layout reports the fields it has and `null` for the rest. Board and firmware in the receipt still come from DMI, and the decoder has been tested against synthetic tables, not against a table captured from the MR9A.
 - The receipt shows what one machine reported at one boot. One observation does not change a patch's general confidence.

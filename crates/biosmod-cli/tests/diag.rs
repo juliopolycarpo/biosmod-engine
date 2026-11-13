@@ -174,3 +174,28 @@ fn capabilities_list_pm_test_with_its_sysfs_writes() {
             .contains("/sys/power/pm_test")
     );
 }
+
+#[test]
+fn smbios_refuses_an_existing_output_before_reading_the_table() {
+    let sandbox = Sandbox::new();
+    let existing = sandbox.path("smbios");
+    std::fs::create_dir(&existing).unwrap();
+    let run = sandbox.run(["diag", "smbios", "-o", existing.to_str().unwrap(), "--json"]);
+    assert_eq!(run.error_code(), "OUTPUT_EXISTS", "{}", run.stdout);
+    assert_eq!(run.json()["command"], "diag smbios");
+    assert_eq!(std::fs::read_dir(&existing).unwrap().count(), 0);
+}
+
+#[test]
+fn capabilities_list_smbios_as_needing_no_privilege_to_write() {
+    let capabilities = Sandbox::new().run(["capabilities", "--json"]).json();
+    let commands = capabilities["data"]["commands"].as_array().unwrap();
+    let entry = commands
+        .iter()
+        .find(|c| c["name"] == "diag smbios")
+        .unwrap_or_else(|| panic!("(capabilities): expected diag smbios | received {commands:?}"));
+    assert_eq!(
+        entry["writes"],
+        serde_json::json!(["capture directory (optional)"])
+    );
+}

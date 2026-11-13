@@ -4,12 +4,12 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "a5b07eb3fa9e79c81824e129dfe38738c8ad346bcd0e0da2ab06031c89cc887d"
+      "sha256": "c6350aa4fc77e96a7a3b933c938c42c87dbd339a320b0d9cca652c461740a08a"
     },
     {
       "source": "CONTRIBUTING.md",
       "translation": "CONTRIBUTING.pt-BR.md",
-      "sha256": "b7a66a2884ff6576261380a88285fe842111c989fe4b52a1de1073b533f97a43"
+      "sha256": "87a89353709003b2f4b754d32faf7d381bee2f3e60a49adfb6a095b3d6b01029"
     },
     {
       "source": "docs/architecture.md",
@@ -44,7 +44,7 @@
     {
       "source": "docs/guide/diagnostics.md",
       "translation": "docs/pt-BR/guide/diagnostics.md",
-      "sha256": "b547e228938f8ab7a51ad65254da70af20b91af6d47cce4b13175113b4d9752c"
+      "sha256": "f779552476d5ce9253fb5988e49978242047ba34fd1ccc6eacee13853a73bd7e"
     },
     {
       "source": "docs/guide/flashing.md",

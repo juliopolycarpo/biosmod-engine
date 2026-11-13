@@ -21,6 +21,7 @@ pub mod ports;
 pub mod privilege;
 pub mod receipt;
 pub mod signals;
+pub mod smbios;
 pub mod superio;
 pub mod suspend;
 

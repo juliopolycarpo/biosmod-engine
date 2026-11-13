@@ -2,9 +2,9 @@
 
 [English](../../guide/diagnostics.md) | Português (Brasil)
 
-Vários achados dependem do que a máquina em execução informa, como as tabelas ACPI que o kernel publicou, os estados de suspensão que ele oferece e os registradores do controlador de ventoinhas e até onde uma suspensão chega. `bme diag` lê esses fatos, calcula seus hashes e escreve um recibo, para que outra pessoa confira uma afirmação apenas pelos arquivos. O leitor de checkpoints MRC tem [guia próprio](breadcrumbs.md).
+Vários achados dependem do que a máquina em execução informa, como as tabelas ACPI que o kernel publicou, os estados de suspensão que ele oferece e os registradores do controlador de ventoinhas, até onde uma suspensão chega e o que o firmware diz sobre a memória. `bme diag` lê esses fatos, calcula seus hashes e escreve um recibo, para que outra pessoa confira uma afirmação apenas pelos arquivos. O leitor de checkpoints MRC tem [guia próprio](breadcrumbs.md).
 
-Tudo exige Linux. Comandos que leem arquivos ou portas protegidos exigem root; execute com `sudo` ou `pkexec`.
+Tudo exige Linux. Comandos que leem arquivos ou portas protegidos exigem root (`diag smbios` funciona sem ele, com menos campos); execute com `sudo` ou `pkexec`.
 
 ## Regras comuns
 
@@ -93,10 +93,28 @@ Depois lê `/sys/power/suspend_stats` e o log do kernel, descarrega os buffers d
 
 O veredicto são os contadores da própria máquina: **pass** é exatamente um `success` a mais e nenhum `fail` a mais. Uma falha contada é **fail**; uma execução que não conseguiu armar ou disparar o teste, sem nenhum contador se mexer, é **error**. O relatório traz os contadores antes e depois, a diferença, os horários de início e fim e as mensagens do kernel surgidas durante a execução. Ele é salvo como `pm-test.json` e `kernel/delta.log`, com o manifesto e o registro de evidência. Um **fail** ou **error** também é salvo e então o comando termina com `HOST_FAILED` e o relatório nos detalhes do erro.
 
+## Identidade SMBIOS e dispositivos de memória
+
+```sh
+sudo bme diag smbios
+bme diag smbios --json -o smbios-2026-11-12
+```
+
+Decodifica a tabela de estruturas SMBIOS do firmware: informações da BIOS (tipo 0), do sistema (tipo 1), da placa-mãe (tipo 2) e de cada dispositivo de memória (tipo 17). Para cada slot informa a largura total e a de dados em bits, o tamanho, o formato físico, o tipo de memória, os localizadores, as velocidades nominal e configurada, o fabricante, o código do modelo e o rank. Um slot vazio tem tamanho 0; um campo que o firmware omite ou marca como desconhecido é `null`, nunca zero.
+
+As larguras saem como o firmware as declara, lado a lado: um slot 72/72, como a tabela da MR9A lista, é decodificado como 72/72. O comando não as interpreta; se 72 bits significam que há bits de verificação em uso é uma pergunta para o controlador de memória, não para esta tabela.
+
+**Com e sem root.** Com root, lê `/sys/firmware/dmi/tables/DMI` e obtém tudo acima. Sem root esse arquivo não pode ser lido e o comando recorre aos campos de nível de modelo em `/sys/class/dmi/id` (fabricante, nome e versão da BIOS, do sistema e da placa) e avisa: `source` é `sysfs-class-dmi`, `memory_devices` é `null` e `unavailable` explica o motivo. Os dispositivos de memória ficam **indisponíveis**, o que é diferente de nenhum: uma lista vazia pareceria uma máquina sem memória. Uma tabela que existe mas não decodifica é um erro (`FORMAT_INVALID`, com o deslocamento), não um resultado parcial.
+
+Números de série, o UUID do sistema, etiquetas de patrimônio e o SKU não são decodificados e a tabela bruta nunca é salva, porque os contém. Com `-o DIR` o relatório é salvo como `smbios.json`, com `manifest.json` e `evidence.json`; o recibo traz uma linha por slot.
+
+O decodificador fica em `biosmod-core` (`smbios::parse`) e recebe bytes; por isso é testado com um construtor de tabelas sintéticas e nenhuma máquina.
+
 ## Limites
 
 - As tabelas são as que o kernel publicou nesta inicialização. O firmware altera tabelas durante o POST e o sistema pode carregar tabelas dinâmicas, então elas podem diferir das tabelas guardadas na imagem do chip.
 - As mensagens do kernel cobrem o que o buffer circular ainda guarda; um uptime longo pode ter descartado uma suspensão anterior.
 - A leitura do Super I/O é um instantâneo: temperaturas, velocidades e ciclos de trabalho das ventoinhas mudam. O significado dos registradores vem do mapa do chip, não da fiação desta placa; qual conector uma ventoinha aciona não fica estabelecido. A sondagem grava a chave de entrada nas portas 2Eh e 4Eh, como todo driver de Super I/O; outro dispositivo que decodifique essas portas a veria.
 - Um pm-test aprovado diz que as etapas do kernel até aquele estágio funcionaram. Não diz que a máquina consegue entrar no estado de suspensão e sair dele: nenhuma suspensão real acontece e o caminho de retomada da própria plataforma não é exercitado. Falhas intermitentes pedem várias execuções. Os estágios e as proteções foram escritos a partir do comportamento documentado do kernel e testados contra um falso em memória de `/sys/power`; nenhuma execução em hardware real os respalda ainda.
+- O SMBIOS é o que o firmware escolheu descrever. Larguras e velocidades dos slots são afirmações dele sobre os módulos, e a tabela pode divergir do que o controlador de memória treina. Só os tipos 0, 1, 2 e 17 são decodificados; um tipo 17 mais curto que o layout mais novo da especificação informa os campos que tem e `null` nos demais. Placa e firmware no recibo continuam vindo do DMI, e o decodificador foi testado com tabelas sintéticas, não com uma tabela capturada da MR9A.
 - O recibo mostra o que uma máquina informou em uma inicialização. Uma observação não muda a confiança geral de um patch.

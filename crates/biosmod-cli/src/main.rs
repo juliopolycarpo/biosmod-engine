@@ -452,6 +452,15 @@ pub enum DiagCommand {
     /// Suspend tests that return without sleeping the machine (Linux, root).
     #[command(subcommand)]
     Suspend(SuspendCommand),
+    /// SMBIOS identity and memory devices from the firmware table (Linux). Root reads the
+    /// full table; without root only the model-level DMI fields are available, and the
+    /// output says memory devices are unavailable.
+    Smbios {
+        /// Also save the report, manifest and evidence record in this new directory. The
+        /// raw table is never saved (it holds serial numbers).
+        #[arg(short, long, value_name = "DIR")]
+        output: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -649,6 +658,7 @@ fn command_name(command: &Command) -> &'static str {
         Command::Diag(DiagCommand::Breadcrumbs(_)) => "diag breadcrumbs",
         Command::Diag(DiagCommand::Acpi(AcpiCommand::Capture { .. })) => "diag acpi capture",
         Command::Diag(DiagCommand::Superio(SuperioCommand::Read { .. })) => "diag superio read",
+        Command::Diag(DiagCommand::Smbios { .. }) => "diag smbios",
         Command::Diag(DiagCommand::Suspend(SuspendCommand::PmTest { .. })) => {
             "diag suspend pm-test"
         }
