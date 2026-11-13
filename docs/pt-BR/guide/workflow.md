@@ -63,6 +63,10 @@ Receitas e manifestos incluem uma impressão digital dos insumos de compilação
 
 `verify` confere os hashes de entrada e saída contra o manifesto, analisa novamente a saída, verifica alterações permitidas e estados dos patches e reconstrói a geração a partir do catálogo fixado quando disponível. Verificações obrigatórias que não podem ser executadas produzem `VERIFICATION_INCOMPLETE`. A verificação offline não comprova que a imagem inicializará.
 
+## Quando a versão não está no catálogo
+
+Uma análise que não encontra uma versão conhecida, ou um defeito que você quer entender antes de aplicar patches, inicia uma investigação: abra um caso, leia o Setup (`ifr`), as variáveis salvas (`nvram`) e as tabelas ACPI armazenadas (`inspect --acpi`), compare com uma versão de referência e exporte o que aprendeu. Os passos estão no fluxo de investigação de `bme guide agents`; o registro, a verificação de deriva e a exportação estão em `bme guide cases`.
+
 ## Compatibilidade
 
 `bme plan dump.bin --select recommended -o plan.json`, `patch --select`, `patch --plan` e `verify --plan` continuam disponíveis. `--plan` é um alias de `--from`; impressões digitais de receitas e manifestos antigos ainda exigem o mecanismo correspondente.

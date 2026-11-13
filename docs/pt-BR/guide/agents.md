@@ -30,3 +30,18 @@ Códigos de saída: `0` sucesso, `1` falha controlada (veja `error.code`), `2` e
 Clientes que vinculam a geração a uma análise exibida podem passar `--expect-input-sha256` e `--expect-source-sha256` da entrada e de `snapshot_sha256` da fonte selecionada no scan. Uma divergência falha com `PLAN_INPUT_CHANGED`; analise novamente antes de selecionar. O hash identifica uma cópia validada da fonte, não uma assinatura. Dry-run e export aceitam as mesmas proteções. A reprodução com `--from` usa as fixações da receita e recusa sobrescrever essas proteções.
 
 Um agente nunca deve gravar um chip. A gravação é decisão do usuário e exige um caminho de recuperação com gravador.
+
+## Fluxo de investigação
+
+Para uma versão desconhecida, um defeito suspeito ou uma afirmação sobre a máquina em execução, trabalhe em um caso e deixe cada comando registrar um hash. É um caminho separado do patch: nada aqui grava uma imagem ou um chip.
+
+1. **Abra um caso.** `bme case init dump.bin -o work/case --json` analisa o dump, elabora uma placa e lista os resultados dos detectores como achados (`bme guide cases`).
+2. **Leia a imagem.** Execute cada leitor pelo caso com `bme case record work/case -- <comando>`, para que a saída seja guardada sem caminhos locais e com hash:
+   - `ifr dump.bin` decodifica os formulários do Setup: offsets das perguntas, opções, padrões e condições (`bme guide ifr`).
+   - `nvram dump.bin --field "ACPI Sleep State"` lista as variáveis armazenadas e compara o valor salvo de uma pergunta do Setup com o padrão (`bme guide nvram`).
+   - `inspect dump.bin --acpi` lista as tabelas ACPI que a imagem guarda.
+3. **Compare.** `compare reference.bin dump.bin` pareia módulos, `compare --functions A.json B.json` pareia as funções de duas exportações de `tools analyze` e `compare --acpi A B` pareia tabelas ACPI por método. Em `--acpi`, qualquer lado pode ser um diretório de `bme diag acpi capture`, que confronta o que a máquina em execução publicou com o que a imagem guarda (`bme guide porting`).
+4. **Observe a máquina.** Os comandos `diag` leem do host as tabelas ACPI, o controlador de ventoinhas, o SMBIOS e as etapas de suspensão (`bme guide diagnostics`). Exigem root e alguns tocam o hardware; peça autorização ao usuário antes de executar um e nunca execute `diag suspend` em nome dele. Um comando `diag` registrado que falha guarda a falha como artefato.
+5. **Feche o ciclo.** `bme case status work/case --input dump.bin` informa artefatos `changed`, `missing` ou `unlisted` como `CASE_DRIFT`; `bme case export` transforma o caso em um diretório de catálogo com placa preliminar, achados e evidências que `bme catalog validate` aceita.
+
+Informe o que cada artefato mostra e cite seu id (`002-ifr`). Um achado permanece `open` até uma pessoa revisá-lo: evidência offline não mostra que uma placa inicializa.

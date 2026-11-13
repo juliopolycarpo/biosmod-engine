@@ -63,6 +63,10 @@ Recipes and manifests include an engine build-input fingerprint. `patch --from` 
 
 `verify` checks input and output digests against the manifest, re-parses the output, checks allowed changes and patch states, and reconstructs the build from the pinned catalog when available. Required checks that cannot run produce `VERIFICATION_INCOMPLETE`. Offline verification does not establish that the image will boot.
 
+## When the build is not in the catalog
+
+A scan that finds no known build, or a defect you want to understand before patching, starts an investigation instead: open a case, read Setup (`ifr`), the saved variables (`nvram`) and the stored ACPI tables (`inspect --acpi`), compare with a reference build, and export what you learned. The steps are in the investigation workflow of `bme guide agents`; recording, drift checks and export are in `bme guide cases`.
+
 ## Compatibility
 
 `bme plan dump.bin --select recommended -o plan.json`, `patch --select`, `patch --plan` and `verify --plan` remain supported. `--plan` is an alias for `--from`; old recipe and manifest fingerprints still require a matching engine build.
