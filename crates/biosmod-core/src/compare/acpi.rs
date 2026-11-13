@@ -1,6 +1,7 @@
 //! Compare the ACPI tables of two inputs object by object.
 //!
-//! An input is a firmware image or a bare `.aml` table. DSDT and SSDT tables
+//! An input is a firmware image, a bare `.aml` table or the files of a live capture
+//! (`tables_from_capture`). DSDT and SSDT tables
 //! are found in an image by scanning every leaf for a table header whose
 //! length fits and whose checksum sums to zero (a DSDT that opens a RAW leaf
 //! is accepted without the checksum, as `extract --leaf acpi-table` does).
@@ -113,6 +114,41 @@ pub fn tables_from_input(bytes: Vec<u8>) -> Result<Vec<FoundTable>> {
         )
     })?;
     Ok(tables_in_image(&image))
+}
+
+/// What `tables_from_capture` found in a `bme diag acpi capture` directory.
+#[derive(Debug, Clone)]
+pub struct CaptureTables {
+    /// Every DSDT and SSDT, in the order the files were given.
+    pub tables: Vec<FoundTable>,
+    /// Captured table files that are not DSDT or SSDT (FACP, BERT, ...), by relative path.
+    pub skipped: Vec<String>,
+}
+
+/// The DSDT and SSDT tables of a live capture, from `(relative path, bytes)` of each file under
+/// `acpi/tables/` (sysfs names such as `DSDT`, `dynamic/SSDT3`).
+///
+/// The sysfs name does not decide anything: a file is a table to compare when its bytes start
+/// with `DSDT` or `SSDT` and the declared length fits. Other tables are listed as skipped, because
+/// the walker only reads AML. A file that looks like AML but has a bad header is an error naming
+/// its path. Tables pair with an image's by signature and OEM table ID in `compare_tables`.
+///
+/// Example: `let found = tables_from_capture(vec![("DSDT".into(), dsdt_bytes)])?; assert!(found.skipped.is_empty());`
+pub fn tables_from_capture(files: Vec<(String, Vec<u8>)>) -> Result<CaptureTables> {
+    let mut found = CaptureTables {
+        tables: Vec::new(),
+        skipped: Vec::new(),
+    };
+    for (path, bytes) in files {
+        if !AML_SIGNATURES.iter().any(|s| bytes.starts_with(*s)) {
+            found.skipped.push(path);
+            continue;
+        }
+        let table = FoundTable::new(bytes, format!("capture {path}"))
+            .map_err(|e| e.context(format!("capture file {path}")))?;
+        found.tables.push(table);
+    }
+    Ok(found)
 }
 
 /// How an object differs between two builds of a table.
@@ -388,6 +424,35 @@ mod tests {
 
     fn status_of<'a>(pair: &'a TablePair, path: &str) -> Option<&'a ObjectChange> {
         pair.changes.iter().find(|c| c.path == path)
+    }
+
+    #[test]
+    fn capture_files_keep_aml_tables_and_list_the_rest_as_skipped() {
+        let dsdt_bytes = table("DSDT", "LIVE", &dsdt(&[0xA4, 0x01], false));
+        let ssdt_bytes = table("SSDT", "DYN", &name_package("\\_S3_", &[5, 0]));
+        let found = tables_from_capture(vec![
+            ("DSDT".into(), dsdt_bytes.clone()),
+            ("dynamic/SSDT3".into(), ssdt_bytes),
+            ("data/BERT".into(), table("BERT", "LIVE", &[])),
+        ])
+        .unwrap();
+        let sources: Vec<&str> = found.tables.iter().map(|t| t.source.as_str()).collect();
+        assert_eq!(sources, ["capture DSDT", "capture dynamic/SSDT3"]);
+        assert_eq!(found.tables[0].bytes(), &dsdt_bytes[..]);
+        assert_eq!(found.skipped, ["data/BERT"]);
+    }
+
+    #[test]
+    fn a_capture_file_with_a_truncated_aml_table_names_its_path() {
+        let mut bytes = table("SSDT", "DYN", &name_package("\\_S3_", &[5, 0]));
+        bytes.truncate(bytes.len() - 3);
+        let error = tables_from_capture(vec![("dynamic/SSDT7".into(), bytes)]).unwrap_err();
+        assert!(
+            error.message.contains("capture file dynamic/SSDT7"),
+            "(capture truncated SSDT): expected the file path in the message | received {}",
+            error.message
+        );
+        assert_eq!(error.code, Code::FormatInvalid);
     }
 
     #[test]
