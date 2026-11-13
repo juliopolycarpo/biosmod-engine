@@ -23,7 +23,7 @@ Stores are located structurally, never by searching for `NVAR`; the NVRAM PEI mo
 
 - AMI NVAR: an FFS file whose body starts with an `NVAR` record. The stock dumps use a raw file `CEF5B9A3-476D-497F-9FDC-E98143E0422C` filling a 0x40000-byte volume. An all-0xFF file with that GUID is listed as an empty store.
 - EDK II VSS and VSS2: a raw file or file-less volume body that starts with a `VARIABLE_STORE_HEADER` (variable store GUID `DDCF3616`, `DDCF3617` or the authenticated `AAF32C78`) or with `$VSS`. Plain and authenticated variable headers are handled. `$FSS`, Intel `TotalSize` headers and Apple variants are not.
-- AMI default stores: a record named `StdDefaults` or `MfgDefaults` with GUID `4599D26F-1A11-49B8-B91F-858745CFF824` holds a complete NVAR store of default values, with its own GUID table. It is listed as a nested store (`nvar@0x840060:StdDefaults`) next to its parent.
+- AMI default stores: a record named `StdDefaults` or `MfgDefaults` with GUID `4599D26F-1A11-49B8-B91F-858745CFF824` holds a complete NVAR store of default values, with its own GUID table. It is listed as a nested store (`nvar@0x840060:StdDefaults`) next to its parent. Only top-level stores are searched for these holders; one inside a defaults store stays an ordinary record.
 
 Store labels (`nvar@0x840060`, `nvar@0x840060:StdDefaults`, `vss@0x…`) carry the image offset of the store. `--store TEXT` keeps stores whose label contains `TEXT`, ignoring case. An image can hold several stores: the PR9 dump has two NVAR stores with different contents (0x800060 and 0x840060). bme reports each on its own and does not guess which one the firmware treats as live.
 

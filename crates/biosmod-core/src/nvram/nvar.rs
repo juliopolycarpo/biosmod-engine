@@ -177,7 +177,9 @@ fn parse_into(source: Source<'_>, report: &mut NvramReport) {
                 RecordState::Superseded
             };
             let data = bytes[body.data.clone()].to_vec();
+            // Only a top-level store holds defaults; a holder inside one stays a plain record.
             if state == RecordState::Active
+                && kind == StoreKind::Nvar
                 && head_body.guid == AMI_DEFAULTS_GUID
                 && sniff(&data)
                 && let Some(class) = defaults_class(&head_body.name)

@@ -203,6 +203,37 @@ fn nvar_defaults_holder_yields_a_nested_store_with_its_own_guid_table() {
 }
 
 #[test]
+fn nvar_defaults_holder_inside_a_defaults_store_is_not_opened_again() {
+    let inner = nvar_store(
+        &[variable("Setup", 0, &[5], None)],
+        &[SETUP_VARSTORE_GUID],
+        0x100,
+    );
+    let middle = nvar_store(
+        &[variable("StdDefaults", 0, &inner, None)],
+        &[AMI_DEFAULTS_GUID],
+        0x200,
+    );
+    let outer = nvar_store(
+        &[variable("StdDefaults", 0, &middle, None)],
+        &[AMI_DEFAULTS_GUID],
+        STORE_LENGTH,
+    );
+    let report = scan_bytes(&outer);
+    let labels: Vec<&str> = report.stores.iter().map(|s| s.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        ["nvar@0x0", "nvar@0x0:StdDefaults"],
+        "(stores of a doubly nested holder): expected the top store and one defaults store"
+    );
+    assert!(
+        report.variables.iter().all(|v| v.name != "Setup"),
+        "(variables): expected the innermost Setup to stay unread | received {:?}",
+        report.variables.iter().map(|v| &v.name).collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn nvar_manufacturing_holder_is_a_manufacturing_store() {
     let nested = nvar_store(
         &[variable("Setup", 0, &setup_payload(1), None)],
