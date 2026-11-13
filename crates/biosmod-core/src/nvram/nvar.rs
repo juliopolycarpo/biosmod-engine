@@ -159,15 +159,19 @@ fn parse_into(source: Source<'_>, report: &mut NvramReport) {
         );
         let head_valid = head.attributes & FLAG_VALID != 0;
         let (attributes, flags) = describe(head.attributes, head_body.extended_attributes);
+        // The newest member that decoded and is not marked invalid is the live value; a
+        // damaged or invalidated tail must not leave the variable without one.
+        let active_position = chain.iter().rposition(|&i| {
+            head_valid && entries[i].attributes & FLAG_VALID != 0 && entries[i].body.is_some()
+        });
         for (position, &member_index) in chain.iter().enumerate() {
             let member = &entries[member_index];
             let Some(body) = &member.body else {
                 continue;
             };
-            let is_last = position + 1 == chain.len();
             let state = if !head_valid || member.attributes & FLAG_VALID == 0 {
                 RecordState::Deleted
-            } else if is_last {
+            } else if Some(position) == active_position {
                 RecordState::Active
             } else {
                 RecordState::Superseded

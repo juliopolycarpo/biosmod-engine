@@ -97,6 +97,62 @@ fn nvar_clear_valid_bit_means_deleted_and_unlinked_updates_are_orphans() {
 }
 
 #[test]
+fn nvar_cleared_valid_bit_on_the_newest_update_keeps_the_previous_one_active() {
+    let store = nvar_store(
+        &[
+            variable("Setup", 0, &[1], Some(1)),
+            update(&[2], Some(2)),
+            NvarSpec::DataOnly {
+                valid: false,
+                data: &[3],
+                link: None,
+            },
+        ],
+        &[SETUP_VARSTORE_GUID],
+        STORE_LENGTH,
+    );
+    let report = scan_bytes(&store);
+    assert_eq!(
+        states(&report, "nvar@0x0", "Setup"),
+        [
+            RecordState::Superseded,
+            RecordState::Active,
+            RecordState::Deleted
+        ],
+        "(chain whose newest update is invalid)"
+    );
+}
+
+#[test]
+fn nvar_undecodable_newest_update_is_reported_and_the_previous_one_stays_active() {
+    // Extended header claiming 0x40 bytes inside a 4-byte payload.
+    let broken = nvar_record(0x80 | 0x08 | 0x10, &[0x01, 0x00, 0x40, 0]);
+    let store = nvar_store(
+        &[
+            variable("Setup", 0, &[1], Some(1)),
+            update(&[2], Some(2)),
+            NvarSpec::Raw(broken),
+        ],
+        &[SETUP_VARSTORE_GUID],
+        STORE_LENGTH,
+    );
+    let report = scan_bytes(&store);
+    assert_eq!(
+        states(&report, "nvar@0x0", "Setup"),
+        [RecordState::Superseded, RecordState::Active],
+        "(chain whose newest update does not decode)"
+    );
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|i| i.message.starts_with("extended header size: expected 3..=")),
+        "(issues): expected the extended header problem | received {:?}",
+        report.issues
+    );
+}
+
+#[test]
 fn nvar_deleted_head_deletes_the_whole_chain() {
     let store = nvar_store(
         &[

@@ -33,7 +33,7 @@ Cada linha é um registro. Uma variável NVAR é uma cadeia: o primeiro registro
 
 | Estado | Significado |
 | --- | --- |
-| `active` | o valor atual: último registro de uma cadeia válida, ou registro VSS no estado `ADDED` |
+| `active` | o valor atual: o registro mais novo de uma cadeia válida que decodifica e tem o bit de validade ativo, ou registro VSS no estado `ADDED` |
 | `superseded` | histórico: registro antigo de uma variável que tem um mais novo |
 | `deleted` | bit de validade do NVAR zerado (a cadeia inteira quando o primeiro registro é inválido), ou VSS `DELETED` |
 | `incomplete` | cabeçalho VSS gravado, mas dados nunca concluídos |

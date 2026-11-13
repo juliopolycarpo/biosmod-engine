@@ -33,7 +33,7 @@ Each row is one record. An NVAR variable is a chain: the first record carries na
 
 | State | Meaning |
 | --- | --- |
-| `active` | the current value: last record of a valid chain, or a VSS record in `ADDED` state |
+| `active` | the current value: the newest record of a valid chain that decodes and has its valid bit set, or a VSS record in `ADDED` state |
 | `superseded` | history: an older record of a variable that has a newer one |
 | `deleted` | NVAR valid bit clear (the whole chain when the first record is invalid), or VSS `DELETED` |
 | `incomplete` | VSS header written but data never completed |
