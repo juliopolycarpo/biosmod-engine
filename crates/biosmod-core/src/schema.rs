@@ -3,7 +3,9 @@
 //! Semantic rules (references, geometry, hashes) live in [`crate::validation`];
 //! a document can match its schema and still be rejected there.
 
+use crate::case::Case;
 use crate::catalog::{Board, Evidence, Finding, Manifest, Patch};
+use crate::draft::FirmwareDraft;
 use crate::plan::document::{OutputManifest, PlanDocument};
 use serde_json::Value;
 
@@ -16,6 +18,8 @@ pub const NAMES: &[(&str, &str)] = &[
     ("evidence", crate::catalog::EVIDENCE_SCHEMA),
     ("plan", crate::plan::document::PLAN_SCHEMA),
     ("manifest", crate::plan::document::MANIFEST_SCHEMA),
+    ("case", crate::case::CASE_SCHEMA),
+    ("firmware-draft", crate::draft::FIRMWARE_DRAFT_SCHEMA),
 ];
 
 fn finish<T: schemars::JsonSchema>(id: &str) -> Value {
@@ -40,6 +44,8 @@ pub fn generate(name: &str) -> Option<Value> {
         "finding" => finish::<Finding>(id),
         "evidence" => finish::<Evidence>(id),
         "plan" => finish::<PlanDocument>(id),
+        "case" => finish::<Case>(id),
+        "firmware-draft" => finish::<FirmwareDraft>(id),
         _ => finish::<OutputManifest>(id),
     })
 }

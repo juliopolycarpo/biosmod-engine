@@ -27,6 +27,11 @@ pub const GUIDES: &[(&str, &str, &str)] = &[
         include_str!("../../../../docs/guide/catalogs.md"),
     ),
     (
+        "cases",
+        "recording an investigation and starting on an unknown board",
+        include_str!("../../../../docs/guide/cases.md"),
+    ),
+    (
         "trust",
         "sources, signatures, snapshots and plans",
         include_str!("../../../../docs/guide/trust.md"),
@@ -104,6 +109,10 @@ fn commands() -> Value {
         {"name": "catalog validate|index|show|import-x99fix", "writes": ["catalog files (index, import)"], "network": false},
         {"name": "catalog add|list|remove", "writes": ["config"], "network": false},
         {"name": "catalog update", "writes": ["source snapshot"], "network": true},
+        {"name": "case init", "writes": ["case directory"], "network": false, "summary": "hash a dump, scan it with detectors and draft an unreviewed board profile and firmware build"},
+        {"name": "case record", "writes": ["case artifacts", "case.json", "the command's own outputs"], "network": false, "summary": "run a bme command in-process and store its JSON output and output files with digests, argv and versions"},
+        {"name": "case status", "writes": [], "network": false, "summary": "verify inputs and artifacts; CASE_DRIFT when one is changed or missing; stale results are reported"},
+        {"name": "case export", "writes": ["catalog submission directory"], "network": false, "summary": "board, build, findings and evidence from a case as a catalog bme catalog validate accepts"},
         {"name": "tools doctor|paths", "writes": [], "network": false},
         {"name": "tools status", "writes": [], "network": false, "summary": "every tool's version, location and install command; a missing tool is a row, not a failure"},
         {"name": "tools set|unset", "writes": ["config"], "network": false, "summary": "choose an existing Ghidra directory or flashrom executable"},
@@ -133,6 +142,7 @@ pub fn capabilities() -> Reply {
         "direct_patch_workflow": 1,
         "flash_workflow": 1,
         "tools_workflow": 1,
+        "case_workflow": 1,
         "codec": biosmod_core::codec::identity(),
         "commands": commands(),
         "documents": schema::NAMES.iter().map(|(name, id)| json!({"name": name, "schema": id})).collect::<Vec<_>>(),
@@ -234,6 +244,29 @@ mod tests {
         assert!(
             checks.as_array().is_some_and(|items| !items.is_empty()),
             "capabilities verification_required_checks: expected a nonempty array | received {checks}"
+        );
+    }
+
+    #[test]
+    fn capabilities_advertise_the_case_workflow_and_its_commands() {
+        let data = super::capabilities().data;
+        assert_eq!(data["case_workflow"], 1);
+        let names: Vec<&str> = data["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|c| c["name"].as_str())
+            .collect();
+        for expected in ["case init", "case record", "case status", "case export"] {
+            assert!(
+                names.contains(&expected),
+                "(commands): expected {expected:?} | received {names:?}"
+            );
+        }
+        let codes = data["error_codes"].as_array().unwrap();
+        assert!(
+            codes.iter().any(|c| c["code"] == "CASE_DRIFT"),
+            "(error_codes): expected CASE_DRIFT"
         );
     }
 

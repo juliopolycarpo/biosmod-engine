@@ -25,6 +25,8 @@ pub const TABLE_GUID: Guid = Guid::constant("7E374E25-8E01-4FEE-87F2-390C23C606C
 pub const BOARD: &str = "synthetic-board";
 pub const FIRMWARE: &str = "synthetic-fw";
 pub const FACT: &str = "synthetic-superio";
+/// Build banner the identity extractor finds in [`Fixture::with_banner`] images.
+pub const BANNER: &str = "SYNTH Ver: SYN1A00 BIOS Date: 11/12/2026";
 
 /// A section with a common four-byte header.
 pub fn section(kind: u8, body: &[u8]) -> Vec<u8> {
@@ -453,6 +455,15 @@ impl Fixture {
             table,
             image,
         }
+    }
+
+    /// Write `banner` into the erased flash-descriptor area, as vendor images carry their build banner.
+    ///
+    /// Example: `Fixture::new(0x07).with_banner(BANNER)` yields an image with a readable identity.
+    pub fn with_banner(mut self, banner: &str) -> Fixture {
+        assert!(banner.len() < 0x100, "banner expected under 256 bytes");
+        self.image[0x100..0x100 + banner.len()].copy_from_slice(banner.as_bytes());
+        self
     }
 
     fn component(

@@ -90,6 +90,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 | `compare`, `compare --functions`, `compare --acpi` | parear os módulos de duas imagens por GUID, duas exportações de `tools analyze` por função, ou dois namespaces ACPI por método |
 | `derive` | elaborar uma variante para outra versão por assinaturas únicas |
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | fontes e manutenção de catálogos |
+| `case init/record/status/export` | registrar uma investigação, rascunhar uma placa desconhecida, exportar uma submissão |
 | `tools status/set/unset/doctor/setup ghidra/analyze/paths` | ver, localizar e instalar o Ghidra 12.2 com ghidra-firmware-utils |
 | `diag breadcrumbs decode/read` | diagnóstico de checkpoint MRC do MR9A (read usa somente portas 72h/73h) |
 | `diag acpi capture` | pacote com hashes das tabelas ACPI, estado de suspensão e mensagens de suspensão do kernel, com registro de evidência (Linux, root) |
@@ -107,7 +108,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 - [Arquitetura](docs/pt-BR/architecture.md): crates, fluxo de dados e verificações de segurança
 - [Formatos](docs/pt-BR/formats.md): estruturas de firmware suportadas e limites
 - [Variáveis NVRAM](docs/pt-BR/guide/nvram.md): estados dos registros, padrões salvos e valores armazenados do Setup
-- [Protocolo](docs/pt-BR/guide/agents.md), [confiança](docs/pt-BR/guide/trust.md), [catálogos](docs/pt-BR/guide/catalogs.md), [recuperação](docs/pt-BR/guide/recovery.md), [diagnósticos do host](docs/pt-BR/guide/diagnostics.md)
+- [Protocolo](docs/pt-BR/guide/agents.md), [confiança](docs/pt-BR/guide/trust.md), [catálogos](docs/pt-BR/guide/catalogs.md), [recuperação](docs/pt-BR/guide/recovery.md), [diagnósticos do host](docs/pt-BR/guide/diagnostics.md), [casos](docs/pt-BR/guide/cases.md)
 - [Qualificação da interface no Linux](docs/pt-BR/linux-desktop-qualification.md): ambientes testados e limites
 - [Interface gráfica](docs/pt-BR/guide/gui.md): configuração Linux e fluxo de geração
 - [Como contribuir](CONTRIBUTING.pt-BR.md), incluindo envio de placas e patches

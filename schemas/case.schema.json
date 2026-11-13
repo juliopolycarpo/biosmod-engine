@@ -1,0 +1,226 @@
+{
+  "$defs": {
+    "Artifact": {
+      "additionalProperties": false,
+      "description": "A recorded command result.",
+      "properties": {
+        "bme_version": {
+          "description": "Engine version that produced it.",
+          "type": "string"
+        },
+        "catalogs": {
+          "items": {
+            "$ref": "#/$defs/CatalogSnapshot"
+          },
+          "type": "array"
+        },
+        "command": {
+          "description": "The `bme` arguments exactly as run, without the program name.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "files": {
+          "description": "The files of a `directory` artifact, whose `sha256` is `tree_blob` of them.",
+          "items": {
+            "$ref": "#/$defs/ArtifactFile"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "Unique within the case, such as `001-scan`.",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Existing files named by the command, by digest.",
+          "items": {
+            "$ref": "#/$defs/CaseInput"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind"
+        },
+        "length": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "description": "Path relative to the case directory, `/`-separated.",
+          "type": "string"
+        },
+        "recorded": {
+          "description": "UTC time, `YYYY-MM-DDTHH:MM:SSZ`.",
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "kind",
+        "sha256",
+        "length",
+        "command",
+        "bme_version",
+        "catalogs",
+        "inputs",
+        "recorded"
+      ],
+      "type": "object"
+    },
+    "ArtifactFile": {
+      "additionalProperties": false,
+      "description": "One file of a recorded directory artifact.",
+      "properties": {
+        "length": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "description": "Path inside the directory, `/`-separated, such as `tables/DSDT.aml`.",
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "length"
+      ],
+      "type": "object"
+    },
+    "ArtifactKind": {
+      "oneOf": [
+        {
+          "const": "output",
+          "description": "The `bme/1` JSON envelope a command printed.",
+          "type": "string"
+        },
+        {
+          "const": "file",
+          "description": "A file the command wrote, copied into the case.",
+          "type": "string"
+        },
+        {
+          "const": "directory",
+          "description": "A directory tree the command wrote, copied into the case; `files` lists it.",
+          "type": "string"
+        }
+      ]
+    },
+    "CaseInput": {
+      "additionalProperties": false,
+      "description": "One identified input file: its name and content, never its location.",
+      "properties": {
+        "length": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "File name, such as `dump.bin`.",
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "length"
+      ],
+      "type": "object"
+    },
+    "CatalogSnapshot": {
+      "additionalProperties": false,
+      "description": "The catalog a result was computed against.",
+      "properties": {
+        "alias": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/Digest256",
+          "description": "SHA-256 of the exact `catalog.json` bytes."
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "alias",
+        "id",
+        "version",
+        "manifest_sha256"
+      ],
+      "type": "object"
+    },
+    "Digest256": {
+      "description": "SHA-256 digest, lowercase hexadecimal",
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$id": "https://github.com/juliopolycarpo/biosmod-engine/schemas/bme.case-1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The `bme.case/1` document (`case.json`).",
+  "properties": {
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/Artifact"
+      },
+      "type": "array"
+    },
+    "catalogs": {
+      "items": {
+        "$ref": "#/$defs/CatalogSnapshot"
+      },
+      "type": "array"
+    },
+    "created": {
+      "description": "UTC time, `YYYY-MM-DDTHH:MM:SSZ`.",
+      "type": "string"
+    },
+    "engine": {
+      "description": "Engine version that created the case.",
+      "type": "string"
+    },
+    "id": {
+      "description": "Draft board id the case works on.",
+      "type": "string"
+    },
+    "inputs": {
+      "items": {
+        "$ref": "#/$defs/CaseInput"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "bme.case/1",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "engine",
+    "created",
+    "catalogs",
+    "inputs",
+    "artifacts"
+  ],
+  "title": "Case",
+  "type": "object"
+}

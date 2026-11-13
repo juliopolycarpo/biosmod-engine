@@ -27,6 +27,7 @@ pub enum Code {
     AssertionRequired,
     PlanInvalid,
     PlanInputChanged,
+    CaseDrift,
     OutputExists,
     OutputVerificationFailed,
     VerificationIncomplete,
@@ -44,7 +45,7 @@ pub enum Code {
 
 impl Code {
     /// Every code, in documentation order.
-    pub const ALL: [Code; 31] = [
+    pub const ALL: [Code; 32] = [
         Code::Usage,
         Code::Io,
         Code::CatalogInvalid,
@@ -63,6 +64,7 @@ impl Code {
         Code::AssertionRequired,
         Code::PlanInvalid,
         Code::PlanInputChanged,
+        Code::CaseDrift,
         Code::OutputExists,
         Code::OutputVerificationFailed,
         Code::VerificationIncomplete,
@@ -99,6 +101,7 @@ impl Code {
             Code::AssertionRequired => "ASSERTION_REQUIRED",
             Code::PlanInvalid => "PLAN_INVALID",
             Code::PlanInputChanged => "PLAN_INPUT_CHANGED",
+            Code::CaseDrift => "CASE_DRIFT",
             Code::OutputExists => "OUTPUT_EXISTS",
             Code::OutputVerificationFailed => "OUTPUT_VERIFICATION_FAILED",
             Code::VerificationIncomplete => "VERIFICATION_INCOMPLETE",
@@ -147,6 +150,9 @@ impl Code {
             Code::PlanInvalid => "a plan file is malformed or incompatible with this engine",
             Code::PlanInputChanged => {
                 "an input, record or snapshot changed since the plan was made"
+            }
+            Code::CaseDrift => {
+                "a case input or artifact is missing or no longer matches its recorded digest"
             }
             Code::OutputExists => "the output or its manifest exists or aliases an input",
             Code::OutputVerificationFailed => {

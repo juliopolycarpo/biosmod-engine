@@ -75,6 +75,9 @@ pub enum Command {
     /// Manage, validate and index catalogs.
     #[command(subcommand)]
     Catalog(CatalogCommand),
+    /// Follow an investigation: inputs by digest, recorded results, draft catalog records.
+    #[command(subcommand)]
+    Case(CaseCommand),
     /// Check and install external analysis tools (Ghidra).
     #[command(subcommand)]
     Tools(ToolsCommand),
@@ -89,7 +92,7 @@ pub enum Command {
     Dev(DevCommand),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone)]
 pub struct SourceArgs {
     /// Catalog alias, catalog directory or board profile file (repeatable; default: official).
     #[arg(long = "catalog", value_name = "SOURCE")]
@@ -396,6 +399,68 @@ pub enum CatalogCommand {
 }
 
 #[derive(Subcommand)]
+pub enum CaseCommand {
+    /// Scan a dump and draft a board profile and firmware build from it.
+    Init(CaseInitArgs),
+    /// Run a bme command and keep its JSON output and output files in the case.
+    Record(CaseRecordArgs),
+    /// Verify every input and artifact, and report stale results.
+    Status(CaseStatusArgs),
+    /// Write a catalog submission directory from the case.
+    Export(CaseExportArgs),
+}
+
+#[derive(Args)]
+pub struct CaseInitArgs {
+    /// The firmware dump; it is hashed, never copied.
+    pub dump: PathBuf,
+    /// New case directory (must not exist).
+    #[arg(short, long)]
+    pub output: PathBuf,
+    /// Board id for the draft profile (default: draft-<firmware id>).
+    #[arg(long)]
+    pub board_id: Option<String>,
+    #[command(flatten)]
+    pub source: SourceArgs,
+}
+
+#[derive(Args)]
+pub struct CaseRecordArgs {
+    /// The case directory.
+    pub dir: PathBuf,
+    /// A file the command creates besides `-o`/`--output` (repeatable).
+    #[arg(long = "artifact", value_name = "PATH")]
+    pub artifacts: Vec<PathBuf>,
+    /// The bme command and its arguments, after `--`.
+    #[arg(last = true, required = true, allow_hyphen_values = true)]
+    pub argv: Vec<String>,
+}
+
+#[derive(Args)]
+pub struct CaseStatusArgs {
+    /// The case directory.
+    pub dir: PathBuf,
+    /// Where an input dump is on this machine: FILE, DIRECTORY or NAME=PATH (repeatable).
+    #[arg(long = "input", value_name = "PATH")]
+    pub inputs: Vec<String>,
+    /// Catalog to judge staleness against (default: official).
+    #[arg(long = "catalog", value_name = "SOURCE")]
+    pub catalogs: Vec<String>,
+    /// Accept an unregistered, unsigned local catalog path.
+    #[arg(long)]
+    pub allow_unsigned_local: bool,
+}
+
+#[derive(Args)]
+pub struct CaseExportArgs {
+    /// The case directory.
+    pub dir: PathBuf,
+    /// New catalog submission directory (must not exist).
+    #[arg(short, long)]
+    pub output: PathBuf,
+}
+
+#[derive(Subcommand)]
 pub enum ToolsCommand {
     /// Read-only check of Ghidra, JDK and extension compatibility.
     Doctor {
@@ -645,6 +710,12 @@ fn command_name(command: &Command) -> &'static str {
             CatalogCommand::Update { .. } => "catalog update",
             CatalogCommand::Show { .. } => "catalog show",
             CatalogCommand::ImportX99fix { .. } => "catalog import-x99fix",
+        },
+        Command::Case(c) => match c {
+            CaseCommand::Init(_) => "case init",
+            CaseCommand::Record(_) => "case record",
+            CaseCommand::Status(_) => "case status",
+            CaseCommand::Export(_) => "case export",
         },
         Command::Tools(t) => match t {
             ToolsCommand::Doctor { .. } => "tools doctor",
