@@ -207,6 +207,238 @@ fn record_stores_the_command_output_and_status_stays_clean() {
     );
 }
 
+/// Record `argv` in `case`, expect success and return the stored output document.
+fn recorded_document(
+    sandbox: &Sandbox,
+    case: &std::path::Path,
+    artifact: &str,
+    argv: &[&str],
+) -> Value {
+    let mut args = vec!["case", "record", s(case), "--"];
+    args.extend_from_slice(argv);
+    args.push("--json");
+    let run = sandbox.run(args);
+    assert_eq!(
+        run.code, 0,
+        "(case record -- {argv:?}): expected exit 0 | {} {}",
+        run.stdout, run.stderr
+    );
+    let stored = fs::read_to_string(case.join("artifacts").join(artifact)).unwrap_or_else(|e| {
+        panic!("(case record -- {argv:?}): expected artifacts/{artifact} | {e}")
+    });
+    serde_json::from_str(&stored).unwrap()
+}
+
+/// Fail when any text file of the case names a directory of this machine.
+fn assert_case_names_no_local_paths(sandbox: &Sandbox, case: &std::path::Path) {
+    let local = sandbox.dir.path().to_str().unwrap().to_string();
+    let mut pending = vec![case.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if let Ok(text) = fs::read_to_string(&path) {
+                assert!(
+                    !text.contains(&local),
+                    "({}): expected no path below {local} | received {text}",
+                    path.display()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn record_keeps_the_ifr_decode_of_a_setup_module() {
+    let sandbox = Sandbox::new();
+    let (case, _, _) = started(&sandbox);
+    let module = sandbox.path("setup.bin");
+    fs::write(&module, biosmod_core::synthetic::ifr_setup_image()).unwrap();
+    let doc = recorded_document(
+        &sandbox,
+        &case,
+        "002-ifr.json",
+        &["ifr", s(&module), "--language", "en-US"],
+    );
+    assert_eq!(doc["command"], "ifr");
+    assert_eq!(doc["data"]["source"], "image");
+    let text = doc.to_string();
+    assert!(
+        text.contains("ACPI Sleep State"),
+        "(recorded ifr): expected the Setup question | received {text}"
+    );
+    assert_case_names_no_local_paths(&sandbox, &case);
+}
+
+#[test]
+fn record_keeps_the_nvram_listing_and_the_input_digest() {
+    let sandbox = Sandbox::new();
+    let (case, _, _) = started(&sandbox);
+    let image = sandbox.path("nvram.bin");
+    fs::write(
+        &image,
+        biosmod_core::synthetic::nvram_image(&[biosmod_core::synthetic::nvar_sample_store()]),
+    )
+    .unwrap();
+    let doc = recorded_document(&sandbox, &case, "002-nvram.json", &["nvram", s(&image)]);
+    assert_eq!(doc["command"], "nvram");
+    let variables = doc["data"]["variables"].as_array().unwrap();
+    assert!(
+        variables.iter().any(|v| v["name"] == "Setup"),
+        "(recorded nvram): expected the Setup variable | received {variables:?}"
+    );
+    let case_document: Value =
+        serde_json::from_slice(&fs::read(case.join("case.json")).unwrap()).unwrap();
+    let artifact = &case_document["artifacts"][1];
+    assert_eq!(
+        artifact["command"],
+        serde_json::json!(["nvram", "nvram.bin", "--json"])
+    );
+    assert_eq!(artifact["inputs"][0]["name"], "nvram.bin");
+    assert_case_names_no_local_paths(&sandbox, &case);
+}
+
+#[test]
+fn record_keeps_the_stored_acpi_inventory() {
+    let sandbox = Sandbox::new();
+    let (case, _, _) = started(&sandbox);
+    let image = sandbox.path("acpi.bin");
+    fs::write(
+        &image,
+        biosmod_core::synthetic::AcpiInventoryFixture::new().image,
+    )
+    .unwrap();
+    let doc = recorded_document(
+        &sandbox,
+        &case,
+        "002-inspect.json",
+        &["inspect", s(&image), "--acpi"],
+    );
+    let tables = doc["data"]["acpi"]["tables"].as_array().unwrap();
+    assert_eq!(
+        tables.len(),
+        2,
+        "(recorded inspect --acpi): expected the PE and raw tables | received {tables:?}"
+    );
+    assert_case_names_no_local_paths(&sandbox, &case);
+}
+
+#[test]
+fn record_keeps_a_comparison_of_two_images_with_both_inputs() {
+    use biosmod_core::synthetic::{PEIM_GUID, ffs, image_of_files, relocatable_pe, section};
+    let sandbox = Sandbox::new();
+    let (case, _, _) = started(&sandbox);
+    let write = |name: &str, base: u32| {
+        let path = sandbox.path(name);
+        let files = [ffs(
+            PEIM_GUID,
+            0x06,
+            &section(0x10, &relocatable_pe(base, b"same")),
+            0,
+        )];
+        fs::write(&path, image_of_files(&files)).unwrap();
+        path
+    };
+    let (a, b) = (write("a.bin", 0x1000_0000), write("b.bin", 0x2000_0000));
+    let doc = recorded_document(
+        &sandbox,
+        &case,
+        "002-compare.json",
+        &["compare", s(&a), s(&b)],
+    );
+    assert_eq!(doc["data"]["summary"]["identical_after_normalization"], 1);
+    let case_document: Value =
+        serde_json::from_slice(&fs::read(case.join("case.json")).unwrap()).unwrap();
+    let artifact = &case_document["artifacts"][1];
+    assert_eq!(
+        artifact["command"],
+        serde_json::json!(["compare", "a.bin", "b.bin", "--json"]),
+        "(recorded compare): expected the command with base names"
+    );
+    let inputs: Vec<&str> = artifact["inputs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(inputs, ["a.bin", "b.bin"], "(recorded compare inputs)");
+    assert_case_names_no_local_paths(&sandbox, &case);
+}
+
+#[test]
+fn record_keeps_an_acpi_comparison_against_a_capture_directory() {
+    use biosmod_core::aml::fixture::{method, scope, table};
+    let sandbox = Sandbox::new();
+    let (case, _, _) = started(&sandbox);
+    let dsdt = |body: &[u8]| {
+        table(
+            "DSDT",
+            "BMECASE",
+            &scope("\\_SB_", &[method("WORK", 0, body)]),
+        )
+    };
+    let stored = sandbox.path("stored.aml");
+    fs::write(&stored, dsdt(&[0xA3])).unwrap();
+    let capture = sandbox.path("capture");
+    common::write_capture_directory(&capture, &[("DSDT", dsdt(&[0xA3, 0xA3]))]);
+    let doc = recorded_document(
+        &sandbox,
+        &case,
+        "002-compare.json",
+        &["compare", "--acpi", s(&stored), s(&capture)],
+    );
+    assert_eq!(doc["data"]["b"]["kind"], "capture");
+    assert_eq!(doc["data"]["pairs"][0]["changes"][0]["status"], "changed");
+    assert_case_names_no_local_paths(&sandbox, &case);
+}
+
+/// A failed diagnostic is evidence too: its failure envelope is kept and the command still fails.
+/// `--device` names a plain file, so no port is touched; a non-root run is refused and a root
+/// run finds no chip in it, and both end in a failure the case must keep.
+#[cfg(target_os = "linux")]
+#[test]
+fn record_keeps_the_failure_of_a_diagnostic_without_the_device_path() {
+    let sandbox = Sandbox::new();
+    let (case, image, catalog) = started(&sandbox);
+    let device = sandbox.path("fake-port");
+    fs::write(&device, vec![0u8; 0x1000]).unwrap();
+    let run = sandbox.run([
+        "case",
+        "record",
+        s(&case),
+        "--",
+        "diag",
+        "superio",
+        "read",
+        "--device",
+        s(&device),
+        "--json",
+    ]);
+    assert_ne!(
+        run.code, 0,
+        "(case record -- diag superio read): expected the diagnostic's failure | {}",
+        run.stdout
+    );
+    let stored = fs::read_to_string(case.join("artifacts/002-diag-superio-read.json"))
+        .unwrap_or_else(|e| panic!("(case record -- diag): expected the failure envelope | {e}"));
+    let doc: Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(doc["ok"], false, "(stored envelope): {stored}");
+    assert_eq!(doc["command"], "diag superio read");
+    let code = doc["error"]["code"].as_str().unwrap();
+    assert!(
+        ["HOST_REFUSED", "HOST_FAILED"].contains(&code),
+        "(stored diag error): expected HOST_REFUSED or HOST_FAILED | received {code}"
+    );
+    assert_case_names_no_local_paths(&sandbox, &case);
+    let after = status(&sandbox, &case, &image, &catalog);
+    assert_eq!(
+        after.code, 0,
+        "(case status): expected clean after the recorded failure | {}",
+        after.stdout
+    );
+}
+
 #[test]
 fn record_keeps_nothing_when_the_command_fails() {
     let sandbox = Sandbox::new();
