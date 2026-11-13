@@ -1,0 +1,39 @@
+{
+  "schema": "bme.finding/1",
+  "id": "R01",
+  "title": "SMBIOS Type 17 widths hardcoded to 72",
+  "priority": "P3",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "MemorySubClass → SMBIOS Type 17",
+    "modules": [
+      {
+        "ui_name": "MemorySubClass",
+        "ffs_guid": "6A3DEF38-0A45-4107-A74E-ABF2B8EAED86"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0"
+    }
+  },
+  "description": "The populated-DIMM branch hardcodes total width 72 and data width 72. A live MR9A capture confirms 72/72.",
+  "remediation": "Complete DDR3/DDR4 width decoder from the existing SPD-width HOB byte. C1 local, C2 loader/physical. Handles ECC, non-ECC, unknown and empty slots. The PE grows by 160 bytes; ROM fit is untested.",
+  "evidence": [
+    "mr9a-breadcrumbs-no-gpu-2026-11-08",
+    "mr9a-breadcrumbs-no-ram-2026-11-08",
+    "mr9a-breadcrumbs-rev2-2026-11-08",
+    "mr9a-stage2-2026-11-08"
+  ],
+  "patches": [
+    "R01"
+  ]
+}

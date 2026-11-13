@@ -1,0 +1,36 @@
+{
+  "schema": "bme.finding/1",
+  "id": "B08",
+  "title": "Fatal MRC error return loses EBX",
+  "priority": "P2",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "UncoreInitPeim fatal-error return",
+    "modules": [
+      {
+        "ui_name": "UncoreInitPeim",
+        "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0"
+    }
+  },
+  "description": "With the training-error halt disabled, the nonlocal return loses EBX and changes a real caller branch. Both originals were executed; the default halt avoids this return.",
+  "not_established": "The correction does not fix the initial memory error or establish physical error recovery.",
+  "remediation": "Separate 23-byte frame corrections for both boards. C1 local correction.",
+  "patches": [
+    "B01-B04-B06-B08",
+    "B07-B08",
+    "B08"
+  ]
+}

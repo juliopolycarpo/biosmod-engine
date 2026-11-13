@@ -43,6 +43,11 @@
           "type": "string"
         },
         {
+          "const": "finding",
+          "description": "A defect or observation, with or without a patch.",
+          "type": "string"
+        },
+        {
           "const": "provenance",
           "description": "Supporting material (assembly sources, notes); hashed, never interpreted.",
           "type": "string"

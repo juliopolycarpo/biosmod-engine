@@ -1,0 +1,30 @@
+{
+  "schema": "bme.finding/1",
+  "id": "A01",
+  "title": "GPE and GPIO resources overlap in the DSDT",
+  "priority": "P2",
+  "status": "open",
+  "affects": {
+    "label": "MR9A measured",
+    "builds": [
+      "mnx99mr9apro-230322"
+    ]
+  },
+  "owner": {
+    "description": "DSDT resources / GPIO ownership",
+    "modules": [
+      {
+        "ui_name": "DSDT",
+        "ffs_guid": "7E374E25-8E01-4FEE-87F2-390C23C606CD"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C1"
+    }
+  },
+  "description": "Linux reports a GPE/GPIO resource overlap and restricts gpio_ich.",
+  "not_established": "A wrong address or ownership policy is not established.",
+  "remediation": "Trace the AML users and the intended ownership before changing resources. No candidate, C3."
+}

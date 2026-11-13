@@ -1,0 +1,45 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H02",
+  "title": "Masked index-port access makes the next Super I/O register input-dependent",
+  "priority": "P2",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "NCT5532DPeiInit I/O table",
+    "modules": [
+      {
+        "ui_name": "NCT5532DPeiInit",
+        "ffs_guid": "9029F23E-E1EE-40D1-9382-36DD61A63EAA"
+      }
+    ],
+    "references": [
+      {
+        "build": "x99ha00m-20221202",
+        "module": "NCT5532DPeiInit",
+        "location": "mask byte at RVA 24A (row 2E 00 FF 1C)"
+      },
+      {
+        "build": "mnx99mr9apro-230322",
+        "module": "NCT5532DPeiInit",
+        "location": "mask byte at RVA 242 (row 2E 00 FF 1C)"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C1"
+    }
+  },
+  "description": "The masked index-port read/write makes the following register target depend on input. The exact binary behavior is C0.",
+  "remediation": "One-byte literal-index candidates. C0 for the indexing, C2 for hardware correctness because the apparent CR1C target is reserved.",
+  "patches": [
+    "H02"
+  ]
+}

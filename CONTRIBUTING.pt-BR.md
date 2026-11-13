@@ -53,10 +53,11 @@ Crates do workspace e estado de compilação incremental são excluídos pela li
 Um registro é aceito quando outra pessoa pode conferi-lo apenas com os arquivos.
 
 1. Adicione ou atualize `catalog/boards/<id>.json`. Informe como a revisão é conhecida (`observed` na placa, `unverified` em anúncio ou `unknown`). IDs de placa usam letras minúsculas.
-2. Adicione a variante sob o ID da versão do firmware em `catalog/patches/<id>.json`. Hunks precisam dos bytes originais exatos, 16 bytes de contexto em cada lado e hashes de origem e resultado. Variantes portadas começam com `bme derive` e devem ser revisadas hunk por hunk (`bme guide porting`).
-3. Coloque em `catalog/provenance/` o código assembly ou as notas necessários para revisar a alteração.
-4. Execute `bme catalog index catalog` e `bme catalog validate catalog`.
-5. No PR, informe qual é o achado, como foi demonstrado (executado, analisado ou plausível), o que a correção não cobre e como conferiu o resultado.
+2. Registre o defeito em `catalog/findings/<id>.json` (`bme.finding/1`): versões afetadas, módulo responsável (nome de UI e GUID FFS), confiança do achado e da condição graduadas separadamente, o que não está estabelecido e os IDs de evidência. Liste o achado em `findings` da placa. Um patch cita em `fixes` os achados que resolve, e cada um deles lista o patch em `patches` com status `fixed-by-patch`. Um defeito ainda sem correção continua sendo um achado.
+3. Adicione a variante sob o ID da versão do firmware em `catalog/patches/<id>.json`. Hunks precisam dos bytes originais exatos, 16 bytes de contexto em cada lado e hashes de origem e resultado. Variantes portadas começam com `bme derive` e devem ser revisadas hunk por hunk (`bme guide porting`).
+4. Coloque em `catalog/provenance/` o código assembly ou as notas necessários para revisar a alteração.
+5. Execute `bme catalog index catalog` e `bme catalog validate catalog`.
+6. No PR, informe qual é o achado, como foi demonstrado (executado, analisado ou plausível), o que a correção não cobre e como conferiu o resultado.
 
 Observações de hardware ficam em `catalog/evidence/`, com o `image_sha256` exato gravado, versões dos patches, configuração e limites. Uma observação nunca aumenta a confiança geral de um registro. Nunca inclua imagens de fornecedores ou módulos extraídos.
 

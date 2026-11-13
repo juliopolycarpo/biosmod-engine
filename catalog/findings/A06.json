@@ -1,0 +1,30 @@
+{
+  "schema": "bme.finding/1",
+  "id": "A06",
+  "title": "Obsolete _OSI(\"Linux\") query",
+  "priority": "P3",
+  "status": "open",
+  "affects": {
+    "label": "MR9A live AML",
+    "builds": [
+      "mnx99mr9apro-230322"
+    ]
+  },
+  "owner": {
+    "description": "DSDT AML OSYS consumers; PR9 scope pending",
+    "modules": [
+      {
+        "ui_name": "DSDT",
+        "ffs_guid": "7E374E25-8E01-4FEE-87F2-390C23C606CD"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0"
+    }
+  },
+  "description": "The AML makes an obsolete _OSI(\"Linux\") query; Linux ignores it.",
+  "not_established": "The warning does not prove device malfunction.",
+  "remediation": "Review each OSYS consumer before replacing the detection. No candidate, C2."
+}

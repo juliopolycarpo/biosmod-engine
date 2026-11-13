@@ -1,0 +1,28 @@
+{
+  "schema": "bme.finding/1",
+  "id": "A05",
+  "title": "BIOS opts out of x2APIC",
+  "priority": "P3",
+  "status": "open",
+  "affects": {
+    "label": "MR9A measured",
+    "builds": [
+      "mnx99mr9apro-230322"
+    ]
+  },
+  "owner": {
+    "description": "DMAR/x2APIC policy"
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "policy"
+    },
+    "condition": {
+      "grade": "C3",
+      "note": "defect"
+    }
+  },
+  "description": "The BIOS opts out of x2APIC. IRQ remapping works in xAPIC mode.",
+  "remediation": "Check the existing setup controls and the DMAR producer. No binary fix justified yet, C3."
+}

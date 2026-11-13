@@ -1,0 +1,35 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H04",
+  "title": "Linux reports inconsistent common-clock configuration on the GPU link",
+  "priority": "P2",
+  "status": "open",
+  "affects": {
+    "label": "MR9A",
+    "builds": [
+      "mnx99mr9apro-230322"
+    ]
+  },
+  "owner": {
+    "description": "CPU-IIO/GPU link; ordinary PciBus code shared",
+    "modules": [
+      {
+        "ui_name": "PciBus",
+        "ffs_guid": "3C1DE39F-D207-408A-AACC-731CFB7F1DD7"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "observation"
+    },
+    "condition": {
+      "grade": "C1",
+      "note": "inferred condition"
+    }
+  },
+  "description": "Linux reports inconsistent CCC and attempts reconfiguration, with no logged failure.",
+  "not_established": "The actual producer fault and the post-register state are unresolved.",
+  "remediation": "The ordinary paired CCC matcher passes 64 cases and handles siblings. Trace alternative and later writers before changing it. No candidate, C3."
+}

@@ -1,0 +1,46 @@
+{
+  "schema": "bme.finding/1",
+  "id": "D01",
+  "title": "NVRAM store reset on a bad store or Setup size mismatch",
+  "priority": "P3",
+  "status": "retired",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "StatusCodeDxe/Smm map, DxeCore, NVRAMDxe/NVRAMSmm",
+    "modules": [
+      {
+        "ui_name": "NVRAMDxe",
+        "ffs_guid": "1807040D-5934-41A2-A088-8E0F777F71AB"
+      },
+      {
+        "ui_name": "NVRAMSmm",
+        "ffs_guid": "447A1B58-8F3E-4658-ABAA-9E7B2280B90A"
+      }
+    ],
+    "references": [
+      {
+        "build": "x99ha00m-20221202",
+        "module": "StatusCodeDxe",
+        "location": "map table entries at file offset 880-A70"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "map"
+    },
+    "condition": {
+      "grade": "C3",
+      "note": "cause, weakened"
+    }
+  },
+  "description": "AMI's DXE map assigns 60=DxeCore start, 61=NVRAM init, b6=NVRAM cleanup and b7=configuration reset. NVRAMDxe resets the store on a bad _FVH or store check, or on a Setup/IntelSetup size mismatch (PR9 0x6C/0x17A4, MR9A 0x7D/0x17CB, matching each IFR). Every saved store passes the size gate. The corrected captures put the loop's b0/b7 inside MRC, before DXE IPL (4F), so this path does not own the loop.",
+  "remediation": "No change; the size gate is intended AMI behavior."
+}

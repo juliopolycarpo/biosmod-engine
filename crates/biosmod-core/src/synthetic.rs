@@ -498,6 +498,7 @@ impl Fixture {
             class: PatchClass::Correction,
             tier,
             findings: vec![id.into()],
+            fixes: vec![],
             confidence: Confidence {
                 findings: BTreeMap::new(),
                 offline_fix: "synthetic".into(),
@@ -567,8 +568,14 @@ impl Fixture {
         if let Some(Variant::Applicable(v)) = fr.variants.get_mut(FIRMWARE) {
             v.requires_facts = vec![FACT.into()];
         }
+        let mut fixes_pa = Self::patch("PA", Tier::Recommended, vec![peim(pa)]);
+        fixes_pa.fixes = vec!["PA".into()];
+        fixes_pa
+            .confidence
+            .findings
+            .insert("PA".into(), "C0".into());
         vec![
-            Self::patch("PA", Tier::Recommended, vec![peim(pa)]),
+            fixes_pa,
             pb,
             ps,
             Self::patch(
@@ -604,6 +611,53 @@ impl Fixture {
         ]
     }
 
+    /// The findings: `PA` is fixed by patch PA, `OPEN1` has no patch.
+    pub fn findings(&self) -> Vec<Finding> {
+        let owner = Owner {
+            description: "Synthetic Peim, first routine".into(),
+            modules: vec![ModuleRef {
+                ui_name: "Peim".into(),
+                ffs_guid: Some(PEIM_GUID),
+            }],
+            references: vec![CodeReference {
+                build: Some(FIRMWARE.into()),
+                module: "Peim".into(),
+                location: "offset 0x0A".into(),
+            }],
+        };
+        let finding = |id: &str, status, patches: Vec<String>| Finding {
+            schema: FINDING_SCHEMA.into(),
+            id: id.into(),
+            title: format!("synthetic finding {id}"),
+            priority: Priority::P2,
+            status,
+            affects: Affects {
+                label: "Synthetic".into(),
+                builds: vec![FIRMWARE.into()],
+            },
+            owner: owner.clone(),
+            confidence: FindingConfidence {
+                finding: Grade {
+                    grade: "C0".into(),
+                    note: Some("code".into()),
+                },
+                condition: Some(Grade {
+                    grade: "C3".into(),
+                    note: Some("trigger".into()),
+                }),
+            },
+            description: "Synthetic defect used by the test fixtures.".into(),
+            not_established: Some("No hardware effect.".into()),
+            remediation: "Synthetic fix, C1.".into(),
+            evidence: vec![],
+            patches,
+        };
+        vec![
+            finding("OPEN1", FindingStatus::Open, vec![]),
+            finding("PA", FindingStatus::FixedByPatch, vec!["PA".into()]),
+        ]
+    }
+
     /// The board profile.
     pub fn board(&self, patches: &[Patch]) -> Board {
         Board {
@@ -630,6 +684,7 @@ impl Fixture {
                 statement: "The synthetic board has the synthetic Super I/O".into(),
             }],
             patches: patches.iter().map(|p| p.id.clone()).collect(),
+            findings: self.findings().iter().map(|f| f.id.clone()).collect(),
             evidence: vec![],
         }
     }
@@ -641,6 +696,11 @@ impl Fixture {
             .iter()
             .map(|p| (format!("patches/{}.json", p.id), pretty(p)))
             .collect();
+        files.extend(
+            self.findings()
+                .iter()
+                .map(|f| (format!("findings/{}.json", f.id), pretty(f))),
+        );
         files.push((
             format!("boards/{BOARD}.json"),
             pretty(&self.board(&patches)),

@@ -8,6 +8,9 @@
   "findings": [
     "H05"
   ],
+  "fixes": [
+    "H05"
+  ],
   "confidence": {
     "findings": {
       "H05": "C0"

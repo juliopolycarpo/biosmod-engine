@@ -1,0 +1,48 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H10",
+  "title": "Unbounded PCH common-clock retrain and IOBP waits",
+  "priority": "P3",
+  "status": "open",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "PchInitDxe PCH root ports and IOBP sideband",
+    "modules": [
+      {
+        "ui_name": "PchInitDxe",
+        "ffs_guid": "DE23ACEE-CF55-4FB6-AA77-984AB53DE823"
+      }
+    ],
+    "references": [
+      {
+        "build": "x99ha00m-20221202",
+        "module": "PchInitDxe",
+        "location": "common-clock retrain de70; IOBP waits d6bb, d6ee, d730"
+      },
+      {
+        "build": "mnx99mr9apro-230322",
+        "module": "PchInitDxe",
+        "location": "common-clock retrain e02c; IOBP waits d873, d8a6, d8e8"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "code"
+    },
+    "condition": {
+      "grade": "C3",
+      "note": "condition"
+    }
+  },
+  "description": "The PCH common-clock routine sets CCC on both link ends, sets Retrain on the root port and waits for Link Training to clear with no timeout. The IOBP sideband accessors wait on IOBPS busy bit 0 with no timeout. Both match the Intel 8-series reference pattern.",
+  "not_established": "The IOBP registers are not in the public datasheet. The waits affect PCH-attached devices such as the NIC, not the CPU-attached GPU.",
+  "remediation": "Note only; no candidate. The 8-series datasheet defines LSTS bit 11 as Link Training."
+}

@@ -494,6 +494,13 @@
       },
       "type": "array"
     },
+    "fixes": {
+      "description": "Findings this patch resolves; a subset of `findings`. Each named\nfinding lists this patch in its own `patches`.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "id": {
       "type": "string"
     },

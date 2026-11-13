@@ -124,7 +124,7 @@ fn root_and_scope(path: &Path) -> Result<(PathBuf, Scope)> {
 fn summary(catalog: &Catalog) -> serde_json::Value {
     json!({
         "id": catalog.manifest.id, "version": catalog.manifest.version.to_string(), "manifest_sha256": catalog.manifest_sha256,
-        "boards": catalog.boards.keys().collect::<Vec<_>>(), "patches": catalog.patches.len(), "evidence": catalog.evidence.len(),
+        "boards": catalog.boards.keys().collect::<Vec<_>>(), "patches": catalog.patches.len(), "findings": catalog.findings.len(), "evidence": catalog.evidence.len(),
         "files": catalog.consumed.len(),
     })
 }
@@ -133,18 +133,19 @@ fn validate(path: &Path) -> Result<Reply> {
     let (root, scope) = root_and_scope(path)?;
     let catalog = Catalog::load(&DirSource::new(&root)?, scope)?;
     let text = format!(
-        "valid: {} {} ({} boards, {} patches, {} evidence records, {} files verified)\n",
+        "valid: {} {} ({} boards, {} patches, {} findings, {} evidence records, {} files verified)\n",
         catalog.manifest.id,
         catalog.manifest.version,
         catalog.boards.len(),
         catalog.patches.len(),
+        catalog.findings.len(),
         catalog.evidence.len(),
         catalog.consumed.len()
     );
     Ok(Reply::new(summary(&catalog), text))
 }
 
-/// Collect `(relative path, bytes)` for every file under the four content directories.
+/// Collect `(relative path, bytes)` for every file under the content directories.
 pub fn collect(root: &Path) -> Result<Vec<(String, Vec<u8>)>> {
     let mut files = Vec::new();
     let mut pending: Vec<PathBuf> = FileKind::ALL
@@ -302,6 +303,17 @@ fn show(ctx: &Ctx, args: &crate::SourceArgs) -> Result<Reply> {
                 let _ = writeln!(text, "    fact {}: {}", fact.id, fact.statement);
             }
         }
+        for finding in catalog.findings.values() {
+            let _ = writeln!(
+                text,
+                "  finding {} ({}, {}, {}): {}",
+                finding.id,
+                finding.priority.label(),
+                finding.status.label(),
+                biosmod_core::register::confidence_cell(&finding.confidence),
+                finding.title
+            );
+        }
         for evidence in catalog.evidence.values() {
             let image = evidence
                 .image_sha256
@@ -316,6 +328,7 @@ fn show(ctx: &Ctx, args: &crate::SourceArgs) -> Result<Reply> {
         data.push(json!({
             "alias": loaded.alias, "trust": loaded.trust, "manifest": catalog.manifest, "manifest_sha256": catalog.manifest_sha256,
             "boards": catalog.boards, "patches": catalog.patches.values().map(|p| json!({"id": p.id, "version": p.version.to_string(), "title": p.title, "class": p.class, "tier": p.tier})).collect::<Vec<_>>(),
+            "findings": catalog.findings,
             "evidence": catalog.evidence,
         }));
     }

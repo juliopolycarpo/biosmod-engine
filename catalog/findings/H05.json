@@ -1,0 +1,45 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H05",
+  "title": "Indexed-I/O table writer reads data before selecting the register",
+  "priority": "P2",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "SioDxeInit indexed-I/O table writer",
+    "modules": [
+      {
+        "ui_name": "SioDxeInit",
+        "ffs_guid": "4E82091E-32A1-4689-8A00-CDE41ED63CDD"
+      }
+    ],
+    "references": [
+      {
+        "build": "x99ha00m-20221202",
+        "module": "SioDxeInit",
+        "location": "helper at RVA 15D4"
+      },
+      {
+        "build": "mnx99mr9apro-230322",
+        "module": "SioDxeInit",
+        "location": "helper at RVA 1510"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0"
+    }
+  },
+  "description": "Active configuration and hardware-monitor initialization reads the data port before selecting the target register, so masked writes use the previous register's value.",
+  "remediation": "Reorder the existing index-select block ahead of the read. 33-byte-difference per-board PE candidates. C1 local correction, C2 physical repair.",
+  "patches": [
+    "H05"
+  ]
+}

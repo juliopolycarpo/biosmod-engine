@@ -1,0 +1,50 @@
+{
+  "schema": "bme.finding/1",
+  "id": "B09",
+  "title": "SMM library byte counter over the configuration-table count",
+  "priority": "P2",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "53 AMI SMM-library copies in DXE and SMM modules",
+    "modules": [
+      {
+        "ui_name": "OEMSmi",
+        "ffs_guid": "221F1D4F-034C-4BEA-B2BB-B7A9672B66D7"
+      },
+      {
+        "ui_name": "OEMSleepSmi",
+        "ffs_guid": "221F1D4F-034C-4BEA-B2BB-B7A9672B06F9"
+      }
+    ],
+    "references": [
+      {
+        "build": "x99ha00m-20221202",
+        "module": "OEMSmi",
+        "location": "initialization RVA 8FC; count load 9DD, table pointer 9E9; loop LEA A01; counter A1E, compare A23"
+      },
+      {
+        "build": "mnx99mr9apro-230322",
+        "module": "OEMSleepSmi",
+        "location": "initialization RVA 8CC; count load 9AD, table pointer 9B9; loop LEA 9D1; counter 9EE, compare 9F3"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0"
+    }
+  },
+  "description": "A byte counter scans a native-width configuration-table count, so tables of 256 or more entries loop forever.",
+  "not_established": "This is conditional; no physical table of that size was observed.",
+  "remediation": "All 27 PR9 and 26 MR9A inventoried copies have executed 6-7-byte corrections, including the required R11 initialization. C1 local, C2 physical repair. No ROM repack.",
+  "patches": [
+    "B09"
+  ]
+}

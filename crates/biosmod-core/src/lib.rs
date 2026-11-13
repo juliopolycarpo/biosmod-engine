@@ -19,6 +19,7 @@ pub mod legacy;
 pub mod nvram;
 pub mod patch;
 pub mod plan;
+pub mod register;
 pub mod schema;
 pub mod smbios;
 pub mod synthetic;

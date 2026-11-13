@@ -13,7 +13,10 @@
 //! # }
 //! ```
 
-use crate::catalog::{Catalog, Component, LeafKind, Patch, PatchClass, Tier, Variant};
+use crate::catalog::{
+    Catalog, Component, Finding, FindingStatus, LeafKind, Patch, PatchClass, Priority, Tier,
+    Variant,
+};
 use crate::error::{Code, Error, Result};
 use crate::firmware::{Image, LeafRef, SECTION_PE32, SECTION_RAW, SECTION_TE};
 use crate::patch::{self, HunkState};
@@ -454,6 +457,16 @@ pub struct PatchReport {
     pub evidence: Vec<String>,
 }
 
+/// A finding that stays open for the scanned build.
+#[derive(Debug, Clone, Serialize)]
+pub struct FindingReport {
+    pub id: String,
+    pub title: String,
+    pub priority: Priority,
+    /// Finding and condition grades, as in the register's Confidence column.
+    pub confidence: String,
+}
+
 /// The whole scan result.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanReport {
@@ -461,6 +474,8 @@ pub struct ScanReport {
     pub boards: Vec<String>,
     pub detection: Detection,
     pub patches: Vec<PatchReport>,
+    /// Open findings recorded for the detected build, most urgent first.
+    pub findings: Vec<FindingReport>,
     /// Plannable tier-recommended corrections.
     pub recommended: Vec<String>,
 }
@@ -832,13 +847,37 @@ pub fn scan(image: &Image, catalog: &Catalog, firmware: Option<&str>) -> ScanRep
         })
         .map(|p| p.id.clone())
         .collect();
+    let findings = firmware
+        .as_deref()
+        .map(|fw| open_findings(catalog, fw))
+        .unwrap_or_default();
     ScanReport {
         firmware,
         boards,
         detection,
         patches,
+        findings,
         recommended,
     }
+}
+
+/// Findings still open for `firmware`, ordered by priority and then id.
+///
+/// Example: `let open = open_findings(&catalog, "build-id");`
+pub fn open_findings(catalog: &Catalog, firmware: &str) -> Vec<FindingReport> {
+    let mut open: Vec<&Finding> = catalog
+        .findings_for(firmware)
+        .filter(|f| f.status == FindingStatus::Open)
+        .collect();
+    open.sort_by(|a, b| (a.priority, &a.id).cmp(&(b.priority, &b.id)));
+    open.into_iter()
+        .map(|f| FindingReport {
+            id: f.id.clone(),
+            title: f.title.clone(),
+            priority: f.priority,
+            confidence: crate::register::confidence_cell(&f.confidence),
+        })
+        .collect()
 }
 
 fn unknown_build_state(image: &Image, patch: &Patch) -> (State, String) {

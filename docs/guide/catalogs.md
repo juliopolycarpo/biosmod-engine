@@ -8,6 +8,7 @@ A catalog is a directory with a fixed layout:
 catalog.json            index: id, version, engine requirement, every file's path, kind, length and sha256
 boards/<id>.json        board and revision profile (bme.board/1)
 patches/<id>.json       one patch record (bme.patch/1)
+findings/<id>.json      one defect or observation, with or without a patch (bme.finding/1)
 evidence/<id>.json      one scoped hardware observation (bme.evidence/1)
 provenance/...          supporting files (assembly sources, notes); hashed, never interpreted
 ```
@@ -43,6 +44,34 @@ A board profile names the vendor, model and revision, and how the revision is kn
 - `requires` must be selected or already fixed. `supersedes` lists records this one contains. `conflicts` are symmetric and never combined.
 
 A component names one module (`ffs_guid`, `leaf` `pe32` or `acpi-table`), its exact source and result hashes and sizes, and hunks. A hunk is `replace` (same length) or `append` (at the end of the module). `layer_on` plus `input_sha256` describe a patch written against the result of other patches, such as a diagnostic built on top of corrections. `checks` request extra structural checks (`xip_image_base`, `no_relocated_bytes`). `context` requires other modules to match reviewed hashes.
+
+## Findings
+
+A finding records a defect or observation independent of any patch, so one with no fix yet still has a home. The official catalog holds the audit register as one document per row.
+
+```json
+{
+  "schema": "bme.finding/1",
+  "id": "B09",
+  "title": "SMM library byte counter over the configuration-table count",
+  "priority": "P2",
+  "status": "fixed-by-patch",
+  "affects": {"label": "Both", "builds": ["mnx99mr9apro-230322", "x99ha00m-20221202"]},
+  "owner": {"description": "...", "modules": [{"ui_name": "OEMSmi", "ffs_guid": "..."}], "references": [...]},
+  "confidence": {"finding": {"grade": "C0"}, "condition": {"grade": "C3", "note": "trigger"}},
+  "description": "...", "not_established": "...", "remediation": "...",
+  "evidence": [], "patches": ["B09"]
+}
+```
+
+- `confidence.finding` grades the code behavior or observation; `confidence.condition` grades the cause or trigger that makes it matter. Both use `C0` (established) to `C3` (speculative), with an optional `note` for the aspect graded.
+- `status` is `open`, `fixed-by-patch`, `retired` (withdrawn by later analysis) or `wont-fix` (understood, no change justified).
+- `affects.builds` lists firmware build ids; the boards follow from the profiles that ship them. `owner.modules` names the owning FFS file by UI name and GUID, and `owner.references` points to functions or offsets, optionally per build.
+- `evidence` lists `bme.evidence/1` ids. `description` states the defect, `not_established` what the analysis does not show, and `remediation` the fix strategy or why there is none.
+- A patch lists the findings it resolves in `fixes` (a subset of its `findings`), and each of them lists the patch in `patches`. Validation checks both directions: a `fixed-by-patch` finding needs at least one patch, a patch cannot fix an unknown finding, and the patch's recorded grade for a finding must start with the finding's grade.
+- A board lists the findings that concern it in `findings`. `bme scan` prints the open findings of the detected build after the patch table.
+
+The six columns of the audit register (ID, Priority, Confidence, Board / owning code, Finding and status, Patch strategy / fix confidence) map to `id`, `priority`, `confidence`, `affects.label` with `owner.description`, `description` with `not_established`, and `remediation`. `biosmod_core::register` renders findings as that table and parses it back without loss.
 
 ## Evidence
 

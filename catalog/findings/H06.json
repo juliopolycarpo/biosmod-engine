@@ -1,0 +1,29 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H06",
+  "title": "Smart Fan selects PECI Agent1 for SYSFAN",
+  "priority": "P3",
+  "status": "open",
+  "affects": {
+    "label": "MR9A",
+    "builds": [
+      "mnx99mr9apro-230322"
+    ]
+  },
+  "owner": {
+    "description": "SioDxeInit Smart Fan SYSFAN source",
+    "modules": [
+      {
+        "ui_name": "SioDxeInit",
+        "ffs_guid": "4E82091E-32A1-4689-8A00-CDE41ED63CDD"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C2"
+    }
+  },
+  "description": "The routine selects PECI Agent1 for SYSFAN; its validity on the one-socket board is unverified. The hidden SYSFAN mode defaults to Full On and all seven saved records have Full On, which limits present relevance.",
+  "remediation": "Validate agent presence, the source/header relationship and the automatic mode before a one-byte Agent0 substitution. No candidate, C2."
+}

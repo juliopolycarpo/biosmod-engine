@@ -1,0 +1,29 @@
+{
+  "schema": "bme.finding/1",
+  "id": "A04",
+  "title": "Firmware denies OS ASPM control",
+  "priority": "P3",
+  "status": "open",
+  "affects": {
+    "label": "MR9A measured",
+    "builds": [
+      "mnx99mr9apro-230322"
+    ]
+  },
+  "owner": {
+    "description": "FADT/ASPM policy"
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "policy"
+    },
+    "condition": {
+      "grade": "C3",
+      "note": "defect"
+    }
+  },
+  "description": "The firmware denies the OS ASPM control.",
+  "not_established": "This is a confirmed restriction, not an established defective hardware policy.",
+  "remediation": "Check the setup option, the producer and link support before relaxing it. No binary fix justified yet, C3."
+}

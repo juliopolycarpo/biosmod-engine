@@ -9,7 +9,7 @@
     {
       "source": "CONTRIBUTING.md",
       "translation": "CONTRIBUTING.pt-BR.md",
-      "sha256": "87a89353709003b2f4b754d32faf7d381bee2f3e60a49adfb6a095b3d6b01029"
+      "sha256": "e4d97895d63047bc0eacec4135d6a205bf6e9ae5dec6ebabb24f566eae78220d"
     },
     {
       "source": "docs/architecture.md",
@@ -39,7 +39,7 @@
     {
       "source": "docs/guide/catalogs.md",
       "translation": "docs/pt-BR/guide/catalogs.md",
-      "sha256": "877b2742820be146954d8ab1e506aab01ccd9a8b7dce152ccc136a2ac5cdf496"
+      "sha256": "158c039fb6b89608cdf6aa5bceadce504d21f78e713b6d87f16a5257c9446a0f"
     },
     {
       "source": "docs/guide/diagnostics.md",

@@ -1,0 +1,46 @@
+{
+  "schema": "bme.finding/1",
+  "id": "B11",
+  "title": "Dispatcher context copies read 16 bytes from 4- and 8-byte contexts",
+  "priority": "P2",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "PchSmiDispatcher context copies",
+    "modules": [
+      {
+        "ui_name": "PchSmiDispatcher",
+        "ffs_guid": "B0D6ED53-B844-43F5-BD2F-61095264E77E"
+      }
+    ],
+    "references": [
+      {
+        "module": "PchSmiDispatcher",
+        "location": "MOVDQU at RVA 3A02; second wide copy at RVA 3DE2"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0"
+    }
+  },
+  "description": "The dispatcher reads 16 bytes from public 4- or 8-byte contexts, so valid page-end objects fault in native registration. SW auto-assignment has a second wide copy.",
+  "not_established": "Actual guard placement and failure are unobserved.",
+  "remediation": "Separate 97-byte-difference PE candidates bound every reviewed public PI copy. C1 local, C2 physical. USB/timer16 and the unknown private ABI are retained. The B10+B11 composition also executed.",
+  "evidence": [
+    "mr9a-breadcrumbs-no-gpu-2026-11-08",
+    "mr9a-breadcrumbs-no-ram-2026-11-08",
+    "mr9a-breadcrumbs-rev2-2026-11-08",
+    "mr9a-stage2-2026-11-08"
+  ],
+  "patches": [
+    "B11"
+  ]
+}

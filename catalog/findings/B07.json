@@ -1,0 +1,34 @@
+{
+  "schema": "bme.finding/1",
+  "id": "B07",
+  "title": "iMC idle recovery skips retained clock and reset states",
+  "priority": "P2",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "UncoreInitPeim iMC initializer",
+    "modules": [
+      {
+        "ui_name": "UncoreInitPeim",
+        "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C1"
+    }
+  },
+  "description": "Idle controller recovery skips retained clock and reset states, and the discovered callers ignore initializer errors and enter discovery.",
+  "not_established": "This is a conditional robustness gap, not a reproduced persistent loop.",
+  "remediation": "Native selective-recovery+B08 batches verify ownership, drain writers and TSOD, check queued commands and propagate failures through a worker-safe PEIM exit. C1 local, C2 physical. 16 tests, 1,070 native executions. The historical unconditional-reset experiment is excluded.",
+  "patches": [
+    "B07-B08"
+  ]
+}

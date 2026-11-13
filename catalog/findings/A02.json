@@ -1,0 +1,34 @@
+{
+  "schema": "bme.finding/1",
+  "id": "A02",
+  "title": "RPME tests the register with logical AND instead of the PME bit",
+  "priority": "P3",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "DSDT \\_SB.RPME",
+    "modules": [
+      {
+        "ui_name": "DSDT",
+        "ffs_guid": "7E374E25-8E01-4FEE-87F2-390C23C606CD"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0"
+    }
+  },
+  "description": "A logical AND tests the register for nonzero instead of testing the PME bit. It is dormant at the inventoried DSDT/SSDT call sites.",
+  "not_established": "No whole-ROM packaging or hardware effect is established.",
+  "remediation": "Exact-method, length-preserving AML corrections and ACPICA replay. C1.",
+  "patches": [
+    "A02"
+  ]
+}

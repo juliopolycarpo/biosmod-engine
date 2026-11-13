@@ -9,6 +9,10 @@
     "B02",
     "B03"
   ],
+  "fixes": [
+    "B02",
+    "B03"
+  ],
   "confidence": {
     "findings": {
       "B02": "C0",

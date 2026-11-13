@@ -1,0 +1,47 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H09",
+  "title": "Unbounded DMI link-training waits",
+  "priority": "P3",
+  "status": "open",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "IioInit DMI link (host-bridge port 00:00.0)",
+    "modules": [
+      {
+        "ui_name": "IioInit"
+      }
+    ],
+    "references": [
+      {
+        "build": "x99ha00m-20221202",
+        "module": "IioInit",
+        "location": "loops e622-e65c and e76c-e782 in e5e4 (caller e7f0)"
+      },
+      {
+        "build": "mnx99mr9apro-230322",
+        "module": "IioInit",
+        "location": "loops e6b6-e6f0 and e800-e816 in e678 (caller e884)"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "code"
+    },
+    "condition": {
+      "grade": "C2",
+      "note": "condition"
+    }
+  },
+  "description": "After setting the DMI target speed in LNKCON2 (1C0), the retrain helper waits for LNKSTS Link Training (1B2 bit 11) to clear with no timeout, both before and after writing LNKCON Retrain Link (1B0 bit 5). The root-port helpers beside it are bounded at 10 s. It runs every boot. Offsets and bits match E5 v3 and v4 Vol 2 sections 6.2.45-6.2.57.",
+  "not_established": "Per the datasheet, Link Training clears whenever the LTSSM leaves Recovery or Configuration, including a fall to Detect, so the loop hangs only if the LTSSM itself stalls. A stuck DMI link would also take PCH devices down, so a bound changes the symptom, not the outcome.",
+  "remediation": "Bound both waits like the root-port helper. No candidate. Related minor gaps M01-M03 and M10 are not yet catalogued."
+}

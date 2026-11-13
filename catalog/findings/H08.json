@@ -1,0 +1,29 @@
+{
+  "schema": "bme.finding/1",
+  "id": "H08",
+  "title": "GPU-removed display reading and the B0/B7 loop owner",
+  "priority": "P1",
+  "status": "retired",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "owner unknown (display reading, MRC training, IIO/GPU link and video/OpROM candidates)"
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0",
+      "note": "observation"
+    },
+    "condition": {
+      "grade": "C3",
+      "note": "cause"
+    }
+  },
+  "description": "Retired 2026-11-08: the GPU-removed display is AMI d6 (no console), not 67/b7, and the failure is an MRC B0/B7 loop. The GPU root-port retrain is bounded.",
+  "remediation": "No GPU-path defect found that would hang; no candidate. Kept for the audit record."
+}

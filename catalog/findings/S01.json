@@ -1,0 +1,33 @@
+{
+  "schema": "bme.finding/1",
+  "id": "S01",
+  "title": "PR9 lacks the S3 guard before the ME DRAM-init notification",
+  "priority": "P1",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "PR9 only",
+    "builds": [
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "UncoreInitPeim → MeUma",
+    "modules": [
+      {
+        "ui_name": "UncoreInitPeim",
+        "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C2"
+    }
+  },
+  "description": "PR9 lacks MR9A's S3 guard and may send the cold-boot ME DRAM-init notification during resume. This is a candidate cause of the PR9 wake failure.",
+  "not_established": "A full resume and the CMOS-recovery cause are unproved.",
+  "remediation": "Existing ME-guard-only v2 image. C2.",
+  "patches": [
+    "S01"
+  ]
+}

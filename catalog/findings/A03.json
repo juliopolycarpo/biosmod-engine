@@ -1,0 +1,33 @@
+{
+  "schema": "bme.finding/1",
+  "id": "A03",
+  "title": "String _UID on ACPI0007 CPU objects",
+  "priority": "P3",
+  "status": "fixed-by-patch",
+  "affects": {
+    "label": "Both",
+    "builds": [
+      "mnx99mr9apro-230322",
+      "x99ha00m-20221202"
+    ]
+  },
+  "owner": {
+    "description": "DSDT ACPI0007 CPU objects",
+    "modules": [
+      {
+        "ui_name": "DSDT",
+        "ffs_guid": "7E374E25-8E01-4FEE-87F2-390C23C606CD"
+      }
+    ]
+  },
+  "confidence": {
+    "finding": {
+      "grade": "C0"
+    }
+  },
+  "description": "A string _UID violates the ACPI0007 integer requirement. It is also present in the collected live MR9A tables.",
+  "remediation": "Per-board dynamic integer UID DSDTs. C1 local, C2 OS/firmware. Unique sentinels for unmapped entries; existing CPU/MADT identities are preserved. Grows 55 bytes.",
+  "patches": [
+    "A03"
+  ]
+}
