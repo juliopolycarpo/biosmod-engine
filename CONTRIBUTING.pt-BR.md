@@ -14,7 +14,6 @@ cargo test --locked --doc -p biosmod-core -p biosmod-host -p biosmod-cli
 cargo build -p biosmod-cli
 cargo clippy -p biosmod-gui --all-targets -- -D warnings
 cargo nextest run --locked -p biosmod-gui
-cargo test --locked --doc -p biosmod-gui
 ```
 
 Use `--profile ci` para os limites de tempo e relatórios de falha da CI. Execuções gráficas nativas em X11 ou Wayland usam `--test-threads 1` para que as janelas não disputem o foco; testes sem monitor usam o paralelismo padrão do nextest. Compile a CLI antes dos testes de integração da interface, pois eles executam `target/debug/bme`.

@@ -16,7 +16,6 @@ cargo test --locked --doc -p biosmod-core -p biosmod-host -p biosmod-cli
 cargo build -p biosmod-cli
 cargo clippy -p biosmod-gui --all-targets -- -D warnings
 cargo nextest run --locked -p biosmod-gui
-cargo test --locked --doc -p biosmod-gui
 ```
 
 Use `--profile ci` for the CI timeout and failure-reporting settings. Native GUI
