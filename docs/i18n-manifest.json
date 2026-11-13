@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "98d8c9625f11135c7da642785f1d19fe5d19638f7e150ca02a35938fe3022e75"
+      "sha256": "ef05294147abbb0ea3ff37036d772d696ea1ac13995f82d94b2b6299299ab834"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -49,7 +49,7 @@
     {
       "source": "docs/guide/ghidra.md",
       "translation": "docs/pt-BR/guide/ghidra.md",
-      "sha256": "9cce4e6fb99dca8435363d22e2cc5ef57c188ef83291de2eddbf37402120bbe5"
+      "sha256": "6de45be24d58d442975be768228e07e598ecf2d62834ec5e278696af90f81e45"
     },
     {
       "source": "docs/guide/gui.md",

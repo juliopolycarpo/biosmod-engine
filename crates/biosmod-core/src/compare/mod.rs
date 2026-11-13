@@ -12,6 +12,8 @@
 //!
 //! Example: `let report = compare::compare_images(&a, &b); println!("{}", report.summary.different);`
 
+pub mod functions;
+
 use crate::firmware::pe::{self, RebasedForReport};
 use crate::firmware::{FILE_PAD, Image, SECTION_PE32, SECTION_TE, SECTION_UI};
 use crate::util::{Guid, sha256_hex};

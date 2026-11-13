@@ -318,10 +318,13 @@ pub struct DeriveArgs {
 
 #[derive(Args)]
 pub struct CompareArgs {
-    /// The first image (reported as A).
+    /// The first input (reported as A).
     pub a: PathBuf,
-    /// The second image (reported as B).
+    /// The second input (reported as B).
     pub b: PathBuf,
+    /// Compare two `tools analyze` JSON exports function by function instead of images.
+    #[arg(long)]
+    pub functions: bool,
 }
 
 #[derive(Subcommand)]
