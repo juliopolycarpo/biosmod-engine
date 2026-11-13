@@ -161,7 +161,7 @@ pub fn find_unique(data: &[u8], pattern: &[u8], wild: &[usize]) -> Option<usize>
 /// Example: `find_matches(&[1, 9, 1, 9], &[1, 0], &[1], usize::MAX) == [0, 2]`.
 pub fn find_matches(data: &[u8], pattern: &[u8], wild: &[usize], limit: usize) -> Vec<usize> {
     let mut found = Vec::new();
-    if pattern.is_empty() || pattern.len() > data.len() {
+    if limit == 0 || pattern.is_empty() || pattern.len() > data.len() {
         return found;
     }
     let mut mask = vec![false; pattern.len()];
@@ -396,6 +396,10 @@ mod tests {
         );
         assert_eq!(find_matches(b"aaaa", b"aa", &[], usize::MAX), [0, 1, 2]);
         assert_eq!(find_matches(b"aaaa", b"aa", &[], 2), [0, 1]);
+        assert!(
+            find_matches(b"aaaa", b"aa", &[], 0).is_empty(),
+            "(limit 0): expected no sites"
+        );
         assert!(find_matches(b"abc", b"", &[], 9).is_empty());
         assert!(find_matches(b"ab", b"abc", &[], 9).is_empty());
         // An all-wildcard pattern has no fixed anchor byte and matches everywhere.

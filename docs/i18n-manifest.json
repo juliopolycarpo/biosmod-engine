@@ -69,7 +69,7 @@
     {
       "source": "docs/guide/replay.md",
       "translation": "docs/pt-BR/guide/replay.md",
-      "sha256": "a3f4bbcdcbecc126cbaea6f3e4a15a8b2a8a301d5f690f62b872848ea67e5a0e"
+      "sha256": "82dfc3fd6b9e0a6e8a7094e8e6fa1a2721c796870d4a5bc32e7e8433ad70471f"
     },
     {
       "source": "docs/guide/recovery.md",
@@ -84,7 +84,7 @@
     {
       "source": "docs/guide/workflow.md",
       "translation": "docs/pt-BR/guide/workflow.md",
-      "sha256": "0c208e5b5e322275806c0298b455b19d6738acb7bd84007e3106e8ac79365ccf"
+      "sha256": "5eea93e527cfd1de2cd7b83f35ac0e1624442c4ff5fcfab6b0c966c3bd99479d"
     },
     {
       "source": "docs/linux-desktop-qualification.md",

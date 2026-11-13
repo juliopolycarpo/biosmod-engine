@@ -958,9 +958,11 @@ fn decode_efi_variants(
             Err(error) => return Err(error),
         };
         budget.charge(plain.len())?;
-        // A wrong variant's garbage fails to parse: that rejects it, whatever the error.
+        // A wrong variant's garbage fails to parse, which rejects it. A size or nesting
+        // limit (`FormatUnsupported`) aborts instead, as it does for LZMA content.
         let children = match parse_decoded(&plain, place, depth, budget) {
             Ok(children) => children,
+            Err(error) if error.code != Code::FormatInvalid => return Err(error),
             Err(error) => {
                 failures.push(format!("{label}: {}", error.message));
                 continue;
@@ -1382,6 +1384,30 @@ mod encoding_tests {
             2 * content.len(),
             "both variants decode and are charged"
         );
+    }
+
+    #[test]
+    fn a_nesting_limit_inside_decoded_content_aborts_instead_of_rejecting_the_variant() {
+        let content = section(SECTION_RAW, &[1; 8]);
+        let payload = header_only_payload(content.len());
+        let mut budget = Budget { decoded: 0 };
+        let decode = fake_variants(content.clone(), content.clone());
+        let error = decode_efi_variants(
+            &payload,
+            content.len(),
+            "0x60",
+            MAX_DEPTH,
+            &mut budget,
+            decode,
+        )
+        .map(|found| found.encoding)
+        .unwrap_err();
+        assert_eq!(
+            error.code,
+            Code::FormatUnsupported,
+            "(EFI compression at the nesting limit): expected FORMAT_UNSUPPORTED | received {error}"
+        );
+        assert!(error.message.contains("section nesting"), "{error}");
     }
 
     #[test]

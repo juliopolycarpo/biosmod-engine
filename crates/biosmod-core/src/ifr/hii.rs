@@ -244,7 +244,9 @@ pub fn decode_string_package(data: &[u8], offset: usize, length: usize) -> Resul
                     u32::from(data[at])
                 };
                 at += width;
-                next_id += skip;
+                // Saturates: crafted packages can chain enough skips to pass u32::MAX, and
+                // `store` refuses any id above 0xffff with the block offset either way.
+                next_id = next_id.saturating_add(skip);
             }
             0x30..=0x32 => {
                 // Extension blocks store their own total length after the two type bytes.

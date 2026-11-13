@@ -4,7 +4,9 @@
 //! a file: the child appends one JSON document per line to the path in `BME_REPLAY_RESULT`
 //! (`bme_replay.emit`). Everything goes through [`Runner`], so tests answer with a named fake.
 
-use super::{PROBE_TIMEOUT, ReplayHome, Versions, missing_runtime, package, probe_versions};
+use super::{
+    PROBE_TIMEOUT, PYTHON_MIN, ReplayHome, Versions, missing_runtime, package, probe_versions,
+};
 use crate::config::io_error;
 use crate::toolchain::{Env, Invocation};
 use biosmod_core::{Code, Error, Result};
@@ -76,8 +78,10 @@ pub fn ready(env: &Env, home: &ReplayHome) -> Result<Versions> {
         probe_versions(env.runner, &home.python, PROBE_TIMEOUT).map_err(missing_runtime)?;
     if !versions.python_ok() {
         return Err(missing_runtime(format!(
-            "{}: expected Python >= 3.10 | received {}",
+            "{}: expected Python >= {}.{} | received {}",
             home.python.display(),
+            PYTHON_MIN.0,
+            PYTHON_MIN.1,
             versions.python
         )));
     }

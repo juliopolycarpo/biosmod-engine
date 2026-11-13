@@ -163,7 +163,8 @@ fn acpi_text(inventory: &acpi::Inventory) -> String {
                 at.file_name.as_deref().unwrap_or("-"),
                 path.join("/"),
                 at.section_kind,
-                if at.compressed { ", lzma" } else { "" },
+                // Set for any compressed encoding (LZMA, Tiano, Brotli...), not only LZMA.
+                if at.compressed { ", compressed" } else { "" },
                 at.offset
             );
         }
@@ -1393,6 +1394,29 @@ pub fn derive(ctx: &Ctx, args: &DeriveArgs) -> Result<Reply> {
             rebased.review.len()
         );
     Ok(Reply::new(data, text))
+}
+
+#[cfg(test)]
+mod acpi_text_tests {
+    use super::acpi_text;
+    use biosmod_core::acpi::inventory;
+    use biosmod_core::firmware::Image;
+    use biosmod_core::synthetic::{DXE_GUID, acpi_table, ffs, lzma_section, section, volume};
+
+    #[test]
+    fn a_compressed_location_is_labelled_compressed_not_lzma() {
+        // A raw section holding a table, inside an LZMA section of a top-level file.
+        let table = acpi_table(*b"SSDT", "InLzma", 1, 40);
+        let wrapped = lzma_section(&section(0x19, &table));
+        let mut bytes = vec![0xFF; 0x1000];
+        bytes.extend(volume(&[ffs(DXE_GUID, 0x0B, &wrapped, 0)], 0x4000));
+        let text = acpi_text(&inventory(&Image::parse(bytes).unwrap()));
+        assert!(
+            text.contains("(raw, compressed)"),
+            "(acpi text): expected the location labelled compressed | received {text}"
+        );
+        assert!(!text.contains("lzma"), "{text}");
+    }
 }
 
 #[cfg(test)]

@@ -945,3 +945,21 @@ fn tools_paths_reports_a_relative_flashrom_override_as_an_absolute_path() {
     );
     assert_eq!(location["origin"], crate::flash::FLASHROM_OVERRIDE);
 }
+
+#[test]
+fn doctor_checks_the_replay_runtime_only_when_asked_or_installed() {
+    for (only, installed, expected) in [
+        (Some(DoctorTool::Ghidra), true, false),
+        (Some(DoctorTool::Ghidra), false, false),
+        (Some(DoctorTool::Replay), false, true),
+        (Some(DoctorTool::Replay), true, true),
+        (None, true, true),
+        (None, false, false),
+    ] {
+        assert_eq!(
+            doctor_checks_replay(only, installed),
+            expected,
+            "(tools doctor {only:?}, runtime installed {installed}): expected replay checks {expected}"
+        );
+    }
+}
