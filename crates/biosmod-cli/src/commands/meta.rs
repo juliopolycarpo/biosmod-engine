@@ -92,6 +92,7 @@ fn commands() -> Value {
         {"name": "extract", "writes": ["module"], "network": false, "summary": "write one PE32 or ACPI module; ACPI tables can be picked by --signature, --oem-table-id or --sha256"},
         {"name": "replace", "writes": ["image", "manifest"], "network": false, "summary": "put an edited module back"},
         {"name": "derive", "writes": [], "network": false, "summary": "draft a variant by unique signature matching"},
+        {"name": "compare", "writes": [], "network": false, "summary": "pair two images' modules by GUID; identical, identical after relocation, or different with changed ranges"},
         {"name": "catalog validate|index|show|import-x99fix", "writes": ["catalog files (index, import)"], "network": false},
         {"name": "catalog add|list|remove", "writes": ["config"], "network": false},
         {"name": "catalog update", "writes": ["source snapshot"], "network": true},

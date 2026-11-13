@@ -87,6 +87,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 | `scan` | versão detectada e cada estado de patch |
 | `patch`, `export`, `verify` | geração, receitas opcionais e verificação |
 | `extract`, `replace` | extrair um módulo ou tabela ACPI e inserir o módulo editado |
+| `compare` | parear os módulos de duas imagens por GUID: idênticos, idênticos após relocação ou diferentes |
 | `derive` | elaborar uma variante para outra versão por assinaturas únicas |
 | `catalog validate/index/add/list/remove/update/show/import-x99fix` | fontes e manutenção de catálogos |
 | `tools status/set/unset/doctor/setup ghidra/analyze/paths` | ver, localizar e instalar o Ghidra 12.2 com ghidra-firmware-utils |

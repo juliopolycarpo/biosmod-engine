@@ -9,6 +9,7 @@ pub mod analysis;
 pub mod breadcrumbs;
 pub mod catalog;
 pub mod codec;
+pub mod compare;
 pub mod error;
 pub mod firmware;
 pub mod ifr;

@@ -283,6 +283,41 @@ fn stock_images_decode_every_setup_module_with_ifr() {
     }
 }
 
+/// Names of the PE32 pairs that `bme compare` reports with `verdict` for two dumps.
+fn compared_names(var_a: &str, var_b: &str, verdict: &str) -> Option<Vec<String>> {
+    let (a, b) = (rom(var_a)?, rom(var_b)?);
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(["compare", s(&a), s(&b), "--json"]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    let doc = run.json();
+    Some(
+        doc["data"]["pairs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["leaf"] == "pe32" && p["verdict"] == verdict)
+            .filter_map(|p| p["name"].as_str().map(str::to_string))
+            .collect(),
+    )
+}
+
+#[test]
+fn pr9_vs_mr9a_s3_modules_are_identical_after_normalization() {
+    let Some(names) = compared_names(
+        "BME_ROM_PR9",
+        "BME_ROM_MR9A",
+        "identical-after-normalization",
+    ) else {
+        return;
+    };
+    for module in ["S3Resume", "S3Resume2Pei", "MtrrS3SaveRestorePei"] {
+        assert!(
+            names.iter().any(|n| n == module),
+            "(compare {module}): expected identical-after-normalization | received {names:?}"
+        );
+    }
+}
+
 const PLATFORM_GUID: &str = "ABBCE13D-E25A-4D9F-A1F9-2F7710786892";
 
 /// Regression: AMI wraps whole Platform forms in a FormSet-level SuppressIf, which an
@@ -852,4 +887,14 @@ fn stock_images_decode_their_efi_compressed_driver() {
             "{var}"
         );
     }
+}
+#[test]
+fn pr9_vs_mr9a_nct5532d_differs_after_normalization() {
+    let Some(names) = compared_names("BME_ROM_PR9", "BME_ROM_MR9A", "different") else {
+        return;
+    };
+    assert!(
+        names.iter().any(|n| n == "NCT5532DPeiInit"),
+        "(compare NCT5532DPeiInit): expected different | received {names:?}"
+    );
 }
