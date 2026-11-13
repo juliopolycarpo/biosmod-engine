@@ -224,8 +224,8 @@ pub fn status(probe: &Probe) -> Vec<ToolRow> {
     rows.extend(java);
     rows.push(git);
     rows.push(flashrom_row(probe));
-    rows.push(nasm_row(probe));
-    rows.push(iasl_row(probe));
+    rows.push(optional_program_row(probe, &NASM));
+    rows.push(optional_program_row(probe, &IASL));
     rows
 }
 
@@ -590,92 +590,88 @@ fn writable_by_others(path: &Path) -> bool {
     }
 }
 
-/// NASM assembles `catalog/provenance` sources when a maintainer rebuilds a patch's hunks.
-/// bme never runs it, so the row only detects it and never counts against `ready`.
-fn nasm_row(probe: &Probe) -> ToolRow {
-    let finished = probe.env.runner.run(
-        &Invocation::new("nasm")
-            .arg("--version")
-            .timeout(STATUS_PROBE_TIMEOUT),
-    );
-    let (health, version, detail) = match finished {
-        Ok(f) if f.success() => {
-            let line = f
-                .stdout
-                .lines()
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let version = line
-                .strip_prefix("NASM version ")
-                .and_then(|rest| rest.split_whitespace().next())
-                .map(str::to_string);
-            (Health::Ready, version, line)
-        }
-        Ok(f) => (Health::Missing, None, format!("nasm: {}", f.describe())),
-        Err(_) => (
-            Health::Missing,
-            None,
-            "not found in PATH; only needed to rebuild a patch from its assembly source".into(),
-        ),
-    };
-    ToolRow {
-        id: "nasm",
-        name: "NASM",
-        purpose: "assembles patch sources when you rebuild their hunks (optional)",
-        health,
-        version,
-        path: first_on_path(probe.get, "nasm").map(|p| lossy(&p)),
-        origin: "PATH",
-        detail,
-        install: system_install(probe, Package::Nasm),
-        custom_location: false,
-        optional: true,
-    }
+/// An optional program found on `PATH` and identified by its version banner. bme never needs it
+/// to run, so its row never counts against `ready`.
+struct OptionalProgram {
+    /// Row id, and the program name looked up on `PATH`.
+    id: &'static str,
+    name: &'static str,
+    purpose: &'static str,
+    /// The argument that makes the program print its banner.
+    version_argument: &'static str,
+    /// Picks the banner line out of standard output.
+    banner_line: fn(&str) -> Option<&str>,
+    /// Reads the version from the banner line.
+    version: fn(&str) -> Option<&str>,
+    /// What the row says when the program is not found.
+    absent: &'static str,
+    package: Package,
 }
 
-/// `iasl` disassembles ACPI tables for `compare --acpi --disassemble`. It is optional: the
-/// comparison itself never needs it, so a missing `iasl` never counts against `ready`.
-fn iasl_row(probe: &Probe) -> ToolRow {
+/// NASM assembles `catalog/provenance` sources when a maintainer rebuilds a patch's hunks.
+const NASM: OptionalProgram = OptionalProgram {
+    id: "nasm",
+    name: "NASM",
+    purpose: "assembles patch sources when you rebuild their hunks (optional)",
+    version_argument: "--version",
+    banner_line: |out| out.lines().next(),
+    version: |line| {
+        line.strip_prefix("NASM version ")
+            .and_then(|rest| rest.split_whitespace().next())
+    },
+    absent: "not found in PATH; only needed to rebuild a patch from its assembly source",
+    package: Package::Nasm,
+};
+
+/// `iasl` disassembles ACPI tables for `compare --acpi --disassemble`; the comparison itself
+/// never needs it.
+const IASL: OptionalProgram = OptionalProgram {
+    id: "iasl",
+    name: "iasl",
+    purpose: "disassembles ACPI tables for method diffs (optional)",
+    version_argument: "-v",
+    // The banner ends with `... version 20250404`; take the line that carries it.
+    banner_line: |out| out.lines().find(|line| line.contains(" version ")),
+    version: |line| {
+        line.rsplit_once(" version ")
+            .and_then(|(_, rest)| rest.split_whitespace().next())
+    },
+    absent: "not found in PATH; only needed for `compare --acpi --disassemble`",
+    package: Package::Iasl,
+};
+
+fn optional_program_row(probe: &Probe, program: &OptionalProgram) -> ToolRow {
     let finished = probe.env.runner.run(
-        &Invocation::new("iasl")
-            .arg("-v")
+        &Invocation::new(program.id)
+            .arg(program.version_argument)
             .timeout(STATUS_PROBE_TIMEOUT),
     );
     let (health, version, detail) = match finished {
         Ok(f) if f.success() => {
-            // The banner ends with `... version 20250404`; take the line that carries it.
-            let line = f
-                .stdout
-                .lines()
-                .find(|l| l.contains(" version "))
+            let line = (program.banner_line)(&f.stdout)
                 .unwrap_or_default()
                 .trim()
                 .to_string();
-            let version = line
-                .rsplit_once(" version ")
-                .and_then(|(_, rest)| rest.split_whitespace().next())
-                .map(str::to_string);
+            let version = (program.version)(&line).map(str::to_string);
             (Health::Ready, version, line)
         }
-        Ok(f) => (Health::Missing, None, format!("iasl: {}", f.describe())),
-        Err(_) => (
+        Ok(f) => (
             Health::Missing,
             None,
-            "not found in PATH; only needed for `compare --acpi --disassemble`".into(),
+            format!("{}: {}", program.id, f.describe()),
         ),
+        Err(_) => (Health::Missing, None, program.absent.into()),
     };
     ToolRow {
-        id: "iasl",
-        name: "iasl",
-        purpose: "disassembles ACPI tables for method diffs (optional)",
+        id: program.id,
+        name: program.name,
+        purpose: program.purpose,
         health,
         version,
-        path: first_on_path(probe.get, "iasl").map(|p| lossy(&p)),
+        path: first_on_path(probe.get, program.id).map(|p| lossy(&p)),
         origin: "PATH",
         detail,
-        install: system_install(probe, Package::Iasl),
+        install: system_install(probe, program.package),
         custom_location: false,
         optional: true,
     }
