@@ -163,6 +163,33 @@ jobs:
           name: gui-gallery
           path: ${{ runner.temp }}/gui-gallery
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: linux-gui-diagnostics
+          path: |
+            ${{ runner.temp }}/gui-*.png
+            ${{ runner.temp }}/weston.log
+
+  # Runs beside gui-linux so the release build does not add to that job's
+  # length. The packaged-pair check drives the debug GUI test harness against
+  # the packaged `bme`, so this job also builds the biosmod-gui test binaries.
+  archive-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RUSTUP_TOOLCHAIN: 1.92.0
+      SLINT_COMPILER_DENY_WARNINGS: 1
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev libx11-dev libx11-xcb-dev libxcursor-dev libxi-dev libxrandr-dev libxkbcommon-x11-dev libdbus-1-dev xvfb
+      - run: rustup toolchain install 1.92.0 --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
+        with:
+          tool: nextest@0.9.150
       - name: Build Linux archive
         run: ./packaging/linux/archive.sh
       - name: Smoke test packaged pair
@@ -188,10 +215,3 @@ jobs:
         with:
           name: linux-x86_64
           path: dist/*.tar.gz
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: linux-gui-diagnostics
-          path: |
-            ${{ runner.temp }}/gui-*.png
-            ${{ runner.temp }}/weston.log
