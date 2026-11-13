@@ -20,6 +20,21 @@ fn engine(root: &Path) -> Engine {
         .with_env("BME_FLASHROM", "")
 }
 
+/// The tool ids the engine says it reports, so this test keeps no list of its own.
+fn advertised_tool_ids() -> Vec<String> {
+    let output = std::process::Command::new(common::test_engine())
+        .args(["capabilities", "--json"])
+        .output()
+        .unwrap();
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    document["data"]["tools"]
+        .as_array()
+        .unwrap_or_else(|| panic!("(capabilities): expected a tools array | received {document}"))
+        .iter()
+        .map(|id| id.as_str().unwrap().to_string())
+        .collect()
+}
+
 fn run(session: &mut Session, engine: &Engine, action: Action) {
     let job = session
         .prepare(action)
@@ -59,16 +74,8 @@ fn session_lists_tools_then_chooses_and_resets_a_flashrom() {
         .collect();
     assert_eq!(
         ids,
-        [
-            "ghidra",
-            "firmware-utils",
-            "java",
-            "jdk",
-            "git",
-            "flashrom",
-            "nasm",
-            "iasl"
-        ]
+        advertised_tool_ids(),
+        "(tools page ids): expected the ids `capabilities` advertises"
     );
 
     let program = common::fake_flashrom_program(directory.path());
