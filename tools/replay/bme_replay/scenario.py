@@ -3,7 +3,7 @@
 `bme replay run` validates the document and the module digest, then starts this module as
 `python -m bme_replay --scenario FILE --module PE`. The run emits one document per
 expectation (`{"scenario", "expectation", "kind", "passed", "expected", "received"}`) and a
-last `{"scenario", "summary": true, "passed", ...}` document.
+last `{"scenario", "summary": true, "passed", ...}` document; a failed run adds `error`.
 """
 
 import hashlib
@@ -178,51 +178,79 @@ def evaluate(setup, result, spec):
     raise ReplayError("expectation kind: expected return | register | port | variable | service-calls | received %r" % (kind,))
 
 
+def _describe(phase, caught):
+    """The structured `error` of a summary: where the run stopped, what raised and its message."""
+    return {"phase": phase, "type": type(caught).__name__, "message": str(caught)}
+
+
+def _expected(spec):
+    """What an expectation wants, read from the spec alone (None when the spec is unreadable)."""
+    try:
+        if spec["kind"] == "variable":
+            return spec["equals"].lower()
+        return word(spec["count"] if spec["kind"] == "service-calls" else spec["equals"])
+    except Exception:  # noqa: BLE001 - a bad spec shows up as `expected: null`
+        return None
+
+
 def run(scenario, data, emit):
     """Run `scenario` against the module bytes `data`, reporting each document through `emit`.
 
-    Returns the summary document. A fault, an unmodeled access or a blown budget fails the
-    scenario and is named in `error`; the expectations then report `received: null`.
+    Returns the summary document. Nothing the scenario or the module does ends the run with an
+    exception: a failure becomes the summary's `error`, `{"phase", "type", "message"}`, and every
+    expectation is still reported (`received: null`), so bme always gets the full set.
+
+    Phases: `setup` (the scenario cannot be applied to this module: bad option, symbol, binding
+    or image), `call` (the firmware faulted, touched an unmodeled device or service, or ran out
+    of budget) and `evaluate` (an expectation could not be read back).
     """
-    if scenario.get("schema") != SCHEMA:
-        raise ReplayError("scenario schema: expected %s | received %r" % (SCHEMA, scenario.get("schema")))
-    setup = Setup(scenario, data)
-    entry = scenario["entry"]
-    args = [setup.operand(a) for a in entry.get("args", [])]
-    error = result = None
+    error = result = setup = None
     try:
-        result = setup.machine.call(
-            setup.image.address(word(entry["rva"])),
-            *args,
-            budget=scenario["budget"],
-            capture_fault=True,
-        )
-        if result.fault is not None:
-            error = "fault %s at %#x (rip %#x)" % (
-                result.fault["kind"],
-                result.fault.get("address", 0),
-                result.fault["rip"],
+        if scenario.get("schema") != SCHEMA:
+            raise ReplayError("scenario schema: expected %s | received %r" % (SCHEMA, scenario.get("schema")))
+        setup = Setup(scenario, data)
+        entry = scenario["entry"]
+        args = [setup.operand(a) for a in entry.get("args", [])]
+    except Exception as caught:  # noqa: BLE001 - reported, never raised
+        error = _describe("setup", caught)
+    if error is None:
+        try:
+            result = setup.machine.call(
+                setup.image.address(word(entry["rva"])),
+                *args,
+                budget=word(scenario["budget"]),
+                capture_fault=True,
             )
-    except ReplayError as caught:
-        error = "%s: %s" % (type(caught).__name__, caught)
+            if result.fault is not None:
+                error = {
+                    "phase": "call",
+                    "type": "fault",
+                    "message": "fault %s at %#x (rip %#x)"
+                    % (result.fault["kind"], result.fault.get("address", 0), result.fault["rip"]),
+                }
+        except Exception as caught:  # noqa: BLE001 - reported, never raised
+            error = _describe("call", caught)
+    scenario_id = scenario.get("id")
     all_passed = error is None
-    for index, spec in enumerate(scenario["expect"]):
-        document = {"scenario": scenario["id"], "expectation": index, "kind": spec["kind"]}
+    for index, spec in enumerate(scenario.get("expect") or []):
+        document = {"scenario": scenario_id, "expectation": index, "kind": spec.get("kind")}
+        received, expected, passed = None, _expected(spec), False
         if error is None:
-            received, expected = evaluate(setup, result, spec)
-            passed = received == expected
-        else:
-            received, expected, passed = None, None, False
+            try:
+                received, expected = evaluate(setup, result, spec)
+                passed = received == expected
+            except Exception as caught:  # noqa: BLE001 - reported, never raised
+                error = _describe("evaluate", caught)
         document.update(passed=passed, expected=expected, received=received)
-        all_passed = all_passed and passed
+        all_passed = all_passed and passed and error is None
         emit(document)
     summary = {
-        "scenario": scenario["id"],
+        "scenario": scenario_id,
         "summary": True,
-        "passed": all_passed,
+        "passed": all_passed and error is None,
         "instructions": None if result is None else result.instructions,
         "return": None if result is None else result.value,
-        "trace_sha256": setup.machine.trace.digest(),
+        "trace_sha256": None if setup is None else setup.machine.trace.digest(),
     }
     if error is not None:
         summary["error"] = error

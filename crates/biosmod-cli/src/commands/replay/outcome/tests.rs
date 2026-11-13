@@ -63,11 +63,19 @@ fn a_summary_that_says_failed_fails_even_when_every_expectation_passed() {
     assert!(!outcome(&scenario(1), &docs).unwrap().passed);
 }
 
+fn failing_summary(phase: &str, kind: &str, message: &str) -> Value {
+    json!({"summary": true, "passed": false, "error": {"phase": phase, "type": kind, "message": message}})
+}
+
 #[test]
 fn a_call_error_is_reported_with_the_verdicts() {
     let docs = [
         expectation(0, false),
-        json!({"summary": true, "passed": false, "error": "fault read-unmapped at 0x0 (rip 0x10001000)"}),
+        failing_summary(
+            "call",
+            "fault",
+            "fault read-unmapped at 0x0 (rip 0x10001000)",
+        ),
     ];
     let outcome = outcome(&scenario(1), &docs).unwrap();
     assert!(outcome.lines().contains("FAIL call: fault read-unmapped"));
@@ -75,6 +83,58 @@ fn a_call_error_is_reported_with_the_verdicts() {
         outcome
             .summary()
             .ends_with("call failed: fault read-unmapped at 0x0 (rip 0x10001000)")
+    );
+}
+
+#[test]
+fn the_phase_of_the_error_picks_the_code() {
+    for (phase, code) in [
+        ("setup", Code::ScenarioInvalid),
+        ("call", Code::ReplayFailed),
+        ("evaluate", Code::ToolFailed),
+    ] {
+        let docs = [
+            expectation(0, false),
+            failing_summary(phase, "ValueError", "boom"),
+        ];
+        let outcome = outcome(&scenario(1), &docs).unwrap();
+        assert_eq!(
+            outcome.code(),
+            code,
+            "(phase {phase}): expected {code} | received {}",
+            outcome.code()
+        );
+    }
+    let docs = [expectation(0, false), summary(false)];
+    assert_eq!(
+        outcome(&scenario(1), &docs).unwrap().code(),
+        Code::ReplayFailed
+    );
+}
+
+#[test]
+fn an_error_without_a_known_phase_is_a_tool_failure() {
+    let docs = [expectation(0, false), failing_summary("teardown", "X", "m")];
+    let error = outcome(&scenario(1), &docs).unwrap_err();
+    assert_eq!(error.code, Code::ToolFailed);
+    assert!(
+        error.message.contains(
+            "summary error phase: expected setup | call | evaluate | received \"teardown\""
+        ),
+        "{}",
+        error.message
+    );
+    let docs = [
+        expectation(0, false),
+        json!({"summary": true, "passed": false, "error": "text"}),
+    ];
+    let error = outcome(&scenario(1), &docs).unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("summary error phase: expected a string"),
+        "{}",
+        error.message
     );
 }
 

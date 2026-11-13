@@ -279,3 +279,53 @@ fn an_output_directory_that_holds_results_is_refused_before_anything_runs() {
     );
     assert_eq!(run.error_code(), "OUTPUT_EXISTS", "{}", run.stdout);
 }
+
+/// A runtime that stopped in `phase`: its one expectation failed and the summary names the error.
+fn python_stopping_in(phase: &str) -> String {
+    format!(
+        r#"#!/bin/sh
+case "$*" in
+  *importlib.metadata*)
+    echo '{{"python": "3.14.4", "packages": {{"unicorn": "2.1.4", "capstone": "5.0.9", "pefile": "2024.8.26"}}}}' ;;
+  *bme_replay.__main__*)
+    echo '{{"expectation": 0, "kind": "return", "passed": false, "expected": null, "received": null, "scenario": "synthetic"}}' >> "$BME_REPLAY_RESULT"
+    echo '{{"summary": true, "passed": false, "scenario": "synthetic", "error": {{"phase": "{phase}", "type": "Boom", "message": "stopped in {phase}"}}}}' >> "$BME_REPLAY_RESULT" ;;
+esac
+"#
+    )
+}
+
+#[test]
+fn the_phase_a_run_stopped_in_picks_the_error_code() {
+    for (phase, code) in [
+        ("setup", "SCENARIO_INVALID"),
+        ("call", "REPLAY_FAILED"),
+        ("evaluate", "TOOL_FAILED"),
+    ] {
+        let sandbox = Sandbox::new();
+        let python = fake_python(&sandbox, &python_stopping_in(phase));
+        let (scenario, module) = inputs(&sandbox);
+        let run = sandbox.run_with_env(
+            [
+                "replay",
+                "run",
+                s(&scenario),
+                "--module",
+                s(&module),
+                "--json",
+            ],
+            &[("BME_REPLAY_PYTHON", &python)],
+        );
+        assert_eq!(
+            run.error_code(),
+            code,
+            "(phase {phase}): expected {code} | received {}",
+            run.stdout
+        );
+        assert!(
+            run.stdout.contains(&format!("stopped in {phase}")),
+            "(phase {phase}): expected the runtime's message in the reply | received {}",
+            run.stdout
+        );
+    }
+}

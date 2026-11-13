@@ -503,28 +503,28 @@ class ScenarioTest(unittest.TestCase):
         document, data = scenario_for(READ_ADDRESS_ZERO, [{"kind": "return", "equals": 0}])
         summary, documents = self.run_scenario(document, data)
         self.assertFalse(summary["passed"])
-        self.assertIn("fault", summary["error"])
+        self.assertIn("fault", summary["error"]["message"])
         self.assertIsNone(documents[0]["received"])
 
     def test_a_module_with_another_digest_is_refused(self):
         document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": 7}])
         document["module"]["sha256"] = "0" * 64
-        with self.assertRaises(replay.ReplayError) as caught:
-            self.run_scenario(document, data)
-        self.assertIn("module sha256: expected " + "0" * 64 + " | received " + sha(data), str(caught.exception))
+        error = self.error_of(document, data)
+        self.assertEqual(error["phase"], "setup", error)
+        self.assertIn("module sha256: expected " + "0" * 64 + " | received " + sha(data), error["message"])
 
     def test_a_wrong_schema_is_refused(self):
         document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": 7}])
         document["schema"] = "bme.scenario/2"
-        with self.assertRaises(replay.ReplayError) as caught:
-            self.run_scenario(document, data)
-        self.assertIn("expected bme.scenario/1 | received 'bme.scenario/2'", str(caught.exception))
+        error = self.error_of(document, data)
+        self.assertEqual(error["phase"], "setup", error)
+        self.assertIn("expected bme.scenario/1 | received 'bme.scenario/2'", error["message"])
 
     def test_an_unknown_expectation_kind_is_named(self):
         document, data = scenario_for(RETURN_7, [{"kind": "checksum", "equals": 7}])
-        with self.assertRaises(replay.ReplayError) as caught:
-            self.run_scenario(document, data)
-        self.assertIn("received 'checksum'", str(caught.exception))
+        error = self.error_of(document, data)
+        self.assertEqual(error["phase"], "evaluate", error)
+        self.assertIn("received 'checksum'", error["message"])
 
     def test_symbols_resolve_against_the_declared_services(self):
         document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": 7}], services={"kind": "dxe"})
@@ -600,6 +600,43 @@ class ScenarioTest(unittest.TestCase):
             },
             "(service-names.json): expected the slots of services.py | received a difference",
         )
+
+    def error_of(self, document, data):
+        summary, documents = self.run_scenario(document, data)
+        self.assertFalse(summary["passed"], documents)
+        self.assertEqual(len(documents), len(document["expect"]) + 1, "every expectation is reported")
+        return summary["error"]
+
+    def test_a_bad_option_is_a_setup_error_not_a_traceback(self):
+        bad = [{"name": "hwm", "kind": "indexed-registers", "options": {"index_port": "0x2e", "data_port": "0x2f", "banks": "many"}}]
+        document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": 7}], hardware=bad)
+        error = self.error_of(document, data)
+        self.assertEqual((error["phase"], error["type"]), ("setup", "ValueError"), error)
+        self.assertIn("many", error["message"])
+
+    def test_a_module_of_the_wrong_bitness_is_a_setup_error(self):
+        document, data = scenario_for(RETURN_7, [{"kind": "return", "equals": 7}])
+        document["module"]["bitness"] = 32
+        error = self.error_of(document, data)
+        self.assertEqual(error["phase"], "setup", error)
+
+    def test_a_fault_is_a_call_error(self):
+        document, data = scenario_for(READ_ADDRESS_ZERO, [{"kind": "return", "equals": 0}])
+        error = self.error_of(document, data)
+        self.assertEqual((error["phase"], error["type"]), ("call", "fault"), error)
+        self.assertIn("read", error["message"])
+
+    def test_an_exhausted_budget_is_a_call_error(self):
+        document, data = scenario_for(bytes([0xEB, 0xFE]), [{"kind": "return", "equals": 0}])  # jmp $
+        document["budget"] = 50
+        error = self.error_of(document, data)
+        self.assertEqual(error["phase"], "call", error)
+
+    def test_an_expectation_that_cannot_be_read_back_is_an_evaluate_error(self):
+        document, data = scenario_for(RETURN_7, [{"kind": "port", "device": "nobody", "port": "0x10", "equals": 0}])
+        error = self.error_of(document, data)
+        self.assertEqual((error["phase"], error["type"]), ("evaluate", "ReplayError"), error)
+        self.assertIn("nobody", error["message"])
 
     def test_a_binding_points_an_image_field_at_a_service_table(self):
         code = RETURN_7 + bytes(10)

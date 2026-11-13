@@ -239,7 +239,9 @@ pub fn script(ctx: &Ctx, args: &ReplayScriptArgs) -> Result<Reply> {
 /// `bme replay run`: replay a scenario, report each expectation and record the run.
 ///
 /// The record is written whether the scenario passes or not; a failed scenario then ends the
-/// command with `REPLAY_FAILED` and the verdicts in `details`.
+/// command with `REPLAY_FAILED` (or `SCENARIO_INVALID` when the scenario could not be applied to
+/// the module, `TOOL_FAILED` when the runtime could not read a result back) and the verdicts in
+/// `details`.
 pub fn run(ctx: &Ctx, args: &ReplayRunArgs) -> Result<Reply> {
     if let Some(dir) = &args.output
         && dir.is_dir()
@@ -302,7 +304,7 @@ pub fn run(ctx: &Ctx, args: &ReplayRunArgs) -> Result<Reply> {
         return Ok(reply);
     }
     Err(Error::new(
-        Code::ReplayFailed,
+        outcome.code(),
         format!(
             "scenario {}: expected every expectation to pass | received {}{}",
             scenario.id,

@@ -19,12 +19,33 @@ pub struct Verdict {
     pub received: Value,
 }
 
+/// Where a run stopped, as the runtime's summary reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Phase {
+    /// The scenario could not be applied to this module (bad option, symbol, binding, image).
+    Setup,
+    /// The firmware faulted, touched an unmodeled device or service, or ran out of budget.
+    Call,
+    /// An expectation could not be read back from the finished call.
+    Evaluate,
+}
+
+/// Why a run did not finish cleanly.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RunError {
+    pub phase: Phase,
+    /// What raised, e.g. `fault` or `ValueError`.
+    pub kind: String,
+    pub message: String,
+}
+
 /// What a scenario run decided.
 #[derive(Debug, PartialEq)]
 pub struct Outcome {
     pub verdicts: Vec<Verdict>,
-    /// Why the call did not finish (a fault, an unmodeled access), when it did not.
-    pub error: Option<String>,
+    /// Why the run did not finish, when it did not.
+    pub error: Option<RunError>,
     pub passed: bool,
 }
 
@@ -43,9 +64,23 @@ impl Outcome {
             ));
         }
         if let Some(error) = &self.error {
-            text.push_str(&format!("FAIL call: {error}\n"));
+            text.push_str(&format!("FAIL {}: {}\n", error.phase.name(), error.message));
         }
         text
+    }
+
+    /// The error code of a run that did not pass.
+    ///
+    /// A call that faulted or touched something unmodeled is a finding about the firmware
+    /// (`REPLAY_FAILED`, like a missed expectation). A scenario that cannot be applied to the
+    /// module is the scenario's fault (`SCENARIO_INVALID`). A result the runtime could not read
+    /// back is the runtime's (`TOOL_FAILED`).
+    pub fn code(&self) -> Code {
+        match self.error.as_ref().map(|e| e.phase) {
+            Some(Phase::Setup) => Code::ScenarioInvalid,
+            Some(Phase::Evaluate) => Code::ToolFailed,
+            Some(Phase::Call) | None => Code::ReplayFailed,
+        }
     }
 
     /// The failed expectations on one line, for an error message.
@@ -70,10 +105,53 @@ impl Outcome {
         let passed = self.verdicts.iter().filter(|v| v.passed).count();
         let mut text = format!("{passed} of {} expectations passed", self.verdicts.len());
         if let Some(error) = &self.error {
-            text.push_str(&format!("; call failed: {error}"));
+            text.push_str(&format!(
+                "; {} failed: {}",
+                error.phase.name(),
+                error.message
+            ));
         }
         text
     }
+}
+
+impl Phase {
+    fn name(self) -> &'static str {
+        match self {
+            Phase::Setup => "setup",
+            Phase::Call => "call",
+            Phase::Evaluate => "evaluate",
+        }
+    }
+}
+
+/// Read the summary's `error` object.
+fn run_error(summary: &Value) -> Result<Option<RunError>> {
+    let Some(error) = summary.get("error") else {
+        return Ok(None);
+    };
+    let text = |name: &str| {
+        error.get(name).and_then(Value::as_str).ok_or_else(|| {
+            bad(format!(
+                "summary error {name}: expected a string | received {summary}"
+            ))
+        })
+    };
+    let phase = match text("phase")? {
+        "setup" => Phase::Setup,
+        "call" => Phase::Call,
+        "evaluate" => Phase::Evaluate,
+        other => {
+            return Err(bad(format!(
+                "summary error phase: expected setup | call | evaluate | received {other:?}"
+            )));
+        }
+    };
+    Ok(Some(RunError {
+        phase,
+        kind: text("type")?.to_string(),
+        message: text("message")?.to_string(),
+    }))
 }
 
 fn bad(message: String) -> Error {
@@ -126,10 +204,7 @@ pub fn outcome(scenario: &Scenario, documents: &[Value]) -> Result<Outcome> {
         })?;
     Ok(Outcome {
         passed: reported && verdicts.iter().all(|v| v.passed),
-        error: summary
-            .get("error")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        error: run_error(summary)?,
         verdicts,
     })
 }
