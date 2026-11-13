@@ -139,6 +139,17 @@ fn file_name(path: &Path) -> Result<String> {
         })
 }
 
+/// The error for a case file that is not a regular file within `limit` bytes.
+fn not_a_regular_file(path: &Path, limit: u64, received: u64) -> Error {
+    Error::new(
+        Code::FormatInvalid,
+        format!(
+            "{}: expected a regular file of at most {limit} bytes | received {received} bytes",
+            path.display()
+        ),
+    )
+}
+
 /// Read a case document that must be a regular file, never through a symbolic link.
 ///
 /// The path is checked without following links, then opened with `O_NOFOLLOW` where the
@@ -147,6 +158,14 @@ fn file_name(path: &Path) -> Result<String> {
 /// Example: `read_regular(&dir.join("case.json"), DOCUMENT_LIMIT)?` fails on a link to a file.
 fn read_regular(path: &Path, limit: u64) -> Result<Vec<u8>> {
     refuse_link(path)?;
+    // Windows refuses to open a directory ("Access is denied"), so a directory
+    // is reported from its metadata before the open; the check after the open
+    // still covers a path replaced in between.
+    if let Ok(metadata) = fs::symlink_metadata(path)
+        && !metadata.is_file()
+    {
+        return Err(not_a_regular_file(path, limit, metadata.len()));
+    }
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -157,14 +176,7 @@ fn read_regular(path: &Path, limit: u64) -> Result<Vec<u8>> {
     let file = options.open(path).map_err(|e| io_error(path, e))?;
     let metadata = file.metadata().map_err(|e| io_error(path, e))?;
     if !metadata.is_file() || metadata.len() > limit {
-        return Err(Error::new(
-            Code::FormatInvalid,
-            format!(
-                "{}: expected a regular file of at most {limit} bytes | received {} bytes",
-                path.display(),
-                metadata.len()
-            ),
-        ));
+        return Err(not_a_regular_file(path, limit, metadata.len()));
     }
     let mut bytes = Vec::new();
     file.take(limit + 1)
