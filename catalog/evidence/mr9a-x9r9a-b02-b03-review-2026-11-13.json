@@ -1,0 +1,27 @@
+{
+  "schema": "bme.evidence/1",
+  "id": "mr9a-x9r9a-b02-b03-review-2026-11-13",
+  "kind": "offline-validation",
+  "date": "2026-11-13",
+  "title": "B02-B03 ported to the X9R9A Ver:003 build: hunk-by-hunk offline review",
+  "board": "machinist-mr9a-pro-q87-rev-1.2",
+  "firmware": "x9r9a-003-20231110",
+  "configuration": "One image analysed offline; no hardware involved",
+  "patches": [
+    {
+      "id": "B02-B03",
+      "version": "1.0.0"
+    }
+  ],
+  "image_sha256": "e9a70a4b3da1aaaaf7f19977c5cd46562ca7c36ae2b18c8c6c2e795a19847e26",
+  "built_with": "bme 0.1.0",
+  "observations": [
+    "bme derive located all 7 hunks of the March variant in UncoreInitPeim of this build (source SHA-256 fd4d3aa360b1b3d0a84de90aacd714acb285c30120aab75e129a91b7923345f1, 604064 bytes) and listed none for replacement review.",
+    "Offsets: 467234, 467480, 467491, 467523, 467609, 467619 (March offsets minus 982) and 580010 (minus 763). Original and replacement bytes are equal to the March variant in every hunk.",
+    "Both modules were disassembled as 32-bit code over 192 bytes on each side of every hunk: instruction boundaries are the same, and every instruction is equal once call and jump targets are masked. The differing bytes are call displacements.",
+    "The replacements hold no address: sub esp,0x20 becomes 0x24; five [ebp-0x8] operands become [ebp-0x24]; one je becomes two nops; one compare immediate 1 becomes 0. The frame is 0x20 bytes in both builds, so [ebp-0x24] is unused before the patch.",
+    "bme patch built an image from the dump (input SHA-256 078459d5bce27875cdf193ee4ebfdd4deb523a4ea1fcf855e436cbe540739133) with 5 changed regions spanning 28 bytes; bme verify reproduced it from the catalog, and a scan of the output reads B02-B03 fixed."
+  ],
+  "limits": "Offline review of one image. The patched image was never flashed or booted, and the routine was not executed for this build: the replay harness of the March and PR9 builds selects its tables by module digest and does not cover this module. The findings B02 and B03 are established by execution on the March build only.",
+  "source": "bme derive, objdump and bme patch/verify, 2026-11-13"
+}

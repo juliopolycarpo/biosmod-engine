@@ -1,0 +1,22 @@
+{
+  "schema": "bme.evidence/1",
+  "id": "mr9a-x9r9a-scan-2026-11-13",
+  "kind": "offline-validation",
+  "date": "2026-11-13",
+  "title": "X9R9A Ver:003 build scanned for the defects known on the March build",
+  "board": "machinist-mr9a-pro-q87-rev-1.2",
+  "firmware": "x9r9a-003-20231110",
+  "configuration": "One image analysed offline; no hardware involved",
+  "patches": [],
+  "image_sha256": "078459d5bce27875cdf193ee4ebfdd4deb523a4ea1fcf855e436cbe540739133",
+  "built_with": "bme 0.1.0",
+  "observations": [
+    "bme scan of the image against this catalog. 1 of the 33 modules recorded for the March build is byte-identical (MemorySubClass).",
+    "Every hunk signature of B01-B06, B02-B03, B08, H01, H02 and H05 matches exactly once in the module the patch names: the defective code is present at other offsets.",
+    "R01 reads DEFECT PRESENT: its module is byte-identical to the March build, so the recorded variant applies as it is.",
+    "Finding detectors report likely-present for A02 (rpme-logical-and, in the DSDT file 7E374E25-8E01-4FEE-87F2-390C23C606CD), B09 (byte-counter-scan, 24 modules with 24 defect sites), B10 (sx-phase-ignored, PchSmiDispatcher) and B11 (context-wide-copy, PchSmiDispatcher).",
+    "A03, A07, B05, B07-B08, B01-B04-B06-B08 and MRC-BREADCRUMBS read not detected: their patterns were not found, which does not show those defects absent."
+  ],
+  "limits": "Signature matches on one image. Nothing was executed, flashed or booted, and no module of this build was reviewed beyond the patterns, except where another record says so. The board the image was read from is not the reference board.",
+  "source": "bme scan and bme case init, 2026-11-13"
+}

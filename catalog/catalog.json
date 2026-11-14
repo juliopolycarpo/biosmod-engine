@@ -1,7 +1,7 @@
 {
   "schema": "bme.catalog/1",
   "id": "official",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "title": "Biosmod Engine official catalog",
   "engine": "^0.1",
   "description": "Corrections and diagnostics for the Machinist MR9A PRO (Q87) and PR9 (B85) X99 boards, converted from x99-bios-fixes.",
@@ -9,24 +9,24 @@
     {
       "id": "mr9a-pro-rev1.2",
       "version": "0.1.0",
-      "manifest_sha256": "dbebde1154816322a4d6b5c0d6284cfd6b54b3ab6733f391027742fd76771d09",
+      "manifest_sha256": "77034a2327da88bdca05903d2953a2d82bb68141d3e1f589609456abcf6c9065",
       "repository": "https://github.com/juliopolycarpo/firmware_mr9a-pro-rev1.2",
-      "commit": "d630fc3307ec86a441fbe4bc2e24bdf4278ca50a"
+      "commit": "85875ade3413746c64ba65fba51f107f51d96592"
     },
     {
       "id": "pr9-b85",
       "version": "0.1.0",
       "manifest_sha256": "b4ca3c6b7d1fbd7501b2a4da93f6cc437a3a74a41ec3b500aa75b9f9247592aa",
       "repository": "https://github.com/juliopolycarpo/firmware_pr9-b85",
-      "commit": "d4b328ebf2f650a26e3b2d47f5a93c963bc22956"
+      "commit": "fc8af0ad2a54b3bcd33eeda8848a55b7f94e487e"
     }
   ],
   "files": [
     {
       "path": "boards/machinist-mr9a-pro-q87-rev-1.2.json",
       "kind": "board",
-      "length": 1731,
-      "sha256": "9f081baf3eacecf148f515f4ea172a3c145b28c8a681a1e22f60c0cd2273d7bd"
+      "length": 2682,
+      "sha256": "98ba746daef16ec8c64a5210a051fc7b02726695dd5258c60c304e9386839569"
     },
     {
       "path": "boards/machinist-pr9-b85.json",
@@ -71,6 +71,30 @@
       "sha256": "c56ae7c11418a846977926cc843af80a19e3b870adb81dcb7f2dc15a6db091c1"
     },
     {
+      "path": "evidence/mr9a-x9r9a-b02-b03-review-2026-11-13.json",
+      "kind": "evidence",
+      "length": 2170,
+      "sha256": "e5d094200d5c20fc846a33e65d084a3eb0d6735dd854a34f585f2820c5a24df8"
+    },
+    {
+      "path": "evidence/mr9a-x9r9a-compare-rebar-2026-11-13.json",
+      "kind": "evidence",
+      "length": 1791,
+      "sha256": "7c81a9780ed1124a5e31872b637d8dd48b3f7cf8a136077b436fe71fe4dd3db3"
+    },
+    {
+      "path": "evidence/mr9a-x9r9a-r01-identical-module-2026-11-13.json",
+      "kind": "evidence",
+      "length": 1622,
+      "sha256": "579674e16ff797f0c46ade4bd39dbdb193624cdd438e4d475df14b93152989d9"
+    },
+    {
+      "path": "evidence/mr9a-x9r9a-scan-2026-11-13.json",
+      "kind": "evidence",
+      "length": 1687,
+      "sha256": "d3c50ce6537c1d292d922c494ad1530c663c4bd3dc433f9d240e0d1b079dd1b3"
+    },
+    {
       "path": "findings/A01.json",
       "kind": "finding",
       "length": 785,
@@ -79,8 +103,8 @@
     {
       "path": "findings/A02.json",
       "kind": "finding",
-      "length": 1461,
-      "sha256": "7434fcd06a6310c8f90cc83395a38a840e8004ebdc8433dcaf5ad410f888d147"
+      "length": 1543,
+      "sha256": "d3be907e7476e6c9b4431387c0880ba48186c866bb02e0f721c34bd8209d4f5d"
     },
     {
       "path": "findings/A03.json",
@@ -121,20 +145,20 @@
     {
       "path": "findings/B01.json",
       "kind": "finding",
-      "length": 1238,
-      "sha256": "84a4ba1e9e6ba687612c5545f688ea6d714321b84e45120beb56156ce831fd5e"
+      "length": 1300,
+      "sha256": "3ed6014afbaaea183db246e988af8a04e70883cfabe23413dd546847ceef5378"
     },
     {
       "path": "findings/B02.json",
       "kind": "finding",
-      "length": 1065,
-      "sha256": "75a333835ffebfe31d054a00cf3bc6667f8046e22830cb62255947cef7d4d8b2"
+      "length": 1171,
+      "sha256": "8df496a0c2c182b75fbfa42fc93e9a371cb89683884f76b80d1bac2e0275adbd"
     },
     {
       "path": "findings/B03.json",
       "kind": "finding",
-      "length": 1047,
-      "sha256": "e5f50ecf208870cc7efda72e49dbea4dd7f076b1b3b8358bf1b82cdc6ba9c086"
+      "length": 1153,
+      "sha256": "a3e1574a2cdf04207af16e52fee14a24b12e52eac86e9231cf23b7e048e2e01e"
     },
     {
       "path": "findings/B04.json",
@@ -151,8 +175,8 @@
     {
       "path": "findings/B06.json",
       "kind": "finding",
-      "length": 1183,
-      "sha256": "2d4238932c5ad9a9679cc4a65976a656b2e9318f6982d81ef1ce731e10f3866e"
+      "length": 1245,
+      "sha256": "0c32bf0a8d5a008b6696601e2cc1125ea4d3c3d26e843dce3a644232717b3eb2"
     },
     {
       "path": "findings/B07.json",
@@ -163,26 +187,26 @@
     {
       "path": "findings/B08.json",
       "kind": "finding",
-      "length": 1015,
-      "sha256": "488c3fd7f34255bfa5529f69d19fa3dec37b90bf7807e1468f97dfc163abfb8b"
+      "length": 1097,
+      "sha256": "68802ccfaa2e1a67628e9ee92389f9ece8bc7989ff3ab29ccde4a1c917157ad0"
     },
     {
       "path": "findings/B09.json",
       "kind": "finding",
-      "length": 2713,
-      "sha256": "88037eb59441ac2f0be2b08d7006130ee549552c5c75e2c2b3231179d0d48c37"
+      "length": 2795,
+      "sha256": "8b53dab3bd7bbadda18a5977bc26cc5f170a70e01951b516b6ed394abedcbe92"
     },
     {
       "path": "findings/B10.json",
       "kind": "finding",
-      "length": 2708,
-      "sha256": "472545db9daea6b8463d9b1c720d14a13fd63a9452cf003774e066b24534f766"
+      "length": 2770,
+      "sha256": "61f62dd292f00ee364abf21547b9cce97f05c238788305929f1a4de322550af0"
     },
     {
       "path": "findings/B11.json",
       "kind": "finding",
-      "length": 2820,
-      "sha256": "8f26c811c2ac05a9b6a4afeee39b81913a04c0d542e872e3e9fd993a878ac13d"
+      "length": 2882,
+      "sha256": "9d1ad54902f2be149478e60ce5459eecbbc44b7002ccbb5d6c25d4f4ec805a2e"
     },
     {
       "path": "findings/B12.json",
@@ -199,14 +223,14 @@
     {
       "path": "findings/H01.json",
       "kind": "finding",
-      "length": 828,
-      "sha256": "5f6701d716f033b27ca91b7e2c34bbc4feabf54d5ea47be4357f757aea38b06e"
+      "length": 910,
+      "sha256": "5e906e2b3b55fd4883ca676e6d3a658be82b1c8edb288d474c98031ecef72049"
     },
     {
       "path": "findings/H02.json",
       "kind": "finding",
-      "length": 1237,
-      "sha256": "3219eb008c5b90885803866fab833494465e89aae914a77eb75356af7ea8885c"
+      "length": 1319,
+      "sha256": "2247bfd77c64f5c5d094f75d94eb32eadac138df47e54dc5444d469fdd86d195"
     },
     {
       "path": "findings/H03.json",
@@ -223,8 +247,8 @@
     {
       "path": "findings/H05.json",
       "kind": "finding",
-      "length": 1245,
-      "sha256": "0740ab384c03d96fef5531d1d2bce3f98f729dcf66c628dd66d66f34d2e66cbb"
+      "length": 1327,
+      "sha256": "0fee4cbbb8549371b6e281ec7613412815a19a8d1e44b1ad296cad94d59852cc"
     },
     {
       "path": "findings/H06.json",
@@ -289,8 +313,8 @@
     {
       "path": "findings/R01.json",
       "kind": "finding",
-      "length": 1100,
-      "sha256": "d6bdb224ecfeca773a5b882f440522de9b506c4158bd3c4db4597e807a4b348c"
+      "length": 1212,
+      "sha256": "603cb13ea5e22ecd49a074bf0f9ef34b368e094e7c4210dd840f5e50f87afb02"
     },
     {
       "path": "findings/R02.json",
@@ -343,8 +367,8 @@
     {
       "path": "patches/B02-B03.json",
       "kind": "patch",
-      "length": 10185,
-      "sha256": "0a2523928f5e3e067ebf60a7d76cd4150165c2696befd85d47cf01d7cf254711"
+      "length": 14738,
+      "sha256": "e1ba05fbea053abe0ccd45718c947bf45a726415fa4fd331f31b947793913f4e"
     },
     {
       "path": "patches/B05.json",
@@ -409,8 +433,8 @@
     {
       "path": "patches/R01.json",
       "kind": "patch",
-      "length": 12092,
-      "sha256": "c3ca9630f6d4f43c64f4d29ed91d3a0b413443da53af448254632a36ac216800"
+      "length": 17541,
+      "sha256": "87372bd9023f8ef4f58927c3e7d8267bb698e72f71061d6b52cf40841f0de84b"
     },
     {
       "path": "patches/S01.json",
