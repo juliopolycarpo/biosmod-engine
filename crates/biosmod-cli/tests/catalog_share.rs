@@ -197,7 +197,7 @@ fn split_text_lists_what_it_dropped() {
         "--id",
         PR9_CATALOG,
     ]));
-    let first = format!("Split board {PR9} of official 1.3.1 into {}", s(&dir));
+    let first = format!("Split board {PR9} of official 1.4.0 into {}", s(&dir));
     for expected in [
         first.as_str(),
         "kept      19 patches, 28 findings, 0 evidence records, 1 provenance files",

@@ -116,7 +116,7 @@ A finding records a defect or observation independent of any patch, so one with 
   "title": "SMM library byte counter over the configuration-table count",
   "priority": "P2",
   "status": "fixed-by-patch",
-  "affects": {"label": "Both", "builds": ["mnx99mr9apro-230322", "x99ha00m-20221202"]},
+  "affects": {"label": "MR9A PRO and PR9", "builds": ["mnx99mr9apro-230322", "x99ha00m-20221202"]},
   "owner": {"description": "...", "modules": [{"ui_name": "OEMSmi", "ffs_guid": "..."}], "references": [...]},
   "confidence": {"finding": {"grade": "C0"}, "condition": {"grade": "C3", "note": "trigger"}},
   "description": "...", "not_established": "...", "remediation": "...",

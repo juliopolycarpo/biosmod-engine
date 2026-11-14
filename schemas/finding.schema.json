@@ -12,7 +12,7 @@
           "type": "array"
         },
         "label": {
-          "description": "Scope in words, such as `Both` or `PR9 only`.",
+          "description": "Scope in words that name the boards, such as `MR9A PRO and PR9` or `PR9 only`.",
           "type": "string"
         }
       },

@@ -1,7 +1,7 @@
 {
   "schema": "bme.catalog/1",
   "id": "official",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "title": "Biosmod Engine official catalog",
   "engine": "^0.1",
   "description": "Corrections and diagnostics for the Machinist MR9A PRO (Q87) and PR9 (B85) X99 boards, converted from x99-bios-fixes.",
@@ -9,12 +9,16 @@
     {
       "id": "mr9a-pro-rev1.2",
       "version": "0.1.0",
-      "manifest_sha256": "0bb7624bf22fe861d875b8d8729e8f2386f5d47c14c11de3930995e57583708d"
+      "manifest_sha256": "dbebde1154816322a4d6b5c0d6284cfd6b54b3ab6733f391027742fd76771d09",
+      "repository": "https://github.com/juliopolycarpo/firmware_mr9a-pro-rev1.2",
+      "commit": "d630fc3307ec86a441fbe4bc2e24bdf4278ca50a"
     },
     {
       "id": "pr9-b85",
       "version": "0.1.0",
-      "manifest_sha256": "12d664a4410a193e737dbaa70f5191827aec328afaa5b83fcb7d014a2c65f939"
+      "manifest_sha256": "b4ca3c6b7d1fbd7501b2a4da93f6cc437a3a74a41ec3b500aa75b9f9247592aa",
+      "repository": "https://github.com/juliopolycarpo/firmware_pr9-b85",
+      "commit": "d4b328ebf2f650a26e3b2d47f5a93c963bc22956"
     }
   ],
   "files": [
@@ -75,14 +79,14 @@
     {
       "path": "findings/A02.json",
       "kind": "finding",
-      "length": 1449,
-      "sha256": "a98fb13fd9ddba537d9ff1922b334150f9f6f9acec01f069265228a067f6008d"
+      "length": 1461,
+      "sha256": "7434fcd06a6310c8f90cc83395a38a840e8004ebdc8433dcaf5ad410f888d147"
     },
     {
       "path": "findings/A03.json",
       "kind": "finding",
-      "length": 865,
-      "sha256": "b08b46cb3e7d968c0cd6e950df61355718b95ca51ca65140707b2de6262b9e86"
+      "length": 877,
+      "sha256": "b7413cb819f23ac90bddb6fe93d91ad09f8051fb5dd7316c1d1b063bd0d690b7"
     },
     {
       "path": "findings/A04.json",
@@ -105,80 +109,80 @@
     {
       "path": "findings/A07.json",
       "kind": "finding",
-      "length": 1041,
-      "sha256": "b6cf395588c5662409ef95f4edb1a05553e6b2b653e1ae064fd93ba39491b8fd"
+      "length": 1053,
+      "sha256": "e90346d4096470f948137bb59dfb1a719bb6d3aca4cd57c3d0f2a56f6cd91512"
     },
     {
       "path": "findings/A08.json",
       "kind": "finding",
-      "length": 1082,
-      "sha256": "27793a2b8b80b932db9a856ed09569f8dbe8a09820107aa079e75df65da36d58"
+      "length": 1094,
+      "sha256": "e85d870123bc4aa38e7a798015f60f25d9509aa858727e4c9425cc316433acef"
     },
     {
       "path": "findings/B01.json",
       "kind": "finding",
-      "length": 1226,
-      "sha256": "8ac7ca490c0637c290f00e52a66958bcbb2e2e952e4c20912b62d2748cacc362"
+      "length": 1238,
+      "sha256": "84a4ba1e9e6ba687612c5545f688ea6d714321b84e45120beb56156ce831fd5e"
     },
     {
       "path": "findings/B02.json",
       "kind": "finding",
-      "length": 1053,
-      "sha256": "0d20170a83403e0eab33de3162b484bcda41a0b2937e95e68fe4b636a0ec54f1"
+      "length": 1065,
+      "sha256": "75a333835ffebfe31d054a00cf3bc6667f8046e22830cb62255947cef7d4d8b2"
     },
     {
       "path": "findings/B03.json",
       "kind": "finding",
-      "length": 1035,
-      "sha256": "5198299dd4193e0ac0b9a1a5d0c9949d1fe7bb01f2b6048125d4204ab47d82c3"
+      "length": 1047,
+      "sha256": "e5f50ecf208870cc7efda72e49dbea4dd7f076b1b3b8358bf1b82cdc6ba9c086"
     },
     {
       "path": "findings/B04.json",
       "kind": "finding",
-      "length": 1112,
-      "sha256": "2dad44323a7352343823c01ef238862c5a89913152cd5ceefba26a02b2d52d85"
+      "length": 1124,
+      "sha256": "067296b9d023c3378ccfd5a3194cc6bb9c83dcc1cd3673fee8910ee5a38533e7"
     },
     {
       "path": "findings/B05.json",
       "kind": "finding",
-      "length": 1176,
-      "sha256": "65cc4d1028efa3be4afb7b24386d995f4bd371825c776e042bf4afb3705eb26c"
+      "length": 1188,
+      "sha256": "fdd2f1f1b0096a0e50acb458ff9c4fa563a4e4f7dfb23090fc30a1bd7c3f9944"
     },
     {
       "path": "findings/B06.json",
       "kind": "finding",
-      "length": 1171,
-      "sha256": "d6c8f98f97900b9d2445c7909fe28cf3cb95c331b40b88e018a110ffe7589abc"
+      "length": 1183,
+      "sha256": "2d4238932c5ad9a9679cc4a65976a656b2e9318f6982d81ef1ce731e10f3866e"
     },
     {
       "path": "findings/B07.json",
       "kind": "finding",
-      "length": 1140,
-      "sha256": "8cdda844184715d749945d5ae1b55d6b4f574d383308510a5d2bf03f25f147b4"
+      "length": 1152,
+      "sha256": "de7ede2b0bd915230af93c4cf7829797d48ff49d10308a94d2e3c3d3c268db29"
     },
     {
       "path": "findings/B08.json",
       "kind": "finding",
-      "length": 1003,
-      "sha256": "e39e2ced72bf0db751a37b4a2c5049fdbdcdeb4d366d6070ab6c1ab72b2e06ae"
+      "length": 1015,
+      "sha256": "488c3fd7f34255bfa5529f69d19fa3dec37b90bf7807e1468f97dfc163abfb8b"
     },
     {
       "path": "findings/B09.json",
       "kind": "finding",
-      "length": 2701,
-      "sha256": "159b1036de2cdb367138902cadf33c1eed5aeeeded12a36721c779a94428f68b"
+      "length": 2713,
+      "sha256": "88037eb59441ac2f0be2b08d7006130ee549552c5c75e2c2b3231179d0d48c37"
     },
     {
       "path": "findings/B10.json",
       "kind": "finding",
-      "length": 2696,
-      "sha256": "de0a1275b9b7fe2383066aa656cf63106d79309028c45770eafee7c1620bd41d"
+      "length": 2708,
+      "sha256": "472545db9daea6b8463d9b1c720d14a13fd63a9452cf003774e066b24534f766"
     },
     {
       "path": "findings/B11.json",
       "kind": "finding",
-      "length": 2808,
-      "sha256": "5b22b0abe8b1f861b33f662709a7195d8218a5b6e8a73ba942b3dacf5a22c173"
+      "length": 2820,
+      "sha256": "8f26c811c2ac05a9b6a4afeee39b81913a04c0d542e872e3e9fd993a878ac13d"
     },
     {
       "path": "findings/B12.json",
@@ -189,8 +193,8 @@
     {
       "path": "findings/D01.json",
       "kind": "finding",
-      "length": 1444,
-      "sha256": "8856bf6c9fbb21172f1217e9bf1b23dbd21b40f8f871889569e0fadb2d236814"
+      "length": 1456,
+      "sha256": "6795ce843e2a10f8f857c6eaa9f5c458a91cd053d627b120d80b5840b0b3de53"
     },
     {
       "path": "findings/H01.json",
@@ -201,8 +205,8 @@
     {
       "path": "findings/H02.json",
       "kind": "finding",
-      "length": 1225,
-      "sha256": "ff0de9181ec672dafdeef1efea976e797e74076d5e93a12ce4b53771be731d5c"
+      "length": 1237,
+      "sha256": "3219eb008c5b90885803866fab833494465e89aae914a77eb75356af7ea8885c"
     },
     {
       "path": "findings/H03.json",
@@ -219,8 +223,8 @@
     {
       "path": "findings/H05.json",
       "kind": "finding",
-      "length": 1233,
-      "sha256": "d84bd26e87a7dffb86e210f0629c3ac550d0beb532a01a5ad4bec3d79d986551"
+      "length": 1245,
+      "sha256": "0740ab384c03d96fef5531d1d2bce3f98f729dcf66c628dd66d66f34d2e66cbb"
     },
     {
       "path": "findings/H06.json",
@@ -231,38 +235,38 @@
     {
       "path": "findings/H07.json",
       "kind": "finding",
-      "length": 802,
-      "sha256": "c15bb693ec7e286d4e97395f0f129293739989e374a5d693741b98d7979e7fc6"
+      "length": 814,
+      "sha256": "187250159bb7b658131a3da9b97df2dc6d21ab096049b75d6988538aa45c8134"
     },
     {
       "path": "findings/H08.json",
       "kind": "finding",
-      "length": 843,
-      "sha256": "053086bfc39f44ff20d9588508beab938cf2ac17eed102a703bd3764e58f7a1c"
+      "length": 855,
+      "sha256": "8f6564eeffff3768eec7c766020a907db806923747542ff1c49fb238fc2bf51a"
     },
     {
       "path": "findings/H09.json",
       "kind": "finding",
-      "length": 1707,
-      "sha256": "09e375e9bf5f1a5f55a823ad6f29b2be4b4b79774746ea2623983e2be648e527"
+      "length": 1719,
+      "sha256": "7a667f95be33fefb78a0ff2f45e348aca6c345074b54e46917cc4c4c94d16da3"
     },
     {
       "path": "findings/H10.json",
       "kind": "finding",
-      "length": 1544,
-      "sha256": "b82af8e4520abc9cd70dfd464924ea4cc82ca96c2c242aae398464711dd1a80f"
+      "length": 1556,
+      "sha256": "c8d173bfa5669bbbf0ebdc94e4deef83ca39a82ad2a8d8819b732d2820edf497"
     },
     {
       "path": "findings/H11.json",
       "kind": "finding",
-      "length": 1694,
-      "sha256": "7f047f69e43a57a750b2fee9348f576c183c8f7ae518567aa27c97eaff593d63"
+      "length": 1706,
+      "sha256": "1dd61d178042bfec922c860d5cc903aaf481228989cb29ee1e20dccbdc0ee482"
     },
     {
       "path": "findings/H12.json",
       "kind": "finding",
-      "length": 1941,
-      "sha256": "0509bd438f06d2034616252e3ec8ba33633f061cbb4674b90642e072ae2a77b7"
+      "length": 1953,
+      "sha256": "8fbf359ee803b06aa9396345ea2cb808989b409428ec6ee5d7cd104ac42d93da"
     },
     {
       "path": "findings/H13.json",
@@ -285,8 +289,8 @@
     {
       "path": "findings/R01.json",
       "kind": "finding",
-      "length": 1088,
-      "sha256": "1d6c01ffd1a15ecb7ed20136de7a427f355dd26e4ee392e97c37c9d882d1ff1d"
+      "length": 1100,
+      "sha256": "d6bdb224ecfeca773a5b882f440522de9b506c4158bd3c4db4597e807a4b348c"
     },
     {
       "path": "findings/R02.json",
