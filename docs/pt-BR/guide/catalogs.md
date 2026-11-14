@@ -77,7 +77,7 @@ O digest decide o que foi unido. `repository` e `commit` dizem onde obter esse c
 
 ## Placas e versões de firmware
 
-Um perfil de placa informa fabricante, modelo e revisão, e como a revisão é conhecida (`observed`, `unverified`, `unknown`). Ele lista as versões de firmware fornecidas. Variantes de patches são identificadas pelo ID da versão de firmware, não da placa; duas placas com a mesma versão compartilham uma variante.
+Um perfil de placa informa fabricante, modelo e revisão, e como a revisão é conhecida (`observed`, `unverified`, `unknown`). Ele lista as versões de firmware fornecidas. Variantes de patches são identificadas pelo ID da versão de firmware. Um ID de versão pertence a uma única placa do catálogo: duas placas com a mesma imagem recebem dois IDs de versão.
 
 `facts` são afirmações sobre hardware que o firmware não pode comprovar, como "o Super I/O é um NCT5532D". Uma variante que depende de um fato o lista em `requires_facts`, e o usuário deve passar `--assert <fact-id>`.
 

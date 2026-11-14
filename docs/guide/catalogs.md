@@ -77,7 +77,7 @@ The digest decides what was merged. `repository` and `commit` say where to fetch
 
 ## Boards and firmware builds
 
-A board profile names the vendor, model and revision, and how the revision is known (`observed`, `unverified`, `unknown`). It lists the firmware builds it ships. Patch variants are keyed by firmware build id, not by board, so two boards that ship the same build share one variant.
+A board profile names the vendor, model and revision, and how the revision is known (`observed`, `unverified`, `unknown`). It lists the firmware builds it ships. Patch variants are keyed by firmware build id. A build id belongs to one board of a catalog: two boards that ship the same image get two build ids.
 
 `facts` are hardware statements firmware cannot prove, such as "the Super I/O is an NCT5532D". A variant that depends on one lists it in `requires_facts`, and users must pass `--assert <fact-id>`.
 

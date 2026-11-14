@@ -505,6 +505,17 @@ fn finding_is_indexed(catalog: &Catalog, id: &str) -> bool {
         && catalog.manifest.files.iter().any(|f| f.path == path)
 }
 
+/// Whether `id` names a board of `catalog` that a board-scoped load did not read.
+///
+/// A finding two boards share lists the evidence of both. The closure of one board reaches
+/// those records but loads only its own profile, so the index of `catalog.json` says whether
+/// the other board exists; its builds are checked when the whole catalog is validated.
+fn board_is_indexed(catalog: &Catalog, id: &str) -> bool {
+    let path = format!("{}/{id}.json", FileKind::Board.directory());
+    matches!(catalog.scope, Scope::Board(_))
+        && catalog.manifest.files.iter().any(|f| f.path == path)
+}
+
 /// Check that every id in `patch.findings` is a finding of the catalog, as `is_known` decides.
 ///
 /// Names every unknown id, in the order the patch lists them.
@@ -861,7 +872,8 @@ fn evidence_record(
             )));
         }
     } else if matches!(catalog.scope, Scope::All)
-        || !firmware.contains_key(evidence.firmware.as_str())
+        || !(firmware.contains_key(evidence.firmware.as_str())
+            || board_is_indexed(catalog, &evidence.board))
     {
         return Err(invalid(format!(
             "{at}: references unknown board {}",

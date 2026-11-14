@@ -712,6 +712,54 @@ fn edited_copy(sandbox: &Sandbox, source: &Path, name: &str, edits: &[(&str, &Ed
 }
 
 #[test]
+fn each_bundled_board_file_validates_alone() {
+    // A finding both boards share lists the MR9A evidence. The PR9 closure reaches those
+    // records without loading the MR9A profile, which used to fail as an unknown board.
+    let sandbox = Sandbox::new();
+    for board in [MR9A, PR9] {
+        let file = bundled().join(format!("boards/{board}.json"));
+        let run = sandbox.run(["catalog", "validate", s(&file)]);
+        assert_eq!(
+            run.code, 0,
+            "(catalog validate boards/{board}.json): expected the board closure to validate | received: {}",
+            run.stderr
+        );
+    }
+}
+
+#[test]
+fn board_scope_still_refuses_evidence_of_a_board_the_catalog_does_not_index() {
+    let sandbox = Sandbox::new();
+    let copy = sandbox.path("ghost");
+    copy_tree(&bundled(), &copy);
+    let evidence = copy.join("evidence/mr9a-stage1-2026-11-08.json");
+    let mut document = json_file(&evidence);
+    document["board"] = json!("ghost-board");
+    fs::write(
+        &evidence,
+        serde_json::to_string_pretty(&document).unwrap() + "\n",
+    )
+    .unwrap();
+    // `catalog index` rewrites the hashes and then refuses the catalog as a whole.
+    let index = sandbox.run(["catalog", "index", s(&copy)]);
+    assert_eq!(index.code, 1, "{}", index.stderr);
+    let run = sandbox.run([
+        "catalog",
+        "validate",
+        s(&copy.join(format!("boards/{PR9}.json"))),
+        "--json",
+    ]);
+    assert_eq!(
+        (run.code, run.error_code().as_str()),
+        (1, "CATALOG_INVALID")
+    );
+    assert_eq!(
+        run.json()["error"]["message"],
+        "evidence mr9a-stage1-2026-11-08: references unknown board ghost-board"
+    );
+}
+
+#[test]
 fn merge_check_names_the_record_field_values_and_catalogs_of_each_drift() {
     let sandbox = Sandbox::new();
     let (mr9a, pr9) = both_splits(&sandbox);
