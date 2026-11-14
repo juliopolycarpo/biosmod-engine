@@ -5,7 +5,7 @@
   "priority": "P1",
   "status": "open",
   "affects": {
-    "label": "Both",
+    "label": "MR9A PRO and PR9",
     "builds": [
       "mnx99mr9apro-230322",
       "x99ha00m-20221202"

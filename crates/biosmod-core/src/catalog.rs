@@ -527,7 +527,7 @@ pub struct FindingConfidence {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Affects {
-    /// Scope in words, such as `Both` or `PR9 only`.
+    /// Scope in words that name the boards, such as `MR9A PRO and PR9` or `PR9 only`.
     pub label: String,
     /// Firmware build ids; boards follow from the profiles that ship them.
     pub builds: Vec<String>,
