@@ -107,20 +107,31 @@ fn scaffold_writes_a_workflow_that_installs_bme_and_runs_both_catalog_checks() {
         .filter_map(|line| line.trim_start().strip_prefix("- run: "))
         .filter(|command| command.starts_with("bme ") || command.starts_with("cargo install"))
         .collect();
+    // The binary under test reports the commit it was built from, if any.
+    let version = sandbox.run(["version", "--json"]);
+    let version: serde_json::Value = serde_json::from_str(&version.stdout).unwrap();
+    let engine_source = match version["data"]["commit"].as_str() {
+        Some(commit) => format!("--rev {commit}"),
+        None => "--branch main".to_string(),
+    };
     assert_eq!(
         steps,
         [
-            "cargo install --locked --git https://github.com/juliopolycarpo/biosmod-engine --branch main biosmod-cli",
+            format!("cargo install --locked --git https://github.com/juliopolycarpo/biosmod-engine {engine_source} biosmod-cli").as_str(),
             "bme catalog index . --check",
             "bme catalog validate ."
         ],
-        "(validate.yml): expected the install, then the two catalog checks"
+        "(validate.yml): expected the install of {engine_source}, then the two catalog checks"
     );
     // The workflow sits outside the indexed directories: the index stays current with it present.
     let index = sandbox.run(["catalog", "index", s(&repo), "--check"]);
     assert_eq!(index.code, 0, "{}{}", index.stdout, index.stderr);
     let readme = fs::read_to_string(repo.join("README.md")).unwrap();
-    for expected in ["bme guide publishing", "--branch main", "--rev <commit>"] {
+    for expected in [
+        "bme guide publishing",
+        engine_source.as_str(),
+        "--tag <tag>",
+    ] {
         assert!(
             readme.contains(expected),
             "(README): expected {expected:?} in the release and CI notes"
@@ -469,4 +480,40 @@ fn gitignore_keeps_firmware_and_identifiers_out_and_the_catalog_in() {
         }
     }
     assert!(wrong.is_empty(), "(.gitignore): {wrong:#?}");
+}
+
+/// `git rev-parse HEAD` of the workspace, when the workspace root is itself a checkout.
+fn workspace_head_commit() -> Option<String> {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    if !workspace.join(".git").exists() {
+        return None;
+    }
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&workspace)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+#[test]
+fn version_reports_the_commit_of_the_checkout_bme_was_built_from() {
+    // Without this, a build script that stopped recording the commit would only
+    // turn every scaffold back to `--branch main`, and nothing would fail.
+    let Some(head) = workspace_head_commit() else {
+        return;
+    };
+    let sandbox = Sandbox::new();
+    let version = sandbox.run(["version", "--json"]);
+    let version: serde_json::Value = serde_json::from_str(&version.stdout).unwrap();
+    assert_eq!(
+        version["data"]["commit"].as_str(),
+        Some(head.as_str()),
+        "(bme version): expected commit {head} of the checkout | received {}",
+        version["data"]["commit"]
+    );
 }
