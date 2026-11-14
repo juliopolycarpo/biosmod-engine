@@ -236,6 +236,23 @@ fn carried_fixes(
     Ok(keep)
 }
 
+/// The refusal for an image whose closest cataloged build is not proven to be its build.
+///
+/// Example: a build recording `X9R9P Ver:005 03/22/2023` against an image banner of
+/// `X9MRA Ver:002 08/11/2022` reads
+/// `firmware build: expected banner "X9R9P Ver:005 03/22/2023" | received "X9MRA Ver:002 08/11/2022"; pass --firmware to override`.
+fn closest_refusal(closest: &analysis::BuildScore, image_banner: Option<&str>) -> String {
+    match (&closest.version_string, image_banner) {
+        (Some(recorded), Some(received)) => format!(
+            "firmware build: expected banner {recorded:?} | received {received:?}; pass --firmware to override"
+        ),
+        _ => format!(
+            "firmware build: expected all {} recorded modules of {} | matched {}; pass --firmware to override",
+            closest.total, closest.firmware, closest.matched
+        ),
+    }
+}
+
 /// Build the patched image for a request; nothing is written anywhere.
 pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Built> {
     let firmware = match &request.firmware {
@@ -248,9 +265,21 @@ pub fn build(image: &Image, catalog: &Catalog, request: &Request) -> Result<Buil
                     "firmware build: several builds match equally; pass --firmware",
                 ));
             }
-            detection.firmware.ok_or_else(|| {
-                Error::new(Code::PatchSourceMismatch, "firmware build: no cataloged build's original modules were found; see `bme guide porting`")
-            })?
+            match (detection.firmware, &detection.closest) {
+                (Some(firmware), _) => firmware,
+                (None, Some(closest)) => {
+                    return Err(Error::new(
+                        Code::PatchSourceMismatch,
+                        closest_refusal(closest, detection.image_banner.as_deref()),
+                    ));
+                }
+                (None, None) => {
+                    return Err(Error::new(
+                        Code::PatchSourceMismatch,
+                        "firmware build: no cataloged build's original modules were found; see `bme guide porting`",
+                    ));
+                }
+            }
         }
     };
     let (chosen, mut notes) = resolve(catalog, &firmware, request)?;

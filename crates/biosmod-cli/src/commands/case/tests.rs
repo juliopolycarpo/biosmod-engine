@@ -1377,3 +1377,46 @@ fn a_failed_command_that_is_not_a_diagnostic_still_records_nothing() {
     assert_eq!(workspace.case().artifacts.len(), 1);
     assert_eq!(artifact_entries(&workspace), ["001-scan.json"]);
 }
+
+#[test]
+fn init_reports_a_closest_build_without_recording_it_as_a_match() {
+    let workspace = Workspace::new();
+    // A dump that shares two of the three recorded modules with the cataloged build.
+    let fixture = Fixture::new(0x07).with_banner(BANNER);
+    let mut sibling = fixture.image.clone();
+    let at = sibling
+        .windows(fixture.peim.len())
+        .position(|window| window == fixture.peim.as_slice())
+        .expect("peim is stored plain in the synthetic image");
+    sibling[at + fixture.peim.len() - 1] ^= 0xFF;
+    fs::write(workspace.path("dump.bin"), sibling).unwrap();
+
+    let reply = workspace
+        .init_with(&FakeHostIdentity::with(&[]), None)
+        .unwrap();
+    let firmware: FirmwareDraft = read_document(&workspace.path("case"), FIRMWARE_DRAFT).unwrap();
+    assert_eq!(
+        firmware.matches_catalog_build, None,
+        "(draft evidence): expected no matched catalog build for a closest-only image"
+    );
+    assert_eq!(reply.data["matches_catalog_build"], Value::Null);
+    assert_eq!(
+        reply.data["closest_catalog_build"]["firmware"],
+        "synthetic-fw"
+    );
+    assert!(
+        reply
+            .text
+            .contains("no catalog build matched; closest is synthetic-fw (2/3 recorded modules)"),
+        "(case init text): expected the closest build with its counts | received {}",
+        reply.text
+    );
+    let scan: Value =
+        serde_json::from_slice(&fs::read(workspace.path("case/artifacts/001-scan.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        scan["data"]["sources"][0]["report"]["firmware"],
+        Value::Null,
+        "(scan artifact): expected no detected firmware for a closest-only image"
+    );
+}

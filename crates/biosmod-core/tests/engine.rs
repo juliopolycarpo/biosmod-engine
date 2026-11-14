@@ -36,6 +36,17 @@ impl Case {
         build(image, &self.catalog, &request).map(|b| b.image)
     }
 
+    /// Build with `--firmware` given, for tests of the build step on an image that is
+    /// deliberately not a full match: detection refuses such an image without it.
+    fn build_on_synthetic_firmware(&self, image: &Image, ids: &[&str]) -> Result<Vec<u8>, Error> {
+        let request = Request {
+            select: ids.iter().map(|s| s.to_string()).collect(),
+            firmware: Some(synthetic::FIRMWARE.into()),
+            ..Request::default()
+        };
+        build(image, &self.catalog, &request).map(|b| b.image)
+    }
+
     fn states(&self, bytes: &[u8]) -> BTreeMap<String, State> {
         let image = Image::parse(bytes.to_vec()).unwrap();
         analysis::scan(&image, &self.catalog, Some(synthetic::FIRMWARE))
@@ -93,7 +104,7 @@ fn overlapping_acpi_table_offsets_are_not_composed() {
     variant.components[0].table_offset = 8;
     case.catalog.patches.insert(other.id.clone(), other);
     let error = case
-        .build(&case.image(), &["TB"])
+        .build_on_synthetic_firmware(&case.image(), &["TB"])
         .expect_err("distinct table offsets require explicit support");
     assert_eq!(error.code, Code::FormatUnsupported, "{error}");
     assert!(error.message.contains("table offset"), "{error}");
@@ -332,7 +343,7 @@ fn module_from_another_build_is_refused() {
     other[at..at + 32].copy_from_slice(&synthetic::module(7, 32));
     let image = Image::parse(other).unwrap();
     expect_err(
-        case.build(&image, &["PA"]),
+        case.build_on_synthetic_firmware(&image, &["PA"]),
         Code::PatchSourceMismatch,
         "differs from the synthetic-fw original",
     );
@@ -556,7 +567,7 @@ fn duplicated_module_is_ambiguous_not_half_patched() {
     bytes.extend(pei);
     let image = Image::parse(bytes).unwrap();
     expect_err(
-        case.build(&image, &["PA"]),
+        case.build_on_synthetic_firmware(&image, &["PA"]),
         Code::TargetAmbiguous,
         "occurs 2 times",
     );
@@ -947,7 +958,9 @@ fn overlapping_table_ranges_are_refused_before_composition() {
         panic!("applicable variant")
     };
     v.components[0].table_offset = 60;
-    let error = case.build(&case.image(), &["TB", "TZ"]).unwrap_err();
+    let error = case
+        .build_on_synthetic_firmware(&case.image(), &["TB", "TZ"])
+        .unwrap_err();
     assert_eq!(error.code, Code::FormatUnsupported);
     assert!(
         error.message.contains("overlapping ACPI table offsets"),

@@ -189,6 +189,27 @@ fn gated(patch: &analysis::PatchReport) -> String {
     }
 }
 
+/// The closest cataloged build of an unidentified image, with the banner facts that kept it from matching.
+///
+/// Example: `closest cataloged build b1 (30/33 recorded modules match, image banner "X Ver:2", recorded "Y Ver:5")`.
+fn closest_text(closest: &analysis::BuildScore, image_banner: Option<&str>) -> String {
+    let mut facts = vec![format!(
+        "{}/{} recorded modules match",
+        closest.matched, closest.total
+    )];
+    if let Some(banner) = image_banner {
+        facts.push(format!("image banner {banner:?}"));
+    }
+    if let Some(recorded) = &closest.version_string {
+        facts.push(format!("recorded {recorded:?}"));
+    }
+    format!(
+        "closest cataloged build {} ({})",
+        closest.firmware,
+        facts.join(", ")
+    )
+}
+
 fn scan_text(loaded: &Loaded, report: &ScanReport) -> String {
     let mut text = String::new();
     let source = format!(
@@ -213,12 +234,25 @@ fn scan_text(loaded: &Loaded, report: &ScanReport) -> String {
                 "Source: {source}\nFirmware: ambiguous, several builds match equally; pass --firmware"
             );
         }
-        None => {
-            let _ = writeln!(
-                text,
-                "Source: {source}\nFirmware: unknown (signature scan only)"
-            );
-        }
+        None => match &report.detection.closest {
+            Some(closest) => {
+                let _ = writeln!(
+                    text,
+                    "Source: {source}\nFirmware: unknown; {}",
+                    closest_text(closest, report.detection.image_banner.as_deref())
+                );
+                let _ = writeln!(
+                    text,
+                    "  The image is not proven to be that build; patches are not planned. See `bme guide porting`."
+                );
+            }
+            None => {
+                let _ = writeln!(
+                    text,
+                    "Source: {source}\nFirmware: unknown (signature scan only)"
+                );
+            }
+        },
     }
     let mut rows = vec![vec![
         "ID".to_string(),
