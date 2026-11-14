@@ -90,7 +90,7 @@ bme catalog merge <board catalog>... -o catalog --bundled --title "<title>" --ve
 bme catalog merge catalog <board catalog>... --check
 ```
 
-The last command prints `pinned` for every source: it is the check that `catalog/` still equals the board catalogs, and it needs them on disk. In CI, the test `the_bundled_catalog_is_the_merge_of_its_board_splits` fails when `catalog/` is not in the form a merge writes.
+The last command prints `pinned` for every source: it is the check that `catalog/` still equals the board catalogs. CI repeats it with `python3 tools/check-bundled-catalog-sources.py`, which fetches the commit each source pins from its `repository`, so push the board repositories before you open the PR. The test `the_bundled_catalog_is_the_merge_of_its_board_splits` also fails when `catalog/` is not in the form a merge writes.
 
 ## Security
 

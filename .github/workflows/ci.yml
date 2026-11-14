@@ -36,6 +36,8 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --locked -p biosmod-core -p biosmod-host -p biosmod-cli --all-targets -- -D warnings
       - run: cargo run --locked --quiet -- catalog index catalog --check
+      # Fetch the board catalogs pinned in catalog/catalog.json and require the same records.
+      - run: python3 tools/check-bundled-catalog-sources.py
 
   test:
     strategy:
