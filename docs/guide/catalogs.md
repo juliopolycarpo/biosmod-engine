@@ -53,7 +53,7 @@ bme catalog merge . ../other-board --check
 bme catalog merge . ../other-board -o both-boards --id both-boards
 ```
 
-- `split SOURCE --board BOARD_ID -o DIR --id ID [--repository URL]` starts a board repository from a catalog directory or `official`. It writes the `catalog init` scaffold plus the board's records, and lists every patch, finding, evidence record and provenance file it left out. A patch stays when one of the board's builds has a variant, `applicable` or `not-applicable`. A finding stays when it affects one of the board's builds or a kept patch lists it in `findings`; the second kind may end with no affected build. A `fixed-by-patch` finding left with no patch in `patches` becomes `open`. Evidence stays when it names the board. Provenance stays under the id of a kept record. The catalog keeps the `engine` requirement of its source. It fails when a kept patch requires a dropped patch, or when a patch with an applicable variant lists a finding that affects none of the board's builds.
+- `split SOURCE --board BOARD_ID -o DIR --id ID [--repository URL]` starts a board repository from a catalog directory or `official`. It writes the `catalog init` scaffold plus the board's records, and lists every patch, finding, evidence record and provenance file it left out. A patch stays when one of the board's builds has a variant, `applicable` or `not-applicable`. A finding stays when it affects one of the board's builds or a kept patch lists it in `findings`; the second kind may end with no affected build. A `fixed-by-patch` finding left with no patch in `patches` becomes `open`. Evidence stays when it names the board. Provenance stays under the id of a kept record. The catalog keeps the `engine` requirement of its source. It fails when a kept patch requires a dropped patch, when a kept patch lists a finding the catalog does not define, or when a patch with an applicable variant lists a finding that affects none of the board's builds.
 - `merge --check SOURCE SOURCE...` writes nothing. It exits 0 with the count of shared records when the catalogs agree, and fails with the record, field, both values and both catalog ids when a shared record drifted. Sources with one catalog id are named `id (#1)`, `id (#2)` by their position. When a source lists `sources` and another given source has the id of one entry, it prints one `pin` line per entry: `pinned`, or `moved` with the pinned and the current digest, plus the first 12 characters of the entry's commit when it has one (`moved (pinned <digest> at commit 1a2b3c4d5e6f, current <digest>)`). A moved pin does not fail the check, because the records can still agree.
 - `merge SOURCE SOURCE... -o DIR --id ID` writes a catalog directory with the union, at version `0.1.0` unless `--version` says otherwise. `--description TEXT` sets its description. `--bundled` replaces `--id` and writes the reserved id `official`: the engine repository regenerates `catalog/` with it.
 
@@ -77,7 +77,7 @@ The digest decides what was merged. `repository` and `commit` say where to fetch
 
 ## Boards and firmware builds
 
-A board profile names the vendor, model and revision, and how the revision is known (`observed`, `unverified`, `unknown`). It lists the firmware builds it ships. Patch variants are keyed by firmware build id, not by board, so two boards that ship the same build share one variant.
+A board profile names the vendor, model and revision, and how the revision is known (`observed`, `unverified`, `unknown`). It lists the firmware builds it ships. Patch variants are keyed by firmware build id. A build id belongs to one board of a catalog: two boards that ship the same image get two build ids.
 
 `facts` are hardware statements firmware cannot prove, such as "the Super I/O is an NCT5532D". A variant that depends on one lists it in `requires_facts`, and users must pass `--assert <fact-id>`.
 
@@ -128,7 +128,7 @@ A finding records a defect or observation independent of any patch, so one with 
 - `status` is `open`, `fixed-by-patch`, `retired` (withdrawn by later analysis) or `wont-fix` (understood, no change justified).
 - `affects.builds` lists firmware build ids; the boards follow from the profiles that ship them. `owner.modules` names the owning FFS file by UI name and GUID, and `owner.references` points to functions or offsets, optionally per build.
 - `evidence` lists `bme.evidence/1` ids. `description` states the defect, `not_established` what the analysis does not show, and `remediation` the fix strategy or why there is none.
-- A patch lists the findings it resolves in `fixes` (a subset of its `findings`), and each of them lists the patch in `patches`. Validation checks both directions: a `fixed-by-patch` finding needs at least one patch, a patch cannot fix an unknown finding, and the patch's recorded grade for a finding must start with the finding's grade.
+- A patch lists the findings it resolves in `fixes` (a subset of its `findings`), and each of them lists the patch in `patches`. Validation checks both directions: a `fixed-by-patch` finding needs at least one patch, a patch cannot fix an unknown finding, and the patch's recorded grade for a finding must start with the finding's grade. Every id in a patch's `findings` must name a finding of the catalog: `patch <id>: findings: expected ids of findings in this catalog | received <unknown id>`. A board-scoped load (`catalog validate boards/<id>.json`) loads only the findings its patches fix and its board lists, so it checks `findings` ids against the index of `catalog.json` instead.
 - A board lists the findings that concern it in `findings`. `bme scan` prints the open findings of the detected build after the patch table.
 
 The six columns of the audit register (ID, Priority, Confidence, Board / owning code, Finding and status, Patch strategy / fix confidence) map to `id`, `priority`, `confidence`, `affects.label` with `owner.description`, `description` with `not_established`, and `remediation`. `biosmod_core::register` renders findings as that table and parses it back without loss.
@@ -158,7 +158,7 @@ This is the shape of the B09 record, shortened to one of its four signatures. B0
 
 ## Evidence
 
-An evidence record is one observation: board, firmware build, configuration, the exact patch versions, the `image_sha256` that was flashed, what was seen, and its limits. It is attached to those patch versions only. A record never claims a fix works in general.
+An evidence record is one observation: board, firmware build, configuration, the exact patch versions, the `image_sha256` that was flashed, what was seen, and its limits. It is attached to those patch versions only. A record never claims a fix works in general. A `bme scan` patch row lists a record in `evidence` only when the record's `firmware` is the build the scan detected, so a scan of one board's image lists none of another board's observations. With no detected build the rows list no evidence.
 
 ## Indexing
 

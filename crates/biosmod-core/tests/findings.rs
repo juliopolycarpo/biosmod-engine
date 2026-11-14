@@ -145,6 +145,42 @@ fn patch_fixing_an_unknown_finding_is_refused() {
 }
 
 #[test]
+fn patch_listing_an_unknown_finding_is_refused_naming_every_unknown_id() {
+    rejects(
+        load_edited("patches/PB.json", Scope::All, |doc| {
+            doc["findings"] = json!(["OPEN1", "TYPO-1", "TYPO-2"]);
+        }),
+        "patch PB: findings: expected ids of findings in this catalog | received TYPO-1, TYPO-2",
+    );
+}
+
+#[test]
+fn board_scope_refuses_an_unknown_finding_a_patch_lists() {
+    rejects(
+        load_edited("patches/PA.json", Scope::Board(BOARD_FILE.into()), |doc| {
+            doc["findings"] = json!(["PA", "TYPO-1"]);
+        }),
+        "patch PA: findings: expected ids of findings in this catalog | received TYPO-1",
+    );
+}
+
+#[test]
+fn board_scope_accepts_a_finding_a_patch_lists_outside_the_closure() {
+    // OPEN1 is indexed but neither the board nor a `fixes` list reaches it, so the closure
+    // does not load it; the full load of the same files accepts it too.
+    let edits: [Edit<'_>; 2] = [
+        ("patches/PA.json", &|doc| {
+            doc["findings"] = json!(["PA", "OPEN1"]);
+        }),
+        (BOARD_FILE, &|doc| doc["findings"] = json!([])),
+    ];
+    let scoped = load_edits(Scope::Board(BOARD_FILE.into()), &edits).unwrap();
+    assert_eq!(scoped.findings.keys().collect::<Vec<_>>(), ["PA"]);
+    let full = load_edits(Scope::All, &edits).unwrap();
+    assert_eq!(full.findings.len(), 2);
+}
+
+#[test]
 fn patch_fixing_a_finding_outside_its_findings_is_refused() {
     rejects(
         load_edited("patches/PB.json", Scope::All, |doc| {

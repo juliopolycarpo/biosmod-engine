@@ -452,7 +452,8 @@ pub struct PatchReport {
     pub blocked: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires_facts: Vec<String>,
-    /// Hardware observations recorded for this patch version (scoped; see evidence).
+    /// Hardware observations of this patch version on the scanned build; empty when the build
+    /// is unknown.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<String>,
 }
@@ -836,7 +837,16 @@ pub fn scan(image: &Image, catalog: &Catalog, firmware: Option<&str>) -> ScanRep
             plannable: state == State::Present && blocked.is_none(),
             blocked,
             requires_facts,
-            evidence: catalog.evidence_for(patch).map(|e| e.id.clone()).collect(),
+            // Without a detected build the image has no board, so no record is its own.
+            evidence: firmware
+                .as_deref()
+                .map(|fw| {
+                    catalog
+                        .evidence_for(patch, fw)
+                        .map(|e| e.id.clone())
+                        .collect()
+                })
+                .unwrap_or_default(),
         });
     }
     let recommended = patches

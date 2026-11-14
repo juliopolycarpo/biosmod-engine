@@ -200,6 +200,7 @@ pub fn catalog(catalog: &Catalog) -> Result<()> {
     for patch in catalog.patches.values() {
         record(patch, catalog, &firmware, full)?;
         patch_fixes(patch, catalog)?;
+        patch_findings_exist(patch, |id| finding_is_indexed(catalog, id))?;
     }
     for finding in catalog.findings.values() {
         finding_record(finding, catalog, &firmware, full)?;
@@ -488,6 +489,55 @@ fn pattern_record(pattern: &Pattern, at: &str) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+/// Whether `id` names a finding of `catalog`.
+///
+/// A full load holds every finding. A board-scoped load holds only the findings its closure
+/// reaches, and a patch may name a finding of another board, so the index of `catalog.json`
+/// decides there.
+fn finding_is_indexed(catalog: &Catalog, id: &str) -> bool {
+    if catalog.findings.contains_key(id) {
+        return true;
+    }
+    let path = format!("{}/{id}.json", FileKind::Finding.directory());
+    matches!(catalog.scope, Scope::Board(_))
+        && catalog.manifest.files.iter().any(|f| f.path == path)
+}
+
+/// Whether `id` names a board of `catalog` that a board-scoped load did not read.
+///
+/// A finding two boards share lists the evidence of both. The closure of one board reaches
+/// those records but loads only its own profile, so the index of `catalog.json` says whether
+/// the other board exists; its builds are checked when the whole catalog is validated.
+fn board_is_indexed(catalog: &Catalog, id: &str) -> bool {
+    let path = format!("{}/{id}.json", FileKind::Board.directory());
+    matches!(catalog.scope, Scope::Board(_))
+        && catalog.manifest.files.iter().any(|f| f.path == path)
+}
+
+/// Check that every id in `patch.findings` is a finding of the catalog, as `is_known` decides.
+///
+/// Names every unknown id, in the order the patch lists them.
+///
+/// Example: a patch `P1` listing `["F-1", "F-typo"]` where only `F-1` exists fails with
+/// `patch P1: findings: expected ids of findings in this catalog | received F-typo`.
+pub fn patch_findings_exist(patch: &Patch, is_known: impl Fn(&str) -> bool) -> Result<()> {
+    let unknown: Vec<&str> = patch
+        .findings
+        .iter()
+        .map(String::as_str)
+        .filter(|id| !is_known(id))
+        .collect();
+    if unknown.is_empty() {
+        Ok(())
+    } else {
+        Err(invalid(format!(
+            "patch {}: findings: expected ids of findings in this catalog | received {}",
+            patch.id,
+            unknown.join(", ")
+        )))
+    }
 }
 
 /// Check a patch's `fixes` against its findings, the finding records and the grades it records.
@@ -822,7 +872,8 @@ fn evidence_record(
             )));
         }
     } else if matches!(catalog.scope, Scope::All)
-        || !firmware.contains_key(evidence.firmware.as_str())
+        || !(firmware.contains_key(evidence.firmware.as_str())
+            || board_is_indexed(catalog, &evidence.board))
     {
         return Err(invalid(format!(
             "{at}: references unknown board {}",
@@ -898,6 +949,25 @@ mod tests {
             }],
             output_sha256: Digest256::of(b""),
         }
+    }
+
+    #[test]
+    fn patch_findings_that_all_exist_are_accepted() {
+        let mut patch = crate::catalog::fixtures::patch("P1", &[]);
+        patch.findings = vec!["F-1".into(), "F-2".into()];
+        patch_findings_exist(&patch, |id| id.starts_with("F-")).expect("both findings exist");
+    }
+
+    #[test]
+    fn patch_findings_name_every_unknown_id_in_listed_order() {
+        let mut patch = crate::catalog::fixtures::patch("P1", &[]);
+        patch.findings = vec!["F-typo".into(), "F-1".into(), "F-gone".into()];
+        let error = patch_findings_exist(&patch, |id| id == "F-1").unwrap_err();
+        assert_eq!(error.code, Code::CatalogInvalid);
+        assert_eq!(
+            error.message,
+            "patch P1: findings: expected ids of findings in this catalog | received F-typo, F-gone"
+        );
     }
 
     #[test]
