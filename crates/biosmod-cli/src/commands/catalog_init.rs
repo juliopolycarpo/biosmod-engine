@@ -83,9 +83,11 @@ pub fn init(dir: &Path, id: &str, title: Option<&str>, url: Option<&str>) -> Res
          \x20 bme catalog index {shown}\n\
          \x20 bme catalog validate {shown}\n\
          CI: .github/workflows/validate.yml installs bme and runs `bme catalog index . --check` and `bme catalog validate .`.\n\
+         {engine_source}\n\
          Publish: `bme guide publishing` covers signing and the URL users register.\n",
         SCAFFOLD_FILES.join(" "),
         DIRECTORIES.map(|d| format!("{d}/")).join(" "),
+        engine_source = engine_source_note(build_commit()),
     );
     let mut data = json!({
         "directory": shown,
@@ -272,6 +274,19 @@ const ENGINE_REPOSITORY: &str = "https://github.com/juliopolycarpo/biosmod-engin
 pub(crate) fn build_commit() -> Option<&'static str> {
     let commit = env!("BME_BUILD_COMMIT");
     (!commit.is_empty()).then_some(commit)
+}
+
+/// The line of the `init` reply that says which engine source the workflow installs.
+/// It names the pinned commit so an unpublished one is noticed before the first CI run.
+///
+/// Example: `engine_source_note(None)` says the workflow follows the head of `main`.
+fn engine_source_note(engine_commit: Option<&str>) -> String {
+    match engine_commit {
+        Some(commit) => format!(
+            "    It installs engine commit {commit}; the first run fails unless {ENGINE_REPOSITORY} has that commit."
+        ),
+        None => "    It installs the head of the engine's main branch: this bme was built outside a git checkout.".to_string(),
+    }
 }
 
 /// The README with `{id}` and `{title}` filled in, and the CI note that fits
@@ -830,6 +845,21 @@ mod tests {
                 "(README): expected {expected:?} in the continuous check note"
             );
         }
+    }
+
+    #[test]
+    fn engine_source_note_names_the_pinned_commit_or_the_main_branch() {
+        let pinned = engine_source_note(Some("0123456789abcdef0123456789abcdef01234567"));
+        assert!(
+            pinned.contains("engine commit 0123456789abcdef0123456789abcdef01234567")
+                && pinned.contains(ENGINE_REPOSITORY),
+            "(init text): expected the pinned commit and the engine repository | received {pinned:?}"
+        );
+        let unpinned = engine_source_note(None);
+        assert!(
+            unpinned.contains("head of the engine's main branch"),
+            "(init text): expected the main branch named | received {unpinned:?}"
+        );
     }
 
     #[test]

@@ -32,14 +32,19 @@ fn checkout_commit(workspace: &Path) -> Option<String> {
     if top_level.canonicalize().ok()? != workspace.canonicalize().ok()? {
         return None;
     }
-    // HEAD changes on a branch switch; its log changes on every commit or reset.
-    for name in ["HEAD", "logs/HEAD"] {
-        let path = git_line(
-            workspace,
-            &["rev-parse", "--path-format=absolute", "--git-path", name],
-        )?;
-        if Path::new(&path).exists() {
-            println!("cargo:rerun-if-changed={path}");
+    // Rerun when the checked-out commit changes. `HEAD` changes on a branch switch,
+    // the branch's own ref (loose or packed) on a commit, and the log on both; the
+    // log alone is not enough because a repository can have reflogs turned off.
+    let branch = git_line(workspace, &["symbolic-ref", "--quiet", "HEAD"]);
+    let watched = ["HEAD", "logs/HEAD", "packed-refs"]
+        .into_iter()
+        .chain(branch.as_deref());
+    for name in watched {
+        // `--git-path` answers relative to the directory git ran in.
+        let path = workspace.join(git_line(workspace, &["rev-parse", "--git-path", name])?);
+        // Cargo reruns on every build for a registered path that does not exist.
+        if path.exists() {
+            println!("cargo:rerun-if-changed={}", path.display());
         }
     }
     let commit = git_line(workspace, &["rev-parse", "--verify", "HEAD^{commit}"])?;

@@ -481,3 +481,39 @@ fn gitignore_keeps_firmware_and_identifiers_out_and_the_catalog_in() {
     }
     assert!(wrong.is_empty(), "(.gitignore): {wrong:#?}");
 }
+
+/// `git rev-parse HEAD` of the workspace, when the workspace root is itself a checkout.
+fn workspace_head_commit() -> Option<String> {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    if !workspace.join(".git").exists() {
+        return None;
+    }
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&workspace)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+#[test]
+fn version_reports_the_commit_of_the_checkout_bme_was_built_from() {
+    // Without this, a build script that stopped recording the commit would only
+    // turn every scaffold back to `--branch main`, and nothing would fail.
+    let Some(head) = workspace_head_commit() else {
+        return;
+    };
+    let sandbox = Sandbox::new();
+    let version = sandbox.run(["version", "--json"]);
+    let version: serde_json::Value = serde_json::from_str(&version.stdout).unwrap();
+    assert_eq!(
+        version["data"]["commit"].as_str(),
+        Some(head.as_str()),
+        "(bme version): expected commit {head} of the checkout | received {}",
+        version["data"]["commit"]
+    );
+}
