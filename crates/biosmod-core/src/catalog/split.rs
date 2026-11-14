@@ -47,6 +47,7 @@ fn invalid(message: String) -> Error {
 ///   list keeps only the findings that affect one of the board's builds.
 ///
 /// Fails when the board is unknown, when a kept patch requires a dropped patch,
+/// when a kept patch lists a finding the catalog does not define,
 /// when a patch with an applicable variant lists a finding that affects none of the
 /// board's builds, or when kept evidence names a dropped patch.
 ///
@@ -84,8 +85,7 @@ pub fn split_board(source: &Records, board_id: &str) -> Result<Split> {
             kept_patches
                 .iter()
                 .flat_map(|id| &source.patches[*id].findings)
-                .map(String::as_str)
-                .filter(|id| source.findings.contains_key(*id)),
+                .map(String::as_str),
         )
         .collect();
     let kept_evidence: BTreeSet<&str> = source
@@ -98,14 +98,18 @@ pub fn split_board(source: &Records, board_id: &str) -> Result<Split> {
     let mut records = Records::default();
     for id in &kept_patches {
         let patch = reduce_patch(&source.patches[*id], board_id, &builds, &kept_patches)?;
+        // A name that is no finding of the catalog is a typo; a valid catalog cannot hold one,
+        // and a split has no finding to keep for it.
+        crate::validation::patch_findings_exist(&patch, |finding| {
+            source.findings.contains_key(finding)
+        })?;
         // An applicable patch cannot name a finding that affects none of the board's builds:
         // validation accepts a finding without a build only for a patch with no applicable variant.
-        // A name that is no finding of the catalog stays as it is; validation does not check it.
         if runs_on(&patch)
-            && let Some(finding) = patch.findings.iter().find(|finding| {
-                source.findings.contains_key(finding.as_str())
-                    && !board_findings.contains(finding.as_str())
-            })
+            && let Some(finding) = patch
+                .findings
+                .iter()
+                .find(|finding| !board_findings.contains(finding.as_str()))
         {
             return Err(invalid(format!(
                 "patch {id}: findings: expected only findings that affect board {board_id} | received {finding}, which affects none of its builds"
@@ -475,20 +479,26 @@ mod tests {
     }
 
     #[test]
-    fn a_name_that_is_no_finding_of_the_catalog_does_not_stop_the_split() {
+    fn a_name_that_is_no_finding_of_the_catalog_stops_the_split() {
         let mut records = two_boards();
-        records.patches.get_mut("S").unwrap().findings = vec!["GHOST".into()];
-        let split = split_board(&records, "board-a").unwrap();
-        assert_eq!(split.records.patches["S"].findings, ["GHOST"]);
-        assert!(!split.records.findings.contains_key("GHOST"));
+        records.patches.get_mut("S").unwrap().findings = vec!["GHOST".into(), "GHOST-2".into()];
+        let error = split_board(&records, "board-a").unwrap_err();
+        assert_eq!(error.code, Code::CatalogInvalid);
+        assert_eq!(
+            error.message,
+            "patch S: findings: expected ids of findings in this catalog | received GHOST, GHOST-2"
+        );
     }
 
     #[test]
-    fn unknown_finding_named_by_a_patch_that_does_not_apply_is_not_invented() {
+    fn unknown_finding_named_by_a_patch_that_does_not_apply_stops_the_split() {
         let mut records = two_boards();
         records.patches.get_mut("PB").unwrap().findings = vec!["GHOST".into()];
-        let split = split_board(&records, "board-a").unwrap();
-        assert!(!split.records.findings.contains_key("GHOST"));
+        let error = split_board(&records, "board-a").unwrap_err();
+        assert_eq!(
+            error.message,
+            "patch PB: findings: expected ids of findings in this catalog | received GHOST"
+        );
     }
 
     #[test]

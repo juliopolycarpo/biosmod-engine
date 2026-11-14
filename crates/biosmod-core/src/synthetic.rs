@@ -605,7 +605,8 @@ impl Fixture {
             title: format!("synthetic {id}"),
             class: PatchClass::Correction,
             tier,
-            findings: vec![id.into()],
+            // Only PA has a finding document; a name with none is refused by validation.
+            findings: vec![],
             fixes: vec![],
             confidence: Confidence {
                 findings: BTreeMap::new(),
@@ -677,6 +678,7 @@ impl Fixture {
             v.requires_facts = vec![FACT.into()];
         }
         let mut fixes_pa = Self::patch("PA", Tier::Recommended, vec![peim(pa)]);
+        fixes_pa.findings = vec!["PA".into()];
         fixes_pa.fixes = vec!["PA".into()];
         fixes_pa
             .confidence
