@@ -13,6 +13,7 @@ A [Biosmod Engine](https://github.com/juliopolycarpo/biosmod-engine) catalog: th
 | `evidence/` | one hardware observation per file, bound to the image that was flashed | yes |
 | `provenance/` | sources you wrote: assembly, harness scripts | yes |
 | `notes/` | investigation notes in prose | yes |
+| `.github/workflows/validate.yml` | CI: `bme catalog index . --check` and `bme catalog validate .` on every push and pull request | yes |
 | `work/` | dumps, cases, extracted modules, tool output | no |
 
 Git records no empty directory: each directory reaches a clone with its first file.
@@ -81,3 +82,9 @@ bme catalog update {id}
 ```
 
 Give them the public key outside this repository. A key committed here proves nothing.
+
+`bme guide publishing` has the `minisign` commands, the URL shapes (a tag, a subdirectory) and the unsigned alternative.
+
+## Continuous check
+
+`.github/workflows/validate.yml` runs `bme catalog index . --check` and `bme catalog validate .` on every push and pull request. No `bme` release exists yet, and `bme` does not record the commit it was built from, so the workflow installs the head of the engine's `main` branch (`cargo install --locked --git https://github.com/juliopolycarpo/biosmod-engine --branch main biosmod-cli`). That head is not pinned. A catalog declares the `engine` it needs (`^0.1` at the start), and `catalog validate` fails with `requires engine` once `main` moves past it. To make the check repeatable, replace `--branch main` in the workflow with `--rev <commit>` or `--tag <tag>`.

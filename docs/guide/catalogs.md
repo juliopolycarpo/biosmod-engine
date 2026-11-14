@@ -34,6 +34,7 @@ catalog.json            empty bme.catalog/1 at version 0.1.0; `bme catalog index
 README.md               layout, work loop, commit convention and release rule
 .gitignore              allowlist of the paths git tracks
 .gitattributes          LF line endings, so the indexed hashes hold on every checkout
+.github/workflows/      validate.yml runs `bme catalog index . --check` and `bme catalog validate .` on push and pull request
 boards/ findings/ patches/ evidence/ provenance/    the catalog records
 notes/                  investigation notes in prose
 work/                   dumps, cases, extracted modules, tool output; stays local
@@ -41,7 +42,7 @@ work/                   dumps, cases, extracted modules, tool output; stays loca
 
 Git tracks the catalog layout and nothing else: a new top-level path stays local until you add a `!/name` line to `.gitignore`. Git records no empty directory, so each directory reaches a clone with its first file. In every directory, `.gitignore` also ignores firmware images and extracted modules (`*.bin`, `*.rom`, `*.pe`), ACPI tables, archives, PDFs and key files. A dump carries serial numbers and MAC addresses, so it stays out of the history; name it by file name, SHA-256 and size. Copy the dump into `work/` and run `bme case init work/dump.bin -o work/case`: `bme case status` looks for inputs beside the case directory.
 
-Commit one record per commit, with its id in the scope (`feat(H11): record unbounded PCU mailbox waits`) and the re-indexed `catalog.json` in the same commit; check it with `bme catalog index . --check` and `bme catalog validate .`. Change `version` only in a release commit: `bme catalog update` refuses a version it already accepted with other content. Raise it, run `bme catalog index .`, sign `catalog.json` with minisign, commit `catalog.json.minisig` and tag the commit. Users register the tag's raw `catalog.json` URL with `bme catalog add --trust-key`. The generated `README.md` has the detail.
+Commit one record per commit, with its id in the scope (`feat(H11): record unbounded PCU mailbox waits`) and the re-indexed `catalog.json` in the same commit; check it with `bme catalog index . --check` and `bme catalog validate .`. Change `version` only in a release commit: `bme catalog update` refuses a version it already accepted with other content. Raise it, run `bme catalog index .`, sign `catalog.json` with minisign, commit `catalog.json.minisig` and tag the commit. Users register the tag's raw `catalog.json` URL with `bme catalog add --trust-key`. [Publish a catalog](publishing.md) (`bme guide publishing`) has the signing commands and the URLs.
 
 ## Share records between boards
 

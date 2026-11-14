@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "translation": "README.pt-BR.md",
-      "sha256": "bd23a27acb681c8cc76e74b2c71687fcf41fdb12aebb10b4c089befb2e1685eb"
+      "sha256": "82c1ddb37b843661bfe73237fc892a61a24c2947913c47c04b9efa794adba382"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -39,7 +39,7 @@
     {
       "source": "docs/guide/catalogs.md",
       "translation": "docs/pt-BR/guide/catalogs.md",
-      "sha256": "ea01885786c3ed790753944621e3666108df16049fa6c16831b4c4d6f12e77eb"
+      "sha256": "e5c60a08ac32e4df236157ec936dfc347b568dd1f46b781c53dc46ece800e47e"
     },
     {
       "source": "docs/guide/diagnostics.md",
@@ -65,6 +65,11 @@
       "source": "docs/guide/porting.md",
       "translation": "docs/pt-BR/guide/porting.md",
       "sha256": "87c157949b476511c9df73c8703a66d21d0f8d503577f9b8709b91717639fc1b"
+    },
+    {
+      "source": "docs/guide/publishing.md",
+      "translation": "docs/pt-BR/guide/publishing.md",
+      "sha256": "587dd8b75dc3eeb97d2a6f6941ed99ac1b5ae5bf35283e61a2d1989c0589c3d7"
     },
     {
       "source": "docs/guide/replay.md",

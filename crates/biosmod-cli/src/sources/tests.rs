@@ -14,6 +14,24 @@ const URL: &str = "https://catalogs.example/lab/catalog.json";
 
 /// Publish the synthetic catalog (optionally with a different version) on the fake transport.
 fn serve(transport: &FakeTransport, signer: &Signer25519, version: &str, tweak: &str) -> Vec<u8> {
+    serve_at(
+        transport,
+        signer,
+        "https://catalogs.example/lab/",
+        version,
+        tweak,
+    )
+}
+
+/// [`serve`] with every file below `base`, a URL ending in `/`: `catalog.json` at
+/// `{base}catalog.json`, its signature at `{base}catalog.json.minisig`.
+fn serve_at(
+    transport: &FakeTransport,
+    signer: &Signer25519,
+    base: &str,
+    version: &str,
+    tweak: &str,
+) -> Vec<u8> {
     let mut files = Fixture::new(0x07).catalog_files();
     let manifest_at = files.iter().position(|(p, _)| p == "catalog.json").unwrap();
     let mut manifest: serde_json::Value = serde_json::from_slice(&files[manifest_at].1).unwrap();
@@ -22,16 +40,20 @@ fn serve(transport: &FakeTransport, signer: &Signer25519, version: &str, tweak: 
     manifest["title"] = format!("lab catalog {tweak}").into();
     files[manifest_at].1 = serde_json::to_vec_pretty(&manifest).unwrap();
     for (path, bytes) in &files {
-        transport.put(&format!("https://catalogs.example/lab/{path}"), bytes);
+        transport.put(&format!("{base}{path}"), bytes);
     }
     let bytes = files[manifest_at].1.clone();
-    transport.put(&format!("{URL}.minisig"), &signer.sign(&bytes));
+    transport.put(&format!("{base}catalog.json.minisig"), &signer.sign(&bytes));
     bytes
 }
 
 fn registered(paths: &Paths, signer: &Signer25519) -> Config {
+    registered_at(paths, signer, URL)
+}
+
+fn registered_at(paths: &Paths, signer: &Signer25519, url: &str) -> Config {
     let mut config = Config::default();
-    add(&mut config, "lab", URL, Some(&signer.public()), false).unwrap();
+    add(&mut config, "lab", url, Some(&signer.public()), false).unwrap();
     config.save(paths).unwrap();
     config
 }
@@ -59,6 +81,131 @@ fn signed_update_activates_a_snapshot_that_loads_offline() {
     assert!(
         !update("lab", &config, &paths, &transport).unwrap().changed,
         "same digest is a no-op"
+    );
+}
+
+/// A raw-file URL at a tag, and the same below a subdirectory of the repository.
+const TAG_BASES: [&str; 2] = [
+    "https://raw.example/owner/repo/v1.0.0/",
+    "https://raw.example/owner/repo/v1.0.0/boards/lab/catalog/",
+];
+
+#[test]
+fn a_catalog_at_a_tag_or_in_a_subdirectory_is_requested_relative_to_its_manifest_url() {
+    for base in TAG_BASES {
+        let (_dir, paths) = temp_paths();
+        let signer = Signer25519::new(7);
+        let transport = FakeTransport::default();
+        let manifest_bytes = serve_at(&transport, &signer, base, "1.0.0", "a");
+        let manifest: Manifest = json::parse_strict(&manifest_bytes, "catalog.json").unwrap();
+        assert!(
+            manifest.files.iter().any(|f| f.path.contains('/')),
+            "(fixture {base}): expected indexed files below a directory"
+        );
+        let config = registered_at(&paths, &signer, &format!("{base}catalog.json"));
+
+        let updated = update("lab", &config, &paths, &transport).unwrap();
+        assert!(updated.changed, "({base}): expected a new snapshot");
+        assert_eq!(updated.files, manifest.files.len());
+        let mut expected = vec![
+            format!("{base}catalog.json"),
+            format!("{base}catalog.json.minisig"),
+        ];
+        expected.extend(manifest.files.iter().map(|f| format!("{base}{}", f.path)));
+        assert_eq!(
+            *transport.requests.borrow(),
+            expected,
+            "({base}): expected the manifest, its signature, then each indexed file below the manifest URL"
+        );
+
+        // The same digest is a no-op that fetches only the manifest and its signature.
+        transport.requests.borrow_mut().clear();
+        assert!(!update("lab", &config, &paths, &transport).unwrap().changed);
+        assert_eq!(
+            *transport.requests.borrow(),
+            expected[..2],
+            "({base}) no-op update"
+        );
+
+        // A loaded snapshot reads from disk: the server is gone.
+        transport.files.borrow_mut().clear();
+        let loaded = load("lab", &config, &paths, LoadPolicy::default()).unwrap();
+        assert_eq!(
+            (
+                loaded.trust,
+                loaded.catalog.manifest.id.as_str(),
+                loaded.location.as_str()
+            ),
+            (Trust::Signed, "lab", format!("{base}catalog.json").as_str()),
+            "({base})"
+        );
+    }
+}
+
+#[test]
+fn a_second_tag_url_under_the_same_alias_updates_after_remove_and_keeps_the_history() {
+    let (_dir, paths) = temp_paths();
+    let signer = Signer25519::new(7);
+    let transport = FakeTransport::default();
+    let v1 = "https://raw.example/owner/repo/v1.0.0/";
+    let v2 = "https://raw.example/owner/repo/v1.1.0/";
+    serve_at(&transport, &signer, v1, "1.0.0", "a");
+    serve_at(&transport, &signer, v2, "1.1.0", "b");
+    let mut config = registered_at(&paths, &signer, &format!("{v1}catalog.json"));
+    update("lab", &config, &paths, &transport).unwrap();
+
+    let error = add(
+        &mut config,
+        "lab",
+        &format!("{v2}catalog.json"),
+        Some(&signer.public()),
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("already registered"),
+        "(add lab): expected the alias to be refused | received {error}"
+    );
+
+    // `catalog remove` without `--purge` leaves the cache, so the accepted versions stay.
+    config.sources.remove("lab");
+    add(
+        &mut config,
+        "lab",
+        &format!("{v2}catalog.json"),
+        Some(&signer.public()),
+        false,
+    )
+    .unwrap();
+    let updated = update("lab", &config, &paths, &transport).unwrap();
+    assert_eq!(
+        (updated.version.as_str(), updated.changed),
+        ("1.1.0", true),
+        "(update at {v2})"
+    );
+    let state = Store::new(&paths, "lab").state().unwrap().unwrap();
+    let versions: Vec<String> = state
+        .accepted
+        .iter()
+        .map(|a| a.version.to_string())
+        .collect();
+    assert_eq!(versions, ["1.0.0", "1.1.0"]);
+
+    // Pointing the alias back at the older tag is a rollback.
+    config.sources.remove("lab");
+    add(
+        &mut config,
+        "lab",
+        &format!("{v1}catalog.json"),
+        Some(&signer.public()),
+        false,
+    )
+    .unwrap();
+    assert!(
+        update("lab", &config, &paths, &transport)
+            .unwrap_err()
+            .message
+            .contains("rollback")
     );
 }
 

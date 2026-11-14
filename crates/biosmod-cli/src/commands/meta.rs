@@ -27,6 +27,11 @@ pub const GUIDES: &[(&str, &str, &str)] = &[
         include_str!("../../../../docs/guide/catalogs.md"),
     ),
     (
+        "publishing",
+        "signing a catalog release and the URL users register",
+        include_str!("../../../../docs/guide/publishing.md"),
+    ),
+    (
         "cases",
         "recording an investigation and starting on an unknown board",
         include_str!("../../../../docs/guide/cases.md"),
@@ -111,8 +116,8 @@ fn commands() -> Value {
         {"name": "compare --functions", "writes": [], "network": false, "summary": "pair the functions of two tools analyze exports; identical, normalized-identical, changed with instruction ranges, unmatched; heuristic pairs are candidates"},
         {"name": "compare --acpi", "writes": [], "network": false, "summary": "pair ACPI tables of two ROMs, .aml files or diag acpi capture directories by signature and OEM table ID; added, removed and changed methods and names"},
         {"name": "compare --acpi --disassemble", "writes": ["method diffs"], "network": false, "summary": "also run iasl (optional) and write one unified ASL diff per changed method"},
-        {"name": "catalog init", "writes": ["device repository directory"], "network": false, "summary": "new directory with an empty catalog, notes directories and a .gitignore that keeps firmware images out of git; `--repository URL` records the https URL of the repository that holds it; does not run git"},
-        {"name": "catalog split", "writes": ["device repository directory"], "network": false, "summary": "new device repository with one board's records cut from a catalog directory or `official`; keeps the not-applicable verdicts of the board's builds; `--repository URL` records where the new catalog lives; lists the patches, findings, evidence and provenance files left out"},
+        {"name": "catalog init", "writes": ["device repository directory"], "network": false, "summary": "new directory with an empty catalog, notes directories, a .gitignore that keeps firmware images out of git and a .github/workflows/validate.yml that runs `catalog index --check` and `catalog validate`; `--repository URL` records the https URL of the repository that holds it; does not run git"},
+        {"name": "catalog split", "writes": ["device repository directory"], "network": false, "summary": "new device repository (the `catalog init` scaffold, workflow included) with one board's records cut from a catalog directory or `official`; keeps the not-applicable verdicts of the board's builds; `--repository URL` records where the new catalog lives; lists the patches, findings, evidence and provenance files left out"},
         {"name": "catalog merge --check", "writes": [], "network": false, "summary": "report whether two or more catalogs agree on the records they share; names the record, field, both values and both catalogs on a difference; reports whether the sources a catalog pins still match, naming the pinned commit of a moved one"},
         {"name": "catalog merge -o", "writes": ["catalog directory"], "network": false, "summary": "new catalog directory that unions the records of two or more catalogs and lists them in `sources` with their digest, `repository` and checked-out git commit"},
         {"name": "catalog validate|index|show|import-x99fix", "writes": ["catalog files (index, import)"], "network": false},
@@ -291,6 +296,41 @@ mod tests {
             serde_json::json!(crate::toolchain::TOOL_IDS),
             "(capabilities tools): expected the tool id constant"
         );
+    }
+
+    #[test]
+    fn guide_publishing_is_listed_and_returns_its_page() {
+        let listed = super::guide(None).unwrap().data;
+        let topics: Vec<&str> = listed["topics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["topic"].as_str())
+            .collect();
+        assert!(
+            topics.contains(&"publishing"),
+            "(guide topics): expected publishing | received {topics:?}"
+        );
+        let page = super::guide(Some("publishing")).unwrap().data;
+        let markdown = page["markdown"].as_str().unwrap();
+        assert!(
+            markdown.starts_with("# Publish a catalog\n"),
+            "(guide publishing): expected the page title | received {:?}",
+            markdown.lines().next()
+        );
+    }
+
+    #[test]
+    fn guide_topics_are_unique_and_each_page_starts_with_a_title() {
+        let mut seen = std::collections::BTreeSet::new();
+        for (name, _, body) in super::GUIDES {
+            assert!(seen.insert(*name), "(guide topics): duplicate {name:?}");
+            assert!(
+                body.starts_with("# "),
+                "(guide {name}): expected a title line | received {:?}",
+                body.lines().next()
+            );
+        }
     }
 
     #[test]

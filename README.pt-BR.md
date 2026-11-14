@@ -111,7 +111,7 @@ As ferramentas de referência são cobertas pelos comandos: `scan`, `patch`, `ex
 - [Arquitetura](docs/pt-BR/architecture.md): crates, fluxo de dados e verificações de segurança
 - [Formatos](docs/pt-BR/formats.md): estruturas de firmware suportadas e limites
 - [Variáveis NVRAM](docs/pt-BR/guide/nvram.md): estados dos registros, padrões salvos e valores armazenados do Setup
-- [Protocolo](docs/pt-BR/guide/agents.md), [confiança](docs/pt-BR/guide/trust.md), [catálogos](docs/pt-BR/guide/catalogs.md), [recuperação](docs/pt-BR/guide/recovery.md), [diagnósticos do host](docs/pt-BR/guide/diagnostics.md), [casos](docs/pt-BR/guide/cases.md)
+- [Protocolo](docs/pt-BR/guide/agents.md), [confiança](docs/pt-BR/guide/trust.md), [catálogos](docs/pt-BR/guide/catalogs.md), [publicar um catálogo](docs/pt-BR/guide/publishing.md), [recuperação](docs/pt-BR/guide/recovery.md), [diagnósticos do host](docs/pt-BR/guide/diagnostics.md), [casos](docs/pt-BR/guide/cases.md)
 - [Qualificação da interface no Linux](docs/pt-BR/linux-desktop-qualification.md): ambientes testados e limites
 - [Interface gráfica](docs/pt-BR/guide/gui.md): configuração Linux e fluxo de geração
 - [Como contribuir](CONTRIBUTING.pt-BR.md), incluindo envio de placas e patches

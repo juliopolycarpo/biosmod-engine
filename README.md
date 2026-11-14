@@ -112,7 +112,7 @@ The reference tools are covered by commands: `scan`, `patch`, `extract`, `replac
 - [Formats](docs/formats.md): supported firmware structures and limits
 - [Setup forms (IFR)](docs/guide/ifr.md): decode questions, offsets and defaults
 - [NVRAM variables](docs/guide/nvram.md): record states, saved defaults and stored Setup values
-- [Protocol](docs/guide/agents.md), [trust](docs/guide/trust.md), [catalogs](docs/guide/catalogs.md), [recovery](docs/guide/recovery.md), [host diagnostics](docs/guide/diagnostics.md), [cases](docs/guide/cases.md)
+- [Protocol](docs/guide/agents.md), [trust](docs/guide/trust.md), [catalogs](docs/guide/catalogs.md), [publishing a catalog](docs/guide/publishing.md), [recovery](docs/guide/recovery.md), [host diagnostics](docs/guide/diagnostics.md), [cases](docs/guide/cases.md)
 - [Linux desktop qualification](docs/linux-desktop-qualification.md): tested environments and limits
 - [Desktop guide](docs/guide/gui.md): Linux setup and build workflow
 - [Contributing](CONTRIBUTING.md), including board and patch submissions
