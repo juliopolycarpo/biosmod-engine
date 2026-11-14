@@ -24,6 +24,7 @@ use std::path::Path;
 const README_TEMPLATE: &str = include_str!("../../templates/catalog-init/README.md");
 const GITIGNORE: &str = include_str!("../../templates/catalog-init/gitignore");
 const GITATTRIBUTES: &str = include_str!("../../templates/catalog-init/gitattributes");
+const VALIDATE_WORKFLOW: &str = include_str!("../../templates/catalog-init/validate.yml");
 
 /// Directories created empty. `catalog.json` indexes the files of all of them
 /// except `notes` and `work`.
@@ -39,7 +40,13 @@ const DIRECTORIES: [&str; 7] = [
 
 /// The files every device repository starts with, in write order; the records
 /// come after them and `catalog.json` last.
-pub const SCAFFOLD_FILES: [&str; 4] = ["README.md", ".gitignore", ".gitattributes", "catalog.json"];
+pub const SCAFFOLD_FILES: [&str; 5] = [
+    "README.md",
+    ".gitignore",
+    ".gitattributes",
+    ".github/workflows/validate.yml",
+    "catalog.json",
+];
 
 /// Version of a fresh catalog.
 pub const INITIAL_VERSION: Version = Version::new(0, 1, 0);
@@ -74,7 +81,9 @@ pub fn init(dir: &Path, id: &str, title: Option<&str>, url: Option<&str>) -> Res
          \x20 cp /path/to/dump.bin {shown}/work/\n\
          \x20 bme case init {shown}/work/dump.bin -o {shown}/work/case\n\
          \x20 bme catalog index {shown}\n\
-         \x20 bme catalog validate {shown}\n",
+         \x20 bme catalog validate {shown}\n\
+         CI: .github/workflows/validate.yml installs bme and runs `bme catalog index . --check` and `bme catalog validate .`.\n\
+         Publish: `bme guide publishing` covers signing and the URL users register.\n",
         SCAFFOLD_FILES.join(" "),
         DIRECTORIES.map(|d| format!("{d}/")).join(" "),
     );
@@ -295,6 +304,10 @@ fn scaffold(
             ".gitattributes".to_string(),
             GITATTRIBUTES.as_bytes().to_vec(),
         ),
+        (
+            ".github/workflows/validate.yml".to_string(),
+            VALIDATE_WORKFLOW.as_bytes().to_vec(),
+        ),
     ];
     files.append(&mut records);
     files.push(("catalog.json".to_string(), manifest));
@@ -442,11 +455,12 @@ mod tests {
                 "README.md",
                 ".gitignore",
                 ".gitattributes",
+                ".github/workflows/validate.yml",
                 "patches/P.json",
                 "catalog.json"
             ]
         );
-        assert_eq!(SCAFFOLD_FILES[3], "catalog.json");
+        assert_eq!(SCAFFOLD_FILES.last(), Some(&"catalog.json"));
     }
 
     #[test]
@@ -636,6 +650,7 @@ mod tests {
             ("README.md", README_TEMPLATE),
             (".gitignore", GITIGNORE),
             (".gitattributes", GITATTRIBUTES),
+            (".github/workflows/validate.yml", VALIDATE_WORKFLOW),
         ] {
             assert!(
                 !text.contains('\r') && text.ends_with('\n'),
@@ -662,6 +677,108 @@ mod tests {
         assert!(
             !lines.iter().any(|line| line.starts_with("!/work")),
             "(.gitignore): expected work/ to stay ignored"
+        );
+    }
+
+    #[test]
+    fn gitignore_allowlists_the_workflow_directory() {
+        assert!(
+            GITIGNORE.lines().any(|line| line == "!/.github/"),
+            "(.gitignore): expected the allow line `!/.github/` for {}",
+            SCAFFOLD_FILES[3]
+        );
+    }
+
+    #[test]
+    fn validate_workflow_runs_both_catalog_checks_on_push_and_pull_request() {
+        let workflow = VALIDATE_WORKFLOW;
+        for expected in [
+            "\non:\n  push:\n  pull_request:\n",
+            "    runs-on: ubuntu-latest\n",
+            "      - uses: actions/checkout@v5\n",
+            "rustup toolchain install stable --profile minimal",
+            "      - run: bme catalog index . --check\n",
+            "      - run: bme catalog validate .\n",
+        ] {
+            assert!(
+                workflow.contains(expected),
+                "(validate.yml): expected {expected:?} | received:\n{workflow}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_workflow_installs_bme_from_the_engine_main_branch_because_no_commit_is_known() {
+        let installs: Vec<&str> = VALIDATE_WORKFLOW
+            .lines()
+            .filter(|line| line.contains("cargo install"))
+            .collect();
+        assert_eq!(
+            installs,
+            [
+                "      - run: cargo install --locked --git https://github.com/juliopolycarpo/biosmod-engine --branch main biosmod-cli"
+            ],
+            "(validate.yml): expected one locked install of biosmod-cli from main"
+        );
+    }
+
+    #[test]
+    fn validate_workflow_pins_third_party_actions_to_the_commits_ci_uses() {
+        const CI: &str = include_str!("../../../../.github/workflows/ci.yml");
+        for line in VALIDATE_WORKFLOW
+            .lines()
+            .filter(|line| line.trim_start().starts_with("- uses:"))
+        {
+            let action = line.trim_start().trim_start_matches("- uses: ");
+            if action.starts_with("actions/") {
+                // First-party actions follow ci.yml, which pins them by major tag.
+                assert!(
+                    CI.contains(action),
+                    "(validate.yml): expected {action:?} as ci.yml pins it"
+                );
+                continue;
+            }
+            let (name, pin) = action.split_once('@').unwrap();
+            let sha = pin.split_whitespace().next().unwrap();
+            assert!(
+                sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit()),
+                "(validate.yml): expected {name} pinned by a 40-character commit SHA | received {pin:?}"
+            );
+            assert!(
+                CI.contains(action),
+                "(validate.yml): expected {action:?} as ci.yml pins it"
+            );
+        }
+    }
+
+    #[test]
+    fn init_reply_names_the_workflow_and_the_publishing_guide() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("repo");
+        let reply = init(&dir, "acme-x99", None, None).unwrap();
+        assert_eq!(
+            reply.data["files"],
+            json!([
+                "README.md",
+                ".gitignore",
+                ".gitattributes",
+                ".github/workflows/validate.yml",
+                "catalog.json"
+            ])
+        );
+        for expected in [
+            ".github/workflows/validate.yml installs bme",
+            "bme guide publishing",
+        ] {
+            assert!(
+                reply.text.contains(expected),
+                "(init text): expected {expected:?} | received:\n{}",
+                reply.text
+            );
+        }
+        assert_eq!(
+            fs::read(dir.join(".github/workflows/validate.yml")).unwrap(),
+            VALIDATE_WORKFLOW.as_bytes()
         );
     }
 

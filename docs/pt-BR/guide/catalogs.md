@@ -34,6 +34,7 @@ catalog.json            empty bme.catalog/1 at version 0.1.0; `bme catalog index
 README.md               layout, work loop, commit convention and release rule
 .gitignore              allowlist of the paths git tracks
 .gitattributes          LF line endings, so the indexed hashes hold on every checkout
+.github/workflows/      validate.yml runs `bme catalog index . --check` and `bme catalog validate .` on push and pull request
 boards/ findings/ patches/ evidence/ provenance/    the catalog records
 notes/                  investigation notes in prose
 work/                   dumps, cases, extracted modules, tool output; stays local
@@ -41,7 +42,7 @@ work/                   dumps, cases, extracted modules, tool output; stays loca
 
 O git rastreia a estrutura do catálogo e nada além: um novo caminho no nível superior fica local até você adicionar uma linha `!/nome` ao `.gitignore`. O git não registra diretório vazio, então cada diretório chega a um clone com seu primeiro arquivo. Em qualquer diretório, o `.gitignore` também ignora imagens de firmware e módulos extraídos (`*.bin`, `*.rom`, `*.pe`), tabelas ACPI, arquivos compactados, PDFs e chaves. Um dump contém números de série e endereços MAC, então fica fora do histórico; cite-o por nome de arquivo, SHA-256 e tamanho. Copie o dump para `work/` e execute `bme case init work/dump.bin -o work/case`: `bme case status` procura as entradas ao lado do diretório do caso.
 
-Faça um commit por registro, com o id no escopo (`feat(H11): record unbounded PCU mailbox waits`) e o `catalog.json` reindexado no mesmo commit; confira com `bme catalog index . --check` e `bme catalog validate .`. Altere `version` apenas em um commit de release: `bme catalog update` recusa uma versão que já aceitou com outro conteúdo. Aumente-a, execute `bme catalog index .`, assine `catalog.json` com minisign, faça commit de `catalog.json.minisig` e crie uma tag no commit. Os usuários registram a URL raw do `catalog.json` da tag com `bme catalog add --trust-key`. O `README.md` gerado traz os detalhes.
+Faça um commit por registro, com o id no escopo (`feat(H11): record unbounded PCU mailbox waits`) e o `catalog.json` reindexado no mesmo commit; confira com `bme catalog index . --check` e `bme catalog validate .`. Altere `version` apenas em um commit de release: `bme catalog update` recusa uma versão que já aceitou com outro conteúdo. Aumente-a, execute `bme catalog index .`, assine `catalog.json` com minisign, faça commit de `catalog.json.minisig` e crie uma tag no commit. Os usuários registram a URL raw do `catalog.json` da tag com `bme catalog add --trust-key`. [Publicar um catálogo](publishing.md) (`bme guide publishing`) traz os comandos de assinatura e as URLs.
 
 ## Compartilhar registros entre placas
 

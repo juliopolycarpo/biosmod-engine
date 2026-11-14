@@ -219,7 +219,12 @@ fn split_writes_the_scaffold_that_catalog_init_writes() {
     let (dir, reply) = split(&sandbox, MR9A, "mr9a", MR9A_CATALOG);
     let init = sandbox.path("init");
     ok(sandbox.run(["catalog", "init", s(&init), "--id", MR9A_CATALOG]));
-    for name in ["README.md", ".gitignore", ".gitattributes"] {
+    for name in [
+        "README.md",
+        ".gitignore",
+        ".gitattributes",
+        ".github/workflows/validate.yml",
+    ] {
         assert_eq!(
             fs::read(dir.join(name)).unwrap(),
             fs::read(init.join(name)).unwrap(),
@@ -246,7 +251,13 @@ fn split_writes_the_scaffold_that_catalog_init_writes() {
     );
     assert_eq!(
         reply["files"],
-        json!(["README.md", ".gitignore", ".gitattributes", "catalog.json"])
+        json!([
+            "README.md",
+            ".gitignore",
+            ".gitattributes",
+            ".github/workflows/validate.yml",
+            "catalog.json"
+        ])
     );
 }
 

@@ -54,8 +54,16 @@ fn scaffold_holds_the_documented_tree_and_nothing_else() {
     assert_eq!(init.code, 0, "{}", init.stderr);
 
     let mut expected: Vec<String> = DIRECTORIES.iter().map(|d| d.to_string()).collect();
-    expected
-        .extend([".gitattributes", ".gitignore", "README.md", "catalog.json"].map(String::from));
+    expected.extend(
+        [
+            ".gitattributes",
+            ".github",
+            ".gitignore",
+            "README.md",
+            "catalog.json",
+        ]
+        .map(String::from),
+    );
     expected.sort();
     assert_eq!(names_in(&repo), expected, "(repository tree)");
     for directory in DIRECTORIES {
@@ -70,11 +78,54 @@ fn scaffold_holds_the_documented_tree_and_nothing_else() {
         readme.contains("bme catalog add acme-x99 "),
         "(README): expected the id in the register command"
     );
+    assert_eq!(
+        names_in(&repo.join(".github")),
+        ["workflows"],
+        "(.github/): expected only workflows"
+    );
+    assert_eq!(
+        names_in(&repo.join(".github/workflows")),
+        ["validate.yml"],
+        "(.github/workflows/): expected only validate.yml"
+    );
     let manifest = fs::read_to_string(repo.join("catalog.json")).unwrap();
     assert_eq!(
         manifest,
         "{\n  \"schema\": \"bme.catalog/1\",\n  \"id\": \"acme-x99\",\n  \"version\": \"0.1.0\",\n  \"title\": \"acme-x99\",\n  \"engine\": \"^0.1\",\n  \"files\": []\n}\n"
     );
+}
+
+#[test]
+fn scaffold_writes_a_workflow_that_installs_bme_and_runs_both_catalog_checks() {
+    let sandbox = Sandbox::new();
+    let repo = sandbox.path("repo");
+    let init = sandbox.run(["catalog", "init", s(&repo), "--id", "acme-x99"]);
+    assert_eq!(init.code, 0, "{}", init.stderr);
+    let workflow = fs::read_to_string(repo.join(".github/workflows/validate.yml")).unwrap();
+    let steps: Vec<&str> = workflow
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("- run: "))
+        .filter(|command| command.starts_with("bme ") || command.starts_with("cargo install"))
+        .collect();
+    assert_eq!(
+        steps,
+        [
+            "cargo install --locked --git https://github.com/juliopolycarpo/biosmod-engine --branch main biosmod-cli",
+            "bme catalog index . --check",
+            "bme catalog validate ."
+        ],
+        "(validate.yml): expected the install, then the two catalog checks"
+    );
+    // The workflow sits outside the indexed directories: the index stays current with it present.
+    let index = sandbox.run(["catalog", "index", s(&repo), "--check"]);
+    assert_eq!(index.code, 0, "{}{}", index.stdout, index.stderr);
+    let readme = fs::read_to_string(repo.join("README.md")).unwrap();
+    for expected in ["bme guide publishing", "--branch main", "--rev <commit>"] {
+        assert!(
+            readme.contains(expected),
+            "(README): expected {expected:?} in the release and CI notes"
+        );
+    }
 }
 
 #[test]
@@ -101,7 +152,13 @@ fn json_reply_names_the_directory_catalog_files_and_directories() {
             "id": "acme-x99",
             "title": "Acme X99 family",
             "version": "0.1.0",
-            "files": ["README.md", ".gitignore", ".gitattributes", "catalog.json"],
+            "files": [
+                "README.md",
+                ".gitignore",
+                ".gitattributes",
+                ".github/workflows/validate.yml",
+                "catalog.json"
+            ],
             "directories": DIRECTORIES,
         })
     );
@@ -129,6 +186,8 @@ fn text_reply_says_what_git_tracks_and_that_git_was_not_run() {
         "/work/dump.bin -o",
         "bme catalog index",
         "bme catalog validate",
+        ".github/workflows/validate.yml installs bme",
+        "bme guide publishing",
     ] {
         assert!(
             init.stdout.contains(expected),
