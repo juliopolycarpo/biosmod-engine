@@ -158,7 +158,7 @@ This is the shape of the B09 record, shortened to one of its four signatures. B0
 
 ## Evidence
 
-An evidence record is one observation: board, firmware build, configuration, the exact patch versions, the `image_sha256` that was flashed, what was seen, and its limits. It is attached to those patch versions only. A record never claims a fix works in general.
+An evidence record is one observation: board, firmware build, configuration, the exact patch versions, the `image_sha256` that was flashed, what was seen, and its limits. It is attached to those patch versions only. A record never claims a fix works in general. A `bme scan` patch row lists a record in `evidence` only when the record's `firmware` is the build the scan detected, so a scan of one board's image lists none of another board's observations. With no detected build the rows list no evidence.
 
 ## Indexing
 

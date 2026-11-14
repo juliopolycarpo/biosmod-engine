@@ -995,12 +995,24 @@ impl Catalog {
             .filter(move |f| f.affects.builds.iter().any(|b| b == firmware))
     }
 
-    /// Hardware observations that include `patch` at its current version.
-    pub fn evidence_for<'a>(&'a self, patch: &'a Patch) -> impl Iterator<Item = &'a Evidence> + 'a {
+    /// Hardware observations of `firmware` that include `patch` at its current version, in id
+    /// order.
+    ///
+    /// A record counts only when its `firmware` is the build asked for: one patch can be
+    /// observed on several boards, and a scan describes one image. Build ids belong to one board,
+    /// so the build also fixes the board.
+    ///
+    /// Example: `catalog.evidence_for(&patch, "build-id").map(|e| e.id.as_str())`.
+    pub fn evidence_for<'a>(
+        &'a self,
+        patch: &'a Patch,
+        firmware: &'a str,
+    ) -> impl Iterator<Item = &'a Evidence> + 'a {
         self.evidence.values().filter(move |e| {
-            e.patches
-                .iter()
-                .any(|p| p.id == patch.id && p.version == patch.version)
+            e.firmware == firmware
+                && e.patches
+                    .iter()
+                    .any(|p| p.id == patch.id && p.version == patch.version)
         })
     }
 }
@@ -1128,6 +1140,66 @@ mod tests {
     const HOST_RECORD: &str = r#"{"schema":"bme.evidence/1","id":"host-x","kind":"hardware-observation",
         "date":"2026-11-12","title":"t","board":"b","firmware":"f","patches":[],
         "observations":[],"limits":"l"HOST}"#;
+
+    /// A catalog holding `patch` and one observation of it per `(id, firmware)` pair.
+    fn catalog_observed_on(patch: &str, observations: &[(&str, &str)]) -> Catalog {
+        use fixtures::{evidence, patch as patch_record};
+        Catalog {
+            manifest: Manifest {
+                schema: CATALOG_SCHEMA.into(),
+                id: "observed".into(),
+                version: Version::new(1, 0, 0),
+                title: "observed".into(),
+                engine: semver::VersionReq::STAR,
+                description: None,
+                repository: None,
+                sources: vec![],
+                files: vec![],
+            },
+            manifest_sha256: Digest256::of(b""),
+            boards: BTreeMap::new(),
+            patches: BTreeMap::from([(patch.to_string(), patch_record(patch, &[]))]),
+            findings: BTreeMap::new(),
+            evidence: observations
+                .iter()
+                .map(|(id, firmware)| {
+                    (
+                        id.to_string(),
+                        evidence(id, &format!("board-of-{firmware}"), firmware, &[patch]),
+                    )
+                })
+                .collect(),
+            consumed: vec![],
+            scope: Scope::All,
+        }
+    }
+
+    #[test]
+    fn evidence_for_lists_only_records_of_the_asked_build() {
+        let catalog = catalog_observed_on("P", &[("E-A", "build-a"), ("E-B", "build-b")]);
+        let patch = &catalog.patches["P"];
+        let ids = |firmware| -> Vec<&str> {
+            catalog
+                .evidence_for(patch, firmware)
+                .map(|e| e.id.as_str())
+                .collect()
+        };
+        assert_eq!(ids("build-a"), ["E-A"], "(evidence of build-a)");
+        assert_eq!(ids("build-b"), ["E-B"], "(evidence of build-b)");
+        assert_eq!(
+            ids("build-c"),
+            Vec::<&str>::new(),
+            "(evidence of a build nobody observed)"
+        );
+    }
+
+    #[test]
+    fn evidence_for_skips_a_record_of_another_patch_version() {
+        let mut catalog = catalog_observed_on("P", &[("E-A", "build-a")]);
+        catalog.patches.get_mut("P").unwrap().version = Version::new(2, 0, 0);
+        let patch = &catalog.patches["P"];
+        assert_eq!(catalog.evidence_for(patch, "build-a").count(), 0);
+    }
 
     #[test]
     fn evidence_host_observation_round_trips_and_stays_optional() {

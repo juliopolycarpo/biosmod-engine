@@ -158,7 +158,7 @@ Esta é a forma do registro B09, reduzido a uma de suas quatro assinaturas. B09 
 
 ## Evidências
 
-Um registro de evidência é uma observação: placa, versão do firmware, configuração, versões exatas dos patches, `image_sha256` gravado, o que foi observado e seus limites. Ele está associado somente a essas versões dos patches. Um registro nunca afirma que uma correção funciona em geral.
+Um registro de evidência é uma observação: placa, versão do firmware, configuração, versões exatas dos patches, `image_sha256` gravado, o que foi observado e seus limites. Ele está associado somente a essas versões dos patches. Um registro nunca afirma que uma correção funciona em geral. Uma linha de patch de `bme scan` lista um registro em `evidence` somente quando o `firmware` do registro é o build que o scan detectou; assim, o scan da imagem de uma placa não lista observações de outra. Sem build detectado, as linhas não listam evidência.
 
 ## Indexação
 
