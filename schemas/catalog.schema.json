@@ -4,13 +4,27 @@
       "additionalProperties": false,
       "description": "A source catalog of a merge, pinned by the digest of its `catalog.json`.",
       "properties": {
+        "commit": {
+          "description": "The commit checked out in the source directory at merge time, as 40 (SHA-1) or\n64 (SHA-256) lowercase hex characters. Uncommitted changes are covered by the\ndigest, not by the commit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "description": "The `id` in the source's `catalog.json`.",
           "type": "string"
         },
         "manifest_sha256": {
           "$ref": "#/$defs/Digest256",
-          "description": "SHA-256 of the exact bytes of the source's `catalog.json`."
+          "description": "SHA-256 of the exact bytes of the source's `catalog.json`. This digest is the\nauthority: `repository` and `commit` only say where to fetch that content."
+        },
+        "repository": {
+          "description": "The `repository` of the source's `catalog.json`, when it has one.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "version": {
           "type": "string"
@@ -100,6 +114,13 @@
     },
     "id": {
       "type": "string"
+    },
+    "repository": {
+      "description": "The `https` URL of the repository that holds this catalog. Omitted when absent.",
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "schema": {
       "const": "bme.catalog/1",

@@ -41,6 +41,7 @@ fn load_edits(scope: Scope, edits: &[Edit<'_>]) -> Result<Catalog, Error> {
         title: "edited".into(),
         engine: semver::VersionReq::parse(">=0.1.0").unwrap(),
         description: None,
+        repository: None,
         sources: vec![],
         files: index_files(&files).unwrap(),
     };

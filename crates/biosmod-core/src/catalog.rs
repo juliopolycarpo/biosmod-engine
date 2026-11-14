@@ -66,6 +66,9 @@ pub struct Manifest {
     pub engine: VersionReq,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The `https` URL of the repository that holds this catalog. Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
     /// The catalogs a merge built this one from, in merge order. Omitted when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<CatalogSource>,
@@ -80,8 +83,17 @@ pub struct CatalogSource {
     pub id: String,
     #[schemars(with = "String")]
     pub version: Version,
-    /// SHA-256 of the exact bytes of the source's `catalog.json`.
+    /// SHA-256 of the exact bytes of the source's `catalog.json`. This digest is the
+    /// authority: `repository` and `commit` only say where to fetch that content.
     pub manifest_sha256: Digest256,
+    /// The `repository` of the source's `catalog.json`, when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    /// The commit checked out in the source directory at merge time, as 40 (SHA-1) or
+    /// 64 (SHA-256) lowercase hex characters. Uncommitted changes are covered by the
+    /// digest, not by the commit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
 }
 
 /// One indexed file.
@@ -1132,5 +1144,68 @@ mod tests {
         let without: Evidence =
             parse_strict(HOST_RECORD.replace("HOST", "").as_bytes(), "plain.json").unwrap();
         assert!(without.host.is_none());
+    }
+
+    const MANIFEST: &str = r#"{"schema":"bme.catalog/1","id":"acme","version":"0.1.0","title":"Acme",
+        "engine":"^0.1"REPOSITORY,"files":[]}"#;
+
+    #[test]
+    fn manifest_round_trips_with_and_without_a_repository() {
+        let url = r#","repository":"https://example.org/acme/x99""#;
+        let with: Manifest = parse_strict(
+            MANIFEST.replace("REPOSITORY", url).as_bytes(),
+            "catalog.json",
+        )
+        .unwrap();
+        assert_eq!(
+            with.repository.as_deref(),
+            Some("https://example.org/acme/x99")
+        );
+        let text = String::from_utf8(crate::json::pretty(&with)).unwrap();
+        assert!(
+            text.contains("\"repository\": \"https://example.org/acme/x99\""),
+            "(catalog.json): expected the repository to be written | received {text}"
+        );
+
+        let without: Manifest = parse_strict(
+            MANIFEST.replace("REPOSITORY", "").as_bytes(),
+            "catalog.json",
+        )
+        .unwrap();
+        assert!(without.repository.is_none());
+        let text = String::from_utf8(crate::json::pretty(&without)).unwrap();
+        assert!(
+            !text.contains("repository"),
+            "(catalog.json): expected no repository key | received {text}"
+        );
+    }
+
+    #[test]
+    fn a_catalog_source_leaves_out_the_repository_and_commit_it_does_not_have() {
+        let digest = Digest256::of(b"catalog.json");
+        let bare = CatalogSource {
+            id: "pr9".into(),
+            version: Version::new(0, 1, 0),
+            manifest_sha256: digest,
+            repository: None,
+            commit: None,
+        };
+        let value = serde_json::to_value(&bare).unwrap();
+        assert_eq!(
+            value.as_object().unwrap().keys().collect::<Vec<_>>(),
+            ["id", "manifest_sha256", "version"],
+            "(source keys without repository and commit)"
+        );
+
+        let full = CatalogSource {
+            repository: Some("https://example.org/pr9".into()),
+            commit: Some("1a".repeat(20)),
+            ..bare
+        };
+        let value = serde_json::to_value(&full).unwrap();
+        assert_eq!(value["repository"], "https://example.org/pr9");
+        assert_eq!(value["commit"], "1a".repeat(20));
+        let back: CatalogSource = serde_json::from_value(value).unwrap();
+        assert_eq!(back, full);
     }
 }

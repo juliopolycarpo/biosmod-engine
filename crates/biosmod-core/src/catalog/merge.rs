@@ -25,6 +25,10 @@ pub struct MergeInput<'a> {
     pub version: &'a Version,
     /// SHA-256 of the exact bytes of the catalog's `catalog.json`.
     pub manifest_sha256: Digest256,
+    /// The `repository` in the catalog's `catalog.json`, if any.
+    pub repository: Option<&'a str>,
+    /// The commit checked out in the catalog's directory, if it is a git checkout.
+    pub commit: Option<&'a str>,
     /// The `sources` the catalog's `catalog.json` lists, empty unless it is itself a merge.
     pub sources: &'a [CatalogSource],
     /// The `engine` requirement in the catalog's `catalog.json`.
@@ -65,6 +69,9 @@ pub struct PinCheck {
     pub version: Version,
     pub pinned: Digest256,
     pub current: Digest256,
+    /// The commit the entry records, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
     pub state: PinState,
 }
 
@@ -90,6 +97,7 @@ pub fn check_pins(inputs: &[MergeInput<'_>]) -> Vec<PinCheck> {
                     version: entry.version.clone(),
                     pinned: entry.manifest_sha256,
                     current: other.manifest_sha256,
+                    commit: entry.commit.clone(),
                     state: if entry.manifest_sha256 == other.manifest_sha256 {
                         PinState::Pinned
                     } else {
@@ -136,7 +144,8 @@ pub struct Merged {
 ///   every other field is equal.
 /// - Evidence and provenance files with one id or path are identical.
 /// - The `engine` requirements are equal.
-/// - `sources` pins every input by id, version and `manifest_sha256`, in input order.
+/// - `sources` pins every input by id, version and `manifest_sha256`, in input order, with
+///   the input's `repository` and `commit` when it has them.
 ///
 /// A disagreement names a catalog by its id, or `id (#N)` by position when another input has the same id.
 ///
@@ -193,6 +202,8 @@ pub fn merge_catalogs(inputs: &[MergeInput<'_>]) -> Result<Merged> {
                 id: input.catalog_id.to_string(),
                 version: input.version.clone(),
                 manifest_sha256: input.manifest_sha256,
+                repository: input.repository.map(str::to_string),
+                commit: input.commit.map(str::to_string),
             })
             .collect(),
         shared,
@@ -699,6 +710,8 @@ mod tests {
             catalog_id,
             version: &ONE,
             manifest_sha256: Digest256::of(catalog_id.as_bytes()),
+            repository: None,
+            commit: None,
             sources: &[],
             engine,
             records,
@@ -1395,14 +1408,63 @@ mod tests {
                     id: "a".into(),
                     version,
                     manifest_sha256: Digest256::of(b"a"),
+                    repository: None,
+                    commit: None,
                 },
                 CatalogSource {
                     id: "b".into(),
                     version: ONE.clone(),
                     manifest_sha256: Digest256::of(b"b"),
+                    repository: None,
+                    commit: None,
                 },
             ]
         );
+    }
+
+    const COMMIT: &str = "1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b";
+
+    #[test]
+    fn merged_sources_copy_the_repository_and_commit_of_each_input_in_order() {
+        let (engine, records) = (engine(), Records::default());
+        let with_both = MergeInput {
+            repository: Some("https://example.org/a"),
+            commit: Some(COMMIT),
+            ..input("a", &engine, &records)
+        };
+        let with_url = MergeInput {
+            repository: Some("https://example.org/c"),
+            ..input("c", &engine, &records)
+        };
+        let merged = merge_catalogs(&[with_both, input("b", &engine, &records), with_url]).unwrap();
+        let recorded: Vec<(&str, Option<&str>, Option<&str>)> = merged
+            .sources
+            .iter()
+            .map(|s| (s.id.as_str(), s.repository.as_deref(), s.commit.as_deref()))
+            .collect();
+        assert_eq!(
+            recorded,
+            [
+                ("a", Some("https://example.org/a"), Some(COMMIT)),
+                ("b", None, None),
+                ("c", Some("https://example.org/c"), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_pin_check_carries_the_commit_its_entry_records() {
+        let (engine, records) = (engine(), Records::default());
+        let listed = [CatalogSource {
+            commit: Some(COMMIT.into()),
+            ..pin("b", b"older manifest")
+        }];
+        let merge_of = MergeInput {
+            sources: &listed,
+            ..input("merged", &engine, &records)
+        };
+        let checks = check_pins(&[merge_of, input("b", &engine, &records)]);
+        assert_eq!(checks[0].commit.as_deref(), Some(COMMIT));
     }
 
     /// The pin of `id` as a catalog that merged it would record it.
@@ -1411,6 +1473,8 @@ mod tests {
             id: id.into(),
             version: ONE.clone(),
             manifest_sha256: Digest256::of(manifest),
+            repository: None,
+            commit: None,
         }
     }
 
