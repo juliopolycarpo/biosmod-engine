@@ -91,4 +91,4 @@ Give them the public key outside this repository. A key committed here proves no
 
 ## Continuous check
 
-`.github/workflows/validate.yml` runs `bme catalog index . --check` and `bme catalog validate .` on every push and pull request. No `bme` release exists yet, and `bme` does not record the commit it was built from, so the workflow installs the head of the engine's `main` branch (`cargo install --locked --git https://github.com/juliopolycarpo/biosmod-engine --branch main biosmod-cli`). That head is not pinned. A catalog declares the `engine` it needs (`^0.1` at the start), and `catalog validate` fails with `requires engine` once `main` moves past it. To make the check repeatable, replace `--branch main` in the workflow with `--rev <commit>` or `--tag <tag>`.
+`.github/workflows/validate.yml` runs `bme catalog index . --check` and `bme catalog validate .` on every push and pull request. {continuous_check_install}

@@ -1,10 +1,6 @@
 # Written by `bme catalog init`.
 #
-# Installs bme from source and checks that the index is current and the
-# catalog is valid. No bme release exists yet and bme does not record its own
-# commit, so this installs the head of the engine's `main` branch. To make the
-# check repeatable, replace `--branch main` with `--rev <commit>` or
-# `--tag <tag>`. See `bme guide publishing`.
+{engine_note}
 name: Validate catalog
 
 on:
@@ -23,17 +19,14 @@ jobs:
       - run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-      # The cache keeps ~/.cargo/bin, so an unchanged `main` restores bme instead of
-      # rebuilding it. The key follows the head of `main`.
+      # The cache keeps ~/.cargo/bin, so an unchanged engine commit restores bme
+      # instead of rebuilding it.
       - id: engine
         run: |
-          set -o pipefail
-          commit=$(git ls-remote https://github.com/juliopolycarpo/biosmod-engine refs/heads/main | cut -f1)
-          test -n "$commit"
-          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+{engine_commit_step}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: bme-${{ steps.engine.outputs.commit }}
-      - run: cargo install --locked --git https://github.com/juliopolycarpo/biosmod-engine --branch main biosmod-cli
+      - run: cargo install --locked --git https://github.com/juliopolycarpo/biosmod-engine {engine_install_ref} biosmod-cli
       - run: bme catalog index . --check
       - run: bme catalog validate .

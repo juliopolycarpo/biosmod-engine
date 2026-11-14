@@ -264,14 +264,69 @@ pub fn manifest_bytes_from(
     }))
 }
 
-/// The README with `{id}` and `{title}` filled in. The id goes first so a title
-/// that contains `{id}` stays literal.
+/// Where the scaffold's workflow installs `bme` from.
+const ENGINE_REPOSITORY: &str = "https://github.com/juliopolycarpo/biosmod-engine";
+
+/// The commit this `bme` was built from; `None` when the build ran outside a git
+/// checkout of the engine (the build script leaves the variable empty).
+pub(crate) fn build_commit() -> Option<&'static str> {
+    let commit = env!("BME_BUILD_COMMIT");
+    (!commit.is_empty()).then_some(commit)
+}
+
+/// The README with `{id}` and `{title}` filled in, and the CI note that fits
+/// `engine_commit`. The id goes first so a title that contains `{id}` stays literal.
 ///
-/// Example: `render_readme("x99", "X99 board")` starts with `# X99 board`.
-fn render_readme(id: &str, title: &str) -> String {
+/// Example: `render_readme("x99", "X99 board", None)` starts with `# X99 board`.
+fn render_readme(id: &str, title: &str, engine_commit: Option<&str>) -> String {
+    let install = match engine_commit {
+        Some(commit) => format!(
+            "No `bme` release exists yet, so the workflow installs the engine commit this repository was created with (`cargo install --locked --git {ENGINE_REPOSITORY} --rev {commit} biosmod-cli`). The check stays the same until you change that commit. If the engine repository does not have it, because `bme` was built from an unpublished checkout, the install step fails; replace the commit in the workflow with a published one, or with `--tag <tag>` once releases exist."
+        ),
+        None => format!(
+            "No `bme` release exists yet, and this `bme` was built outside a git checkout, so the workflow installs the head of the engine's `main` branch (`cargo install --locked --git {ENGINE_REPOSITORY} --branch main biosmod-cli`). That head is not pinned. A catalog declares the `engine` it needs (`^0.1` at the start), and `catalog validate` fails with `requires engine` once `main` moves past it. To make the check repeatable, replace `--branch main` in the workflow with `--rev <commit>` or `--tag <tag>`."
+        ),
+    };
     README_TEMPLATE
+        .replace("{continuous_check_install}", &install)
         .replace("{id}", id)
         .replace("{title}", title)
+}
+
+/// The validation workflow. With `engine_commit` it installs exactly that commit;
+/// without one it follows the head of the engine's `main` branch.
+///
+/// Example: `render_validate_workflow(Some("<40 hex>"))` holds `--rev <40 hex> biosmod-cli`.
+fn render_validate_workflow(engine_commit: Option<&str>) -> String {
+    let (note, commit_step, install_ref) = match engine_commit {
+        Some(commit) => (
+            "# Installs bme from source, at the engine commit this repository was created\n\
+             # with, and checks that the index is current and the catalog is valid. Change\n\
+             # the commit below to move to a newer engine. See `bme guide publishing`."
+                .to_string(),
+            format!("          echo \"commit={commit}\" >> \"$GITHUB_OUTPUT\""),
+            format!("--rev {commit}"),
+        ),
+        None => (
+            "# Installs bme from source and checks that the index is current and the\n\
+             # catalog is valid. No bme release exists yet and this bme was built outside\n\
+             # a git checkout, so this installs the head of the engine's `main` branch. To\n\
+             # make the check repeatable, replace `--branch main` with `--rev <commit>` or\n\
+             # `--tag <tag>`. See `bme guide publishing`."
+                .to_string(),
+            format!(
+                "          set -o pipefail\n\
+                 \x20         commit=$(git ls-remote {ENGINE_REPOSITORY} refs/heads/main | cut -f1)\n\
+                 \x20         test -n \"$commit\"\n\
+                 \x20         echo \"commit=$commit\" >> \"$GITHUB_OUTPUT\""
+            ),
+            "--branch main".to_string(),
+        ),
+    };
+    VALIDATE_WORKFLOW
+        .replace("{engine_note}", &note)
+        .replace("{engine_commit_step}", &commit_step)
+        .replace("{engine_install_ref}", &install_ref)
 }
 
 /// Every file of the repository: scaffold files, `records`, then `catalog.json`.
@@ -297,7 +352,7 @@ fn scaffold(
     let mut files = vec![
         (
             "README.md".to_string(),
-            render_readme(id, title).into_bytes(),
+            render_readme(id, title, build_commit()).into_bytes(),
         ),
         (".gitignore".to_string(), GITIGNORE.as_bytes().to_vec()),
         (
@@ -306,7 +361,7 @@ fn scaffold(
         ),
         (
             ".github/workflows/validate.yml".to_string(),
-            VALIDATE_WORKFLOW.as_bytes().to_vec(),
+            render_validate_workflow(build_commit()).into_bytes(),
         ),
     ];
     files.append(&mut records);
@@ -404,7 +459,7 @@ mod tests {
 
     #[test]
     fn readme_substitutes_id_and_title_once() {
-        let readme = render_readme("acme-x99", "Acme {id} board");
+        let readme = render_readme("acme-x99", "Acme {id} board", None);
         assert!(readme.starts_with("# Acme {id} board\n"), "{readme}");
         assert!(readme.contains("bme catalog add acme-x99 "), "{readme}");
         assert!(
@@ -691,7 +746,7 @@ mod tests {
 
     #[test]
     fn validate_workflow_runs_both_catalog_checks_on_push_and_pull_request() {
-        let workflow = VALIDATE_WORKFLOW;
+        let workflow = render_validate_workflow(None);
         for expected in [
             "\non:\n  push:\n  pull_request:\n",
             "    runs-on: ubuntu-latest\n",
@@ -707,19 +762,84 @@ mod tests {
         }
     }
 
-    #[test]
-    fn validate_workflow_installs_bme_from_the_engine_main_branch_because_no_commit_is_known() {
-        let installs: Vec<&str> = VALIDATE_WORKFLOW
+    /// The `cargo install` and `echo`/`git ls-remote` lines of a rendered workflow.
+    fn engine_lines(workflow: &str) -> Vec<&str> {
+        workflow
             .lines()
-            .filter(|line| line.contains("cargo install"))
-            .collect();
+            .map(str::trim_start)
+            .filter(|line| line.contains("cargo install") || line.contains("commit="))
+            .collect()
+    }
+
+    #[test]
+    fn validate_workflow_installs_the_commit_bme_was_built_from() {
+        let commit = "0123456789abcdef0123456789abcdef01234567";
+        let workflow = render_validate_workflow(Some(commit));
         assert_eq!(
-            installs,
+            engine_lines(&workflow),
             [
-                "      - run: cargo install --locked --git https://github.com/juliopolycarpo/biosmod-engine --branch main biosmod-cli"
+                "echo \"commit=0123456789abcdef0123456789abcdef01234567\" >> \"$GITHUB_OUTPUT\"",
+                "- run: cargo install --locked --git https://github.com/juliopolycarpo/biosmod-engine --rev 0123456789abcdef0123456789abcdef01234567 biosmod-cli"
             ],
-            "(validate.yml): expected one locked install of biosmod-cli from main"
+            "(validate.yml): expected the cache key and the install pinned to {commit}"
         );
+        assert!(
+            !workflow.contains("ls-remote"),
+            "(validate.yml): expected no lookup of main | received:\n{workflow}"
+        );
+    }
+
+    #[test]
+    fn validate_workflow_follows_main_when_no_build_commit_is_known() {
+        let workflow = render_validate_workflow(None);
+        assert_eq!(
+            engine_lines(&workflow),
+            [
+                "commit=$(git ls-remote https://github.com/juliopolycarpo/biosmod-engine refs/heads/main | cut -f1)",
+                "echo \"commit=$commit\" >> \"$GITHUB_OUTPUT\"",
+                "- run: cargo install --locked --git https://github.com/juliopolycarpo/biosmod-engine --branch main biosmod-cli"
+            ],
+            "(validate.yml): expected the head of main resolved for the cache key and installed"
+        );
+    }
+
+    #[test]
+    fn rendered_workflow_and_readme_leave_no_placeholder_for_either_engine_source() {
+        for commit in [None, Some("0123456789abcdef0123456789abcdef01234567")] {
+            let workflow = render_validate_workflow(commit);
+            let readme = render_readme("acme-x99", "Acme X99", commit);
+            for (name, text) in [("validate.yml", &workflow), ("README.md", &readme)] {
+                for placeholder in [
+                    "{engine_note}",
+                    "{engine_commit_step}",
+                    "{engine_install_ref}",
+                    "{continuous_check_install}",
+                ] {
+                    assert!(
+                        !text.contains(placeholder),
+                        "({name}): expected {placeholder} filled for engine commit {commit:?}"
+                    );
+                }
+            }
+            let expected = match commit {
+                Some(commit) => format!("--rev {commit} biosmod-cli"),
+                None => "--branch main biosmod-cli".to_string(),
+            };
+            assert!(
+                readme.contains(&expected),
+                "(README): expected {expected:?} in the continuous check note"
+            );
+        }
+    }
+
+    #[test]
+    fn build_commit_is_a_full_commit_id_or_absent() {
+        if let Some(commit) = build_commit() {
+            assert!(
+                commit.len() == 40 && commit.bytes().all(|b| b.is_ascii_hexdigit()),
+                "(build commit): expected 40 hexadecimal characters | received {commit:?}"
+            );
+        }
     }
 
     #[test]
@@ -778,7 +898,7 @@ mod tests {
         }
         assert_eq!(
             fs::read(dir.join(".github/workflows/validate.yml")).unwrap(),
-            VALIDATE_WORKFLOW.as_bytes()
+            render_validate_workflow(build_commit()).into_bytes()
         );
     }
 
