@@ -2294,3 +2294,77 @@ fn extract_json_shape_is_the_same_with_and_without_a_table_selector() {
         "(selector extract data.file_offset): expected the file offset from inspect"
     );
 }
+
+/// The synthetic image with a sibling board's banner and one module changed, so two of the
+/// three recorded modules still match: the shape of a sibling board's dump.
+fn sibling_board_dump() -> Vec<u8> {
+    let fixture = biosmod_core::synthetic::Fixture::new(0x07);
+    let mut bytes = fixture.clone().with_banner(SIBLING_BANNER).image;
+    let at = bytes
+        .windows(fixture.peim.len())
+        .position(|window| window == fixture.peim.as_slice())
+        .expect("peim is stored plain in the synthetic image");
+    bytes[at + fixture.peim.len() - 1] ^= 0xFF;
+    bytes
+}
+
+const SIBLING_BANNER: &str = "X9MRA Ver:002 08/11/2022";
+
+#[test]
+fn scan_of_a_closest_only_image_names_the_closest_build_and_plans_nothing() {
+    let sandbox = Sandbox::new();
+    let (_, catalog) = sandbox.synthetic();
+    let dump = sandbox.path("sibling.bin");
+    fs::write(&dump, sibling_board_dump()).unwrap();
+    let arguments = [
+        "scan",
+        s(&dump),
+        "--catalog",
+        s(&catalog),
+        "--allow-unsigned-local",
+    ];
+
+    let text = sandbox.run(arguments).stdout;
+    assert!(
+        text.contains("Firmware: unknown; closest cataloged build synthetic-fw (2/3 recorded modules match, image banner \"X9MRA Ver:002 08/11/2022\")"),
+        "(scan text): expected the closest build with its counts and image banner | received {text}"
+    );
+    assert!(
+        text.contains("bme guide porting"),
+        "(scan text): expected a pointer to `bme guide porting` | received {text}"
+    );
+    for absent in ["Open findings", "Firmware: synthetic-fw", "Next: bme patch"] {
+        assert!(
+            !text.contains(absent),
+            "(scan text): expected no {absent:?} for an unidentified image | received {text}"
+        );
+    }
+    assert!(
+        text.contains("Plannable on this exact build: none"),
+        "(scan text): expected nothing plannable | received {text}"
+    );
+
+    let scan = sandbox.run(arguments.into_iter().chain(["--json"])).json();
+    let report = &scan["data"]["sources"][0]["report"];
+    assert_eq!(report["firmware"], Value::Null);
+    assert_eq!(report["findings"], serde_json::json!([]));
+    let closest = &report["detection"]["closest"];
+    assert_eq!(
+        (
+            closest["firmware"].as_str(),
+            closest["matched"].as_u64(),
+            closest["total"].as_u64(),
+            closest["banner"].as_str(),
+        ),
+        (Some("synthetic-fw"), Some(2), Some(3), Some("unchecked"))
+    );
+    assert_eq!(report["detection"]["image_banner"], SIBLING_BANNER);
+    assert!(
+        report["patches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|patch| patch["plannable"] == false),
+        "(scan json): expected no plannable patch | received {report}"
+    );
+}

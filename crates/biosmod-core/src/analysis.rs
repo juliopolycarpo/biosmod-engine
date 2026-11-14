@@ -346,6 +346,18 @@ fn undo(
     Some((original, fixed))
 }
 
+/// Whether an image's banner agrees with the version string a build records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BannerCheck {
+    /// A banner in the image carries the recorded version string.
+    Agrees,
+    /// The build records a version string and no banner in the image carries it.
+    Differs,
+    /// Nothing to compare: the build records no version string or the image has no banner.
+    Unchecked,
+}
+
 /// Coverage of one firmware build's recorded originals in an image.
 #[derive(Debug, Clone, Serialize)]
 pub struct BuildScore {
@@ -353,18 +365,71 @@ pub struct BuildScore {
     pub boards: Vec<String>,
     pub matched: usize,
     pub total: usize,
+    /// The version string the catalog records for this build, when it records one.
+    pub version_string: Option<String>,
+    pub banner: BannerCheck,
 }
 
 /// The detected firmware build, or why none was chosen.
+///
+/// A build is detected only when its identity agrees with the image, see [`detect`].
 #[derive(Debug, Clone, Serialize)]
 pub struct Detection {
     pub firmware: Option<String>,
+    /// Several builds qualify equally.
     pub ambiguous: bool,
+    /// The first `Ver:` banner found in the image.
+    pub image_banner: Option<String>,
+    /// Set only when nothing was detected: the build with the most matching modules.
+    /// It shares code with the image but is not proven to be the image's build.
+    pub closest: Option<BuildScore>,
     pub scores: Vec<BuildScore>,
 }
 
-/// Score every firmware build by how many of its recorded originals the image contains.
+/// True when `banner` carries `recorded` as whole whitespace-delimited tokens.
+///
+/// A vendor banner may add a trailing time (`X9R9P Ver:005 03/22/2023 19:30:19`) or
+/// leading text, so equality is too strict; plain substring matching would let
+/// `Ver:00` match `Ver:005`. Token boundaries on both sides keep the comparison exact.
+fn banner_carries(banner: &str, recorded: &str) -> bool {
+    let recorded = recorded.trim();
+    !recorded.is_empty()
+        && banner.match_indices(recorded).any(|(at, hit)| {
+            let before = banner[..at].chars().next_back();
+            let after = banner[at + hit.len()..].chars().next();
+            before.is_none_or(char::is_whitespace) && after.is_none_or(char::is_whitespace)
+        })
+}
+
+/// Compare the version strings a build records with the banners of an image.
+fn check_banner(recorded: &[&str], image_banners: &[String]) -> BannerCheck {
+    if recorded.is_empty() || image_banners.is_empty() {
+        return BannerCheck::Unchecked;
+    }
+    let agrees = recorded
+        .iter()
+        .any(|r| image_banners.iter().any(|b| banner_carries(b, r)));
+    if agrees {
+        BannerCheck::Agrees
+    } else {
+        BannerCheck::Differs
+    }
+}
+
+/// Pick the firmware build whose identity agrees with the image.
+///
+/// Rule, per build:
+/// - the build records a `version_string` and the image has a banner: the build is detected
+///   when a banner carries the recorded string (see [`banner_carries`]), however many
+///   patch components it has, and is never detected when none does;
+/// - otherwise no banner comparison is possible: the build is detected only when every
+///   recorded component matches (`matched == total`, `total > 0`).
+///
+/// A banner-confirmed build outranks a build confirmed by modules alone. Several qualifying
+/// builds in the winning group are `ambiguous`. When nothing qualifies, the build with the
+/// most matching modules is reported as [`Detection::closest`] for diagnostics only.
 pub fn detect(image: &Image, catalog: &Catalog) -> Detection {
+    let image_banners = crate::draft::all_identity_strings(&image.bytes);
     let mut scores = Vec::new();
     for (firmware, boards) in catalog.firmware_builds() {
         let mut keys: BTreeMap<(Guid, LeafKind, usize), &Component> = BTreeMap::new();
@@ -378,21 +443,54 @@ pub fn detect(image: &Image, catalog: &Catalog) -> Detection {
             .values()
             .filter(|c| match_component(image, catalog, firmware, c).is_some())
             .count();
+        let recorded: Vec<&str> = boards
+            .iter()
+            .flat_map(|board| &board.firmware)
+            .filter(|build| build.id == firmware)
+            .filter_map(|build| build.version_string.as_deref())
+            .collect();
         scores.push(BuildScore {
             firmware: firmware.to_string(),
             boards: boards.iter().map(|b| b.id.clone()).collect(),
             matched,
             total: keys.len(),
+            version_string: recorded.first().map(|r| r.to_string()),
+            banner: check_banner(&recorded, &image_banners),
         });
     }
-    let best = scores.iter().map(|s| s.matched).max().unwrap_or(0);
-    let leaders: Vec<&BuildScore> = scores
+    let by_banner: Vec<&BuildScore> = scores
         .iter()
-        .filter(|s| s.matched == best && best > 0)
+        .filter(|s| s.banner == BannerCheck::Agrees)
         .collect();
+    let by_modules: Vec<&BuildScore> = scores
+        .iter()
+        .filter(|s| s.banner == BannerCheck::Unchecked && s.total > 0 && s.matched == s.total)
+        .collect();
+    let qualified = if by_banner.is_empty() {
+        by_modules
+    } else {
+        by_banner
+    };
+    // Ties go to the build with fewer unmatched modules, then to the first id.
+    let closest = if qualified.is_empty() {
+        scores
+            .iter()
+            .filter(|s| s.matched > 0)
+            .fold(None::<&BuildScore>, |best, s| match best {
+                Some(b) if (b.matched, s.total) >= (s.matched, b.total) => Some(b),
+                _ => Some(s),
+            })
+            .cloned()
+    } else {
+        None
+    };
     Detection {
-        firmware: (leaders.len() == 1).then(|| leaders[0].firmware.clone()),
-        ambiguous: leaders.len() > 1,
+        firmware: (qualified.len() == 1).then(|| qualified[0].firmware.clone()),
+        ambiguous: qualified.len() > 1,
+        image_banner: crate::draft::identity_strings(&image.bytes)
+            .into_iter()
+            .next(),
+        closest,
         scores,
     }
 }

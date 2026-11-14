@@ -321,13 +321,20 @@ fn publish_tree(directory: &Path, files: &[(String, Vec<u8>)]) -> Result<()> {
 // ---- init ----------------------------------------------------------------------------------
 
 /// Detector hits of one scan source: the build it matched and the catalog findings that hit.
-fn scan_summary<'a>(data: &Value, loaded: &'a [Loaded]) -> (Option<String>, Vec<&'a Finding>) {
+///
+/// A build that only comes closest (see `Detection::closest`) is not a match: it is returned
+/// apart, with its counts, so the case never records it as the image's build.
+fn scan_summary<'a>(data: &Value, loaded: &'a [Loaded]) -> ScanSummary<'a> {
     let mut matched = None;
+    let mut closest: Option<Value> = None;
     let mut hits: Vec<&Finding> = Vec::new();
     for (index, source) in data["sources"].as_array().into_iter().flatten().enumerate() {
         let report = &source["report"];
         if matched.is_none() {
             matched = report["firmware"].as_str().map(str::to_string);
+        }
+        if closest.is_none() && report["detection"]["closest"].is_object() {
+            closest = Some(report["detection"]["closest"].clone());
         }
         for detector in report["detectors"].as_array().into_iter().flatten() {
             if detector["state"] != "likely-present" {
@@ -344,7 +351,20 @@ fn scan_summary<'a>(data: &Value, loaded: &'a [Loaded]) -> (Option<String>, Vec<
             }
         }
     }
-    (matched, hits)
+    ScanSummary {
+        matched,
+        closest,
+        hits,
+    }
+}
+
+/// What `case init` keeps from a scan.
+struct ScanSummary<'a> {
+    /// The catalog build the image matched.
+    matched: Option<String>,
+    /// The closest build score as scan JSON, when no build matched but some modules did.
+    closest: Option<Value>,
+    hits: Vec<&'a Finding>,
 }
 
 fn init(ctx: &Ctx, args: &CaseInitArgs, environment: &Environment) -> Result<Reply> {
@@ -364,7 +384,11 @@ fn init(ctx: &Ctx, args: &CaseInitArgs, environment: &Environment) -> Result<Rep
             source: args.source.clone(),
         },
     )?;
-    let (matched, hits) = scan_summary(&scan.data, &loaded);
+    let ScanSummary {
+        matched,
+        closest,
+        hits,
+    } = scan_summary(&scan.data, &loaded);
     let smbios = environment.host.smbios();
     let (board, firmware_draft) = draft(&DraftRequest {
         image: &image,
@@ -435,7 +459,16 @@ fn init(ctx: &Ctx, args: &CaseInitArgs, environment: &Environment) -> Result<Rep
         case.artifacts[0].path,
         match &matched {
             Some(build) => format!("matches catalog build {build}"),
-            None => "no catalog build matched".into(),
+            None => match &closest {
+                // Shared modules do not make the image this build; say so.
+                Some(build) => format!(
+                    "no catalog build matched; closest is {} ({}/{} recorded modules)",
+                    build["firmware"].as_str().unwrap_or("?"),
+                    build["matched"],
+                    build["total"]
+                ),
+                None => "no catalog build matched".into(),
+            },
         }
     );
     if finding_ids.is_empty() {
@@ -468,6 +501,7 @@ fn init(ctx: &Ctx, args: &CaseInitArgs, environment: &Environment) -> Result<Rep
             "board": board.id,
             "firmware": firmware_draft.build.id,
             "matches_catalog_build": matched,
+            "closest_catalog_build": closest,
             "smbios_recorded": !firmware_draft.smbios.is_empty(),
             "findings": finding_ids,
             "modules": firmware_draft.modules.len(),

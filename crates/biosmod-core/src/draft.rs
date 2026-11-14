@@ -89,10 +89,13 @@ fn find_date(text: &str) -> Option<String> {
     })
 }
 
-/// Printable ASCII banners that carry a `Ver:` marker, banners with a date first.
+/// Every printable ASCII banner that carries a `Ver:` marker, in image order.
 ///
-/// Example: `identity_strings(b"..X9R9P Ver:005 03/22/2023 19:30..")` yields the banner.
-pub fn identity_strings(image: &[u8]) -> Vec<String> {
+/// Unlike [`identity_strings`] this is not capped, so an identity comparison never loses
+/// the real banner behind unrelated `Ver:` strings.
+///
+/// Example: `all_identity_strings(b"..X9R9P Ver:005 03/22/2023 19:30..")` yields the banner.
+pub(crate) fn all_identity_strings(image: &[u8]) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     let mut start = None;
     for (at, byte) in image.iter().copied().chain([0]).enumerate() {
@@ -112,6 +115,14 @@ pub fn identity_strings(image: &[u8]) -> Vec<String> {
             _ => {}
         }
     }
+    found
+}
+
+/// Printable ASCII banners that carry a `Ver:` marker, banners with a date first.
+///
+/// Example: `identity_strings(b"..X9R9P Ver:005 03/22/2023 19:30..")` yields the banner.
+pub fn identity_strings(image: &[u8]) -> Vec<String> {
+    let mut found = all_identity_strings(image);
     // Stable: banners that carry a date come first, offsets keep their order otherwise.
     found.sort_by_key(|text| find_date(text).is_none());
     found.truncate(4);
