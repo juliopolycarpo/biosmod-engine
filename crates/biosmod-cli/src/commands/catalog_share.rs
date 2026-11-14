@@ -475,7 +475,7 @@ mod tests {
     fn record_files_use_one_canonical_document_per_id() {
         let origin = official();
         let files = record_files(&origin.records);
-        assert_eq!(files.len(), 2 + 19 + 40 + 10);
+        assert_eq!(files.len(), 2 + 19 + 40 + 11);
         let paths = paths(&files);
         assert!(paths.contains(&"patches/B02-B03.json"));
         assert!(paths.contains(&"boards/machinist-pr9-b85.json"));
