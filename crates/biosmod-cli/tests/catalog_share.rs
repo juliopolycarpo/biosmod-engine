@@ -106,7 +106,7 @@ fn assert_valid_and_indexed(sandbox: &Sandbox, dir: &Path) -> Value {
 }
 
 #[test]
-fn splitting_the_mr9a_board_keeps_19_patches_40_findings_and_6_evidence_records() {
+fn splitting_the_mr9a_board_keeps_19_patches_40_findings_and_10_evidence_records() {
     let sandbox = Sandbox::new();
     let (dir, reply) = split(&sandbox, MR9A, "mr9a", MR9A_CATALOG);
     let summary = assert_valid_and_indexed(&sandbox, &dir);
@@ -117,7 +117,7 @@ fn splitting_the_mr9a_board_keeps_19_patches_40_findings_and_6_evidence_records(
             summary["findings"].clone(),
             summary["evidence"].clone()
         ),
-        (json!(19), json!(40), json!(6))
+        (json!(19), json!(40), json!(10))
     );
     // S01 and S02 do not apply to the MR9A build: the board keeps each verdict and its finding.
     assert_eq!(reply["dropped"]["patches"], json!([]));
@@ -171,7 +171,7 @@ fn splitting_the_pr9_board_keeps_19_patches_28_findings_and_no_evidence() {
             "A01", "A04", "A05", "A06", "B12", "H03", "H04", "H06", "H13", "H14", "H15", "R02"
         ])
     );
-    assert_eq!(reply["dropped"]["evidence"].as_array().unwrap().len(), 6);
+    assert_eq!(reply["dropped"]["evidence"].as_array().unwrap().len(), 10);
     assert_eq!(reply["dropped"]["provenance"], json!([]));
     assert!(
         dir.join("provenance/MRC-BREADCRUMBS/mrc-breadcrumbs.asm")
@@ -197,7 +197,7 @@ fn split_text_lists_what_it_dropped() {
         "--id",
         PR9_CATALOG,
     ]));
-    let first = format!("Split board {PR9} of official 1.4.0 into {}", s(&dir));
+    let first = format!("Split board {PR9} of official 1.5.0 into {}", s(&dir));
     for expected in [
         first.as_str(),
         "kept      19 patches, 28 findings, 0 evidence records, 1 provenance files",
@@ -308,7 +308,7 @@ fn merging_the_two_splits_agrees_and_reports_the_shared_records() {
     assert_eq!(data["catalogs"], json!([MR9A_CATALOG, PR9_CATALOG]));
     assert_eq!(
         data["merged"],
-        json!({"boards": 2, "patches": 19, "findings": 40, "evidence": 6, "provenance": 1})
+        json!({"boards": 2, "patches": 19, "findings": 40, "evidence": 10, "provenance": 1})
     );
     assert_eq!(data["shared"]["boards"], json!([]));
     // Both splits keep all 19 patches, and 28 of the 40 findings are in both.
@@ -327,7 +327,7 @@ fn merging_the_two_splits_agrees_and_reports_the_shared_records() {
     assert_eq!(
         text.stdout,
         format!(
-            "The catalogs agree: {PR9_CATALOG}, {MR9A_CATALOG}\n  merged   2 boards, 19 patches, 40 findings, 6 evidence records, 1 provenance files\n  shared   0 boards, 19 patches, 28 findings, 0 evidence records, 1 provenance files\n"
+            "The catalogs agree: {PR9_CATALOG}, {MR9A_CATALOG}\n  merged   2 boards, 19 patches, 40 findings, 10 evidence records, 1 provenance files\n  shared   0 boards, 19 patches, 28 findings, 0 evidence records, 1 provenance files\n"
         )
     );
 }
@@ -588,7 +588,7 @@ fn merge_check_reports_whether_each_pinned_source_still_matches() {
     assert_eq!(
         pinned.stdout,
         format!(
-            "The catalogs agree: two-boards, {MR9A_CATALOG}, {PR9_CATALOG}\n  merged   2 boards, 19 patches, 40 findings, 6 evidence records, 1 provenance files\n  shared   2 boards, 19 patches, 40 findings, 6 evidence records, 1 provenance files\n  pin      two-boards lists {MR9A_CATALOG} 0.1.0: pinned\n  pin      two-boards lists {PR9_CATALOG} 0.1.0: pinned\n"
+            "The catalogs agree: two-boards, {MR9A_CATALOG}, {PR9_CATALOG}\n  merged   2 boards, 19 patches, 40 findings, 10 evidence records, 1 provenance files\n  shared   2 boards, 19 patches, 40 findings, 10 evidence records, 1 provenance files\n  pin      two-boards lists {MR9A_CATALOG} 0.1.0: pinned\n  pin      two-boards lists {PR9_CATALOG} 0.1.0: pinned\n"
         )
     );
 

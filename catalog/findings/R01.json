@@ -8,6 +8,7 @@
     "label": "MR9A PRO and PR9",
     "builds": [
       "mnx99mr9apro-230322",
+      "x9r9a-003-20231110",
       "x99ha00m-20221202"
     ]
   },
@@ -31,7 +32,9 @@
     "mr9a-breadcrumbs-no-gpu-2026-11-08",
     "mr9a-breadcrumbs-no-ram-2026-11-08",
     "mr9a-breadcrumbs-rev2-2026-11-08",
-    "mr9a-stage2-2026-11-08"
+    "mr9a-stage2-2026-11-08",
+    "mr9a-x9r9a-r01-identical-module-2026-11-13",
+    "mr9a-x9r9a-scan-2026-11-13"
   ],
   "patches": [
     "R01"

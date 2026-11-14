@@ -16,6 +16,13 @@
       "title": "MNX99MR9APRO 2023-03-22 (vendor image MNX99MR9APRO_230322)",
       "version_string": "X9R9P Ver:005 03/22/2023",
       "image_size": 16777216
+    },
+    {
+      "id": "x9r9a-003-20231110",
+      "title": "X9R9A Ver:003 2023-11-10 (alternative build reported on MR9A PRO V1.2 boards)",
+      "version_string": "X9R9A Ver:003 11/10/2023",
+      "image_size": 16777216,
+      "note": "Not the firmware of the reference board. The owner reports it on MR9A PRO V1.2 units. No public source found on 2026-11-13 names the banner X9R9A, so whether it is an alternative MR9A PRO build or the firmware of another board is not established. It differs from the March build by a \"Re-Size BAR Support\" Setup option (Setup+0x48), which shifts the later Setup fields by one byte. Analysed offline from one image (SHA-256 078459d5bce27875cdf193ee4ebfdd4deb523a4ea1fcf855e436cbe540739133); never flashed or booted in this investigation."
     }
   ],
   "facts": [
@@ -91,6 +98,10 @@
     "mr9a-breadcrumbs-rev2-2026-11-08",
     "mr9a-breadcrumbs-no-ram-2026-11-08",
     "mr9a-breadcrumbs-no-gpu-2026-11-08",
-    "mr9a-sensor-capture-2026-11-13"
+    "mr9a-sensor-capture-2026-11-13",
+    "mr9a-x9r9a-scan-2026-11-13",
+    "mr9a-x9r9a-b02-b03-review-2026-11-13",
+    "mr9a-x9r9a-r01-identical-module-2026-11-13",
+    "mr9a-x9r9a-compare-rebar-2026-11-13"
   ]
 }

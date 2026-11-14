@@ -363,6 +363,171 @@
       ],
       "requires_facts": [],
       "context": []
+    },
+    "x9r9a-003-20231110": {
+      "status": "applicable",
+      "components": [
+        {
+          "name": "UncoreInitPeim",
+          "ffs_guid": "D71C8BA4-4AF2-4D0D-B1BA-F2409F0C20D3",
+          "leaf": "pe32",
+          "source_sha256": "fd4d3aa360b1b3d0a84de90aacd714acb285c30120aab75e129a91b7923345f1",
+          "source_size": 604064,
+          "result_sha256": "5024ba08618c7a96cc04fb1e14f3cc0e6f6a469db31c465043ac743b735a3956",
+          "result_size": 604064,
+          "hunks": [
+            {
+              "op": "replace",
+              "offset": 467234,
+              "before": "20",
+              "after": "24",
+              "context_before": "c93c0c72020cff5e5b5dc3558bec83ec",
+              "context_after": "538b5d085657ff750cc645ff0053c645",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 467480,
+              "before": "f8",
+              "after": "dc",
+              "context_before": "75f4ff750c53e8f0a1fbff83c40cc645",
+              "context_after": "008945f08b45f0803800747233c04066",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [
+                7,
+                8,
+                9,
+                10
+              ],
+              "wild_after": [
+                7,
+                8,
+                9,
+                10
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 467491,
+              "before": "7472",
+              "after": "9090",
+              "context_before": "83c40cc645f8008945f08b45f0803800",
+              "context_after": "33c040668945e08b45e4250f0f00000d",
+              "findings": [
+                "B03"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            },
+            {
+              "op": "replace",
+              "offset": 467523,
+              "before": "f8",
+              "after": "dc",
+              "context_before": "000da0000000668945e48d45e050ff75",
+              "context_after": "ff75f4ff750c53e8c6a000008b45e4c1",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [
+                25,
+                26,
+                27,
+                28
+              ],
+              "wild_after": [
+                25,
+                26,
+                27,
+                28
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 467609,
+              "before": "f8",
+              "after": "dc",
+              "context_before": "5366a5e8b7a200008b75e883c418fe45",
+              "context_after": "8145f0d9040000807df8030f8272ffff",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [
+                4,
+                5,
+                6,
+                7,
+                11,
+                12,
+                13,
+                14
+              ],
+              "wild_after": [
+                4,
+                5,
+                6,
+                7,
+                11,
+                12,
+                13,
+                14
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 467619,
+              "before": "f8",
+              "after": "dc",
+              "context_before": "e883c418fe45f88145f0d9040000807d",
+              "context_after": "030f8272ffffff8d45fc506a00ff75f8",
+              "findings": [
+                "B02"
+              ],
+              "wild_before": [
+                1,
+                2,
+                3,
+                4,
+                20,
+                21,
+                22,
+                23
+              ],
+              "wild_after": [
+                1,
+                2,
+                3,
+                4,
+                20,
+                21,
+                22,
+                23
+              ]
+            },
+            {
+              "op": "replace",
+              "offset": 580010,
+              "before": "0175",
+              "after": "0074",
+              "context_before": "00eb0781665cffff7fff80bfc9170000",
+              "context_after": "09814e5c00000020eb0781665cffffff",
+              "findings": [
+                "B03"
+              ],
+              "wild_before": [],
+              "wild_after": []
+            }
+          ]
+        }
+      ],
+      "requires_facts": [],
+      "context": []
     }
   }
 }

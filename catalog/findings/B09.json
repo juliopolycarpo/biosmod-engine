@@ -8,6 +8,7 @@
     "label": "MR9A PRO and PR9",
     "builds": [
       "mnx99mr9apro-230322",
+      "x9r9a-003-20231110",
       "x99ha00m-20221202"
     ]
   },
@@ -44,6 +45,9 @@
   "description": "A byte counter scans a native-width configuration-table count, so tables of 256 or more entries loop forever.",
   "not_established": "This is conditional; no physical table of that size was observed.",
   "remediation": "All 27 PR9 and 26 MR9A inventoried copies have executed 6-7-byte corrections, including the required R11 initialization. C1 local, C2 physical repair. No ROM repack.",
+  "evidence": [
+    "mr9a-x9r9a-scan-2026-11-13"
+  ],
   "patches": [
     "B09"
   ],

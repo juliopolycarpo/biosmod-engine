@@ -7,7 +7,8 @@
   "affects": {
     "label": "MR9A",
     "builds": [
-      "mnx99mr9apro-230322"
+      "mnx99mr9apro-230322",
+      "x9r9a-003-20231110"
     ]
   },
   "owner": {
@@ -27,6 +28,9 @@
   "description": "MR9A sets the documented TEST_MODE1 bit; a live successful-boot snapshot had it set. PR9 clears it.",
   "not_established": "The intent, or a board workaround, is unknown.",
   "remediation": "Existing one-byte MR9A clear candidate, C2. Pin functions and a real boot need validation.",
+  "evidence": [
+    "mr9a-x9r9a-scan-2026-11-13"
+  ],
   "patches": [
     "H01"
   ]

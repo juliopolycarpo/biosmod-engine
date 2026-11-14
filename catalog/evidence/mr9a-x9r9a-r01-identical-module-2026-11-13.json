@@ -1,0 +1,26 @@
+{
+  "schema": "bme.evidence/1",
+  "id": "mr9a-x9r9a-r01-identical-module-2026-11-13",
+  "kind": "offline-validation",
+  "date": "2026-11-13",
+  "title": "R01 applies to the X9R9A Ver:003 build: MemorySubClass is byte-identical",
+  "board": "machinist-mr9a-pro-q87-rev-1.2",
+  "firmware": "x9r9a-003-20231110",
+  "configuration": "One image analysed offline; no hardware involved",
+  "patches": [
+    {
+      "id": "R01",
+      "version": "1.0.0"
+    }
+  ],
+  "image_sha256": "8e224628b8a354fd6107ec656513235ac04e8e5cfe092788fa036ca3e568495f",
+  "built_with": "bme 0.1.0",
+  "observations": [
+    "MemorySubClass (6A3DEF38-0A45-4107-A74E-ABF2B8EAED86) extracted from this build and from the March build is the same 12512 bytes, SHA-256 3655165ca3d4af7aedf152f70064f8660a16b215b5f67d05d979bd94d8299253, as recorded in the variant's source hash.",
+    "The variant is the March variant unchanged: same hunks, source and result hashes.",
+    "bme patch built an image from the dump (input SHA-256 078459d5bce27875cdf193ee4ebfdd4deb523a4ea1fcf855e436cbe540739133); bme verify reproduced it from the catalog. The module grows by 160 bytes and the volume is reflowed, as on the March build: 74 changed regions on this build.",
+    "With this variant and B02-B03 recorded, bme scan identifies the build by 2 of 2 recorded modules."
+  ],
+  "limits": "Offline only. The patched image was never flashed or booted on this build; the Linux observation of corrected DIMM widths exists for the March build only. The reflowed volume layout of this build was not booted.",
+  "source": "bme extract, bme patch and bme verify, 2026-11-13"
+}

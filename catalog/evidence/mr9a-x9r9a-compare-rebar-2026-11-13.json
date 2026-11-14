@@ -1,0 +1,21 @@
+{
+  "schema": "bme.evidence/1",
+  "id": "mr9a-x9r9a-compare-rebar-2026-11-13",
+  "kind": "offline-validation",
+  "date": "2026-11-13",
+  "title": "X9R9A Ver:003 compared with the March build: Re-Size BAR Support option",
+  "board": "machinist-mr9a-pro-q87-rev-1.2",
+  "firmware": "x9r9a-003-20231110",
+  "configuration": "Two images compared offline; no hardware involved",
+  "patches": [],
+  "image_sha256": "078459d5bce27875cdf193ee4ebfdd4deb523a4ea1fcf855e436cbe540739133",
+  "built_with": "bme 0.1.0",
+  "observations": [
+    "bme ifr: the Setup form of this build has the question \"Re-Size BAR Support\" (id 0x0071, Setup+0x48, one byte, 0=Disabled, 1=Enabled, default 0), right after \"Above 4G Decoding\" (Setup+0x47). The March build (X9R9P Ver:005) has no such question.",
+    "The new field shifts the Setup variable: SR-IOV Support moves from Setup+0x48 to Setup+0x49, BME DMA Mitigation from 0x49 to 0x4a, VGA Palette Snoop from 0x4b to 0x4c, PERR# Generation from 0x4c to 0x4d and SERR# Generation from 0x4d to 0x4e.",
+    "bme compare against the March image (SHA-256 4036d26e7ff72160625fd8a1d9cc33095116d02342f7e5398f7fdb1bfb71b2a6): 828 paired modules, 645 identical, 13 identical after relocation normalization, 170 different; 2 only in the March image and 1 only in this one.",
+    "PciBus (3C1DE39F-D207-408A-AACC-731CFB7F1DD7) grows from 68576 to 69312 bytes and differs after normalization."
+  ],
+  "limits": "Read from the stored forms and module bytes of one image. Whether the option works, which module implements it and whether the board hardware supports resized BARs were not examined; nothing was flashed or booted. A Setup offset recorded for the March build at or above 0x48 does not apply to this build.",
+  "source": "bme ifr and bme compare, 2026-11-13"
+}

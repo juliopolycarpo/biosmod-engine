@@ -8,6 +8,7 @@
     "label": "MR9A PRO and PR9",
     "builds": [
       "mnx99mr9apro-230322",
+      "x9r9a-003-20231110",
       "x99ha00m-20221202"
     ]
   },
@@ -39,6 +40,9 @@
   },
   "description": "The masked index-port read/write makes the following register target depend on input. The exact binary behavior is C0.",
   "remediation": "One-byte literal-index candidates. C0 for the indexing, C2 for hardware correctness because the apparent CR1C target is reserved.",
+  "evidence": [
+    "mr9a-x9r9a-scan-2026-11-13"
+  ],
   "patches": [
     "H02"
   ]
