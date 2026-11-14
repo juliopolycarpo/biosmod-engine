@@ -78,7 +78,7 @@ pub fn init(dir: &Path, id: &str, title: Option<&str>, url: Option<&str>) -> Res
          Git records no empty directory: each one reaches a clone with its first file.\n\
          bme did not run git; run `git init` in {shown} when you want a history.\n\
          Next:\n\
-         \x20 cp /path/to/dump.bin {shown}/work/\n\
+         \x20 cp /path/to/your-dump.bin {shown}/work/dump.bin\n\
          \x20 bme case init {shown}/work/dump.bin -o {shown}/work/case\n\
          \x20 bme catalog index {shown}\n\
          \x20 bme catalog validate {shown}\n\

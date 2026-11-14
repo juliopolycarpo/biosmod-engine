@@ -35,9 +35,13 @@ Name a dump or a flashed image by file name, SHA-256 and size. Never commit it.
 ## Work on it
 
 ```sh
-cp /path/to/dump.bin work/
+cp /path/to/your-dump.bin work/dump.bin
 bme case init work/dump.bin -o work/case      # scan, draft a board profile and firmware build
-bme case export work/case -o work/submission  # draft records to review and copy into boards/, findings/, evidence/, provenance/
+bme case export work/case -o work/submission  # draft records, unreviewed
+# Review the drafts, then copy the records you accept into the catalog.
+for kind in boards findings evidence provenance; do
+  if [ -d work/submission/$kind ]; then cp -R work/submission/$kind/. $kind/; fi
+done
 bme catalog index .                           # after every change to a record
 bme catalog validate .
 bme scan work/dump.bin --catalog . --allow-unsigned-local

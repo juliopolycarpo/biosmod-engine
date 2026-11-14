@@ -314,6 +314,74 @@ fn git(repo: &Path, home: &Path, args: &[&str]) -> std::io::Result<std::process:
         .output()
 }
 
+/// The commands of the README's "Work on it" section, as a new user would copy them.
+/// Unix only, like the one test that runs them through `sh`.
+#[cfg(unix)]
+fn readme_work_loop(readme: &str) -> String {
+    let section = readme
+        .split("## Work on it")
+        .nth(1)
+        .expect("(README): expected a `## Work on it` section");
+    let block = section
+        .split("```sh\n")
+        .nth(1)
+        .and_then(|rest| rest.split("```").next())
+        .expect("(README Work on it): expected one sh block");
+    block.to_string()
+}
+
+#[cfg(unix)]
+#[test]
+fn readme_work_loop_runs_as_written_for_a_dump_with_any_file_name() {
+    // The dump keeps its own name outside the repository. The loop used to copy it as
+    // `work/<that name>` and then read `work/dump.bin`, so the second command failed.
+    let sandbox = Sandbox::new();
+    let (image, _) = sandbox.synthetic();
+    let dump = sandbox.path("board-read-01.bin");
+    fs::copy(&image, &dump).unwrap();
+    let repo = sandbox.path("repo");
+    let init = sandbox.run(["catalog", "init", s(&repo), "--id", "acme-x99"]);
+    assert_eq!(init.code, 0, "{}", init.stderr);
+
+    let readme = fs::read_to_string(repo.join("README.md")).unwrap();
+    let script = readme_work_loop(&readme).replace("/path/to/your-dump.bin", s(&dump));
+    assert!(
+        script.contains(s(&dump)),
+        "(README work loop): expected the placeholder /path/to/your-dump.bin | received:\n{script}"
+    );
+    let bme_directory = Path::new(env!("CARGO_BIN_EXE_bme")).parent().unwrap();
+    let path = std::env::join_paths(std::iter::once(bme_directory.to_path_buf()).chain(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+    ))
+    .unwrap();
+    let output = Command::new("sh")
+        .args(["-e", "-c", &script])
+        .current_dir(&repo)
+        .env("PATH", path)
+        .env("BME_CONFIG_HOME", sandbox.path("config"))
+        .env("BME_CACHE_HOME", sandbox.path("cache"))
+        .env("BME_DATA_HOME", sandbox.path("data"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "(README work loop): expected every command to succeed | received {}\nstdout: {}\nstderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // The loop ends with a catalog that holds the drafted board, and the dump stays in work/.
+    assert!(repo.join("work/dump.bin").is_file());
+    let boards: Vec<_> = fs::read_dir(repo.join("boards")).unwrap().collect();
+    assert_eq!(
+        boards.len(),
+        1,
+        "(boards/): expected the drafted board profile"
+    );
+    let validate = sandbox.run(["catalog", "validate", s(&repo)]);
+    assert_eq!(validate.code, 0, "{}", validate.stderr);
+}
+
 /// Paths the scaffold's `.gitignore` must keep out of git.
 const IGNORED: [&str; 9] = [
     "work/dump.bin",
