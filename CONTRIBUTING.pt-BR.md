@@ -73,7 +73,7 @@ bme catalog merge <catálogo de placa>... -o catalog --bundled --title "<título
 bme catalog merge catalog <catálogo de placa>... --check
 ```
 
-O último comando imprime `pinned` para cada fonte: é a verificação de que `catalog/` ainda é igual aos catálogos de placa, e precisa deles em disco. No CI, o teste `the_bundled_catalog_is_the_merge_of_its_board_splits` falha quando `catalog/` não está na forma que um merge grava.
+O último comando imprime `pinned` para cada fonte: é a verificação de que `catalog/` ainda é igual aos catálogos de placa. O CI a repete com `python3 tools/check-bundled-catalog-sources.py`, que busca no `repository` de cada fonte o commit fixado, então envie os repositórios de placa antes de abrir o PR. O teste `the_bundled_catalog_is_the_merge_of_its_board_splits` também falha quando `catalog/` não está na forma que um merge grava.
 
 ## Segurança
 
