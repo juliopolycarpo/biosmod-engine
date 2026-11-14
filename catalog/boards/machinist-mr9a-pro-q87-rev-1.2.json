@@ -19,10 +19,10 @@
     },
     {
       "id": "x9r9a-003-20231110",
-      "title": "X9R9A Ver:003 2023-11-10 (alternative build reported on MR9A PRO V1.2 boards)",
+      "title": "X9R9A Ver:003 2023-11-10 (E5-MR9A PRO V1.2 flavour of a build shared with E5-MR9A V1.0)",
       "version_string": "X9R9A Ver:003 11/10/2023",
       "image_size": 16777216,
-      "note": "Not the firmware of the reference board. The owner reports it on MR9A PRO V1.2 units. No public source found on 2026-11-13 names the banner X9R9A, so whether it is an alternative MR9A PRO build or the firmware of another board is not established. It differs from the March build by a \"Re-Size BAR Support\" Setup option (Setup+0x48), which shifts the later Setup fields by one byte. Analysed offline from one image (SHA-256 078459d5bce27875cdf193ee4ebfdd4deb523a4ea1fcf855e436cbe540739133); never flashed or booted in this investigation."
+      "note": "Not the firmware of the reference board. The image names its board in SMBIOS as E5-MR9A PRO V1.2. The same code also ships with E5-MR9A V1.0 strings, so X9R9A is one build for both boards (evidence mr9a-x9r9a-smbios-identity-2026-11-14). No public source found on 2026-11-13 names the banner. It differs from the March build by a \"Re-Size BAR Support\" Setup option (Setup+0x48), which shifts the later Setup fields by one byte. Analysed offline from one image (SHA-256 078459d5bce27875cdf193ee4ebfdd4deb523a4ea1fcf855e436cbe540739133); never flashed or booted in this investigation."
     }
   ],
   "facts": [

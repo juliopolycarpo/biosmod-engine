@@ -1,7 +1,7 @@
 {
   "schema": "bme.catalog/1",
   "id": "official",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "title": "Biosmod Engine official catalog",
   "engine": "^0.1",
   "description": "Corrections and diagnostics for the Machinist MR9A PRO (Q87) and PR9 (B85) X99 boards, converted from x99-bios-fixes.",
@@ -9,24 +9,24 @@
     {
       "id": "mr9a-pro-rev1.2",
       "version": "0.1.0",
-      "manifest_sha256": "77034a2327da88bdca05903d2953a2d82bb68141d3e1f589609456abcf6c9065",
+      "manifest_sha256": "87f6c698698fbf2156e8416d895343400598f89dc45ead000bf1bf6ced3cedd9",
       "repository": "https://github.com/juliopolycarpo/firmware_mr9a-pro-rev1.2",
-      "commit": "85875ade3413746c64ba65fba51f107f51d96592"
+      "commit": "11aa6b75fcb366849e2d03298d7e6644b9b62a7d"
     },
     {
       "id": "pr9-b85",
       "version": "0.1.0",
       "manifest_sha256": "b4ca3c6b7d1fbd7501b2a4da93f6cc437a3a74a41ec3b500aa75b9f9247592aa",
       "repository": "https://github.com/juliopolycarpo/firmware_pr9-b85",
-      "commit": "fc8af0ad2a54b3bcd33eeda8848a55b7f94e487e"
+      "commit": "d30e7ee7625b01ef48a9b8351f96eacbc70c4892"
     }
   ],
   "files": [
     {
       "path": "boards/machinist-mr9a-pro-q87-rev-1.2.json",
       "kind": "board",
-      "length": 2682,
-      "sha256": "98ba746daef16ec8c64a5210a051fc7b02726695dd5258c60c304e9386839569"
+      "length": 2738,
+      "sha256": "3b3e0d364c54cf69364361e7c538da7d198dbf71d51115ee2b1621b69b6c1d98"
     },
     {
       "path": "boards/machinist-pr9-b85.json",
@@ -93,6 +93,12 @@
       "kind": "evidence",
       "length": 1687,
       "sha256": "d3c50ce6537c1d292d922c494ad1530c663c4bd3dc433f9d240e0d1b079dd1b3"
+    },
+    {
+      "path": "evidence/mr9a-x9r9a-smbios-identity-2026-11-14.json",
+      "kind": "evidence",
+      "length": 2078,
+      "sha256": "89d917873f3b3d765c63a21dd9f002ab5b47d12b290cd32ba9ee054ce11ae0b7"
     },
     {
       "path": "findings/A01.json",

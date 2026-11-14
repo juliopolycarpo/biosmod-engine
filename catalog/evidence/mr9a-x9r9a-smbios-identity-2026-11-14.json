@@ -1,0 +1,21 @@
+{
+  "schema": "bme.evidence/1",
+  "id": "mr9a-x9r9a-smbios-identity-2026-11-14",
+  "kind": "offline-validation",
+  "date": "2026-11-14",
+  "title": "X9R9A Ver:003 ships for E5-MR9A PRO V1.2 and for E5-MR9A V1.0 with the same code",
+  "board": "machinist-mr9a-pro-q87-rev-1.2",
+  "firmware": "x9r9a-003-20231110",
+  "configuration": "Two images with the banner X9R9A Ver:003 11/10/2023 compared offline; no hardware involved",
+  "patches": [],
+  "image_sha256": "078459d5bce27875cdf193ee4ebfdd4deb523a4ea1fcf855e436cbe540739133",
+  "built_with": "bme 0.1.0",
+  "observations": [
+    "The SMBIOS static data file (DAF4BF89-CE71-4917-B522-C89D32FBC59F, LZMA section, 7715 bytes unpacked) of the recorded image holds the type 2 baseboard strings MACHINIST, E5-MR9A PRO, V1.2 and MB-202311102023. The image names the MR9A PRO V1.2 board itself.",
+    "A second image with the same banner (SHA-256 14c5da6268d31eff9f61772419210e61946d0e130a2eccb2a7b1f0f67ea7fd75), supplied as firmware of the non-PRO MR9A, holds MACHINIST, E5-MR9A, V1.0 and MB-202311102023 in the same structure.",
+    "bme compare of the two images: 829 paired modules, 826 identical, 3 different, none only in one image. The 3 are that SMBIOS data file (1962 bytes changed of 7711) and the two NVRAM store files (CEF5B9A3-476D-497F-9FDC-E98143E0422C). The flash descriptor is identical; the ME region differs in 236 bytes.",
+    "The March build (X9R9P Ver:005) holds E5-MR9A PRO, V1.2 and MB-202303222023. Two older non-PRO images hold X99-MR9A V1.0 (banner X9MP2 Ver:007 03/03/2022) and X99-MR9A V2.0 (banner X9MRA Ver:002 08/11/2022)."
+  ],
+  "limits": "Strings read from stored bytes. The board names of the second and the two older images rest on their SMBIOS strings and on how the files were labelled; none was read from a board in this investigation. Identical code does not show the two boards are wired alike, so a patch reviewed for this build is not thereby reviewed for the E5-MR9A V1.0 board. Nothing was flashed or booted.",
+  "source": "bme compare and the unpacked SMBIOS data file, 2026-11-14"
+}
