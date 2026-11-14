@@ -315,6 +315,8 @@ fn git(repo: &Path, home: &Path, args: &[&str]) -> std::io::Result<std::process:
 }
 
 /// The commands of the README's "Work on it" section, as a new user would copy them.
+/// Unix only, like the one test that runs them through `sh`.
+#[cfg(unix)]
 fn readme_work_loop(readme: &str) -> String {
     let section = readme
         .split("## Work on it")
