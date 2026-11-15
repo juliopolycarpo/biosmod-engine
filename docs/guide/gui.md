@@ -33,6 +33,17 @@ Build on the intended Ubuntu 24.04 baseline to avoid requiring a newer glibc:
 ./packaging/linux/archive.sh
 ```
 
+To build `bme` with profile-guided optimization, install the toolchain's profile merger once and pass `--pgo`:
+
+```sh
+rustup component add llvm-tools
+./packaging/linux/archive.sh --pgo
+```
+
+The script builds an instrumented `bme` in a temporary target directory, runs `packaging/linux/pgo-train.sh` on the image from `bme dev synthetic` (no vendor ROM, no network), merges the profile with `llvm-profdata` and rebuilds `bme` with it. This adds about 3.5 minutes to the build. `bme-gui` is built as before. On one machine (a Xeon E5-2680 v4) with one 16 MiB image, `bme scan` ran 13.5% faster than the default thin-LTO build (median 460.7 ms against 532.8 ms) and `bme` shrank from 9,118,072 to 8,317,016 bytes. `bme patch` did not change, and the GUI renderer was not measured.
+
+A PGO `bme` has a different build fingerprint, because the profile flag is part of the build inputs. It rejects recipes and manifests from a plain build with `PLAN_INVALID`, and a plain `bme` rejects its own. The GUI does not compare fingerprints, but it hands every recipe and manifest to the `bme` it runs, so a `bme` chosen under **Settings** or with `--engine` replays and verifies only artifacts that have its fingerprint.
+
 The archive in `dist/` contains the matched binaries, a desktop entry, an icon and license notices. Extract it and run `bin/bme-gui`, or copy its `bin/` and `share/` directories into `~/.local/` and ensure `~/.local/bin` is on `PATH`. The archive is not a sandbox and shares the CLI's configuration, cache and catalog sources. The system still supplies graphics, font, keyboard and portal libraries.
 
 The project's code is MIT. The desktop distribution uses the Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0; **About** displays the required AboutSlint widget. The archive contains that license and the collected runtime dependency notices under `share/licenses/biosmod-engine/`.
