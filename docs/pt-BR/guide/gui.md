@@ -33,6 +33,17 @@ Compile na base Ubuntu 24.04 pretendida para evitar exigir uma glibc mais recent
 ./packaging/linux/archive.sh
 ```
 
+Para compilar o `bme` com otimização guiada por perfil (PGO), instale uma vez o componente do toolchain que mescla perfis e passe `--pgo`:
+
+```sh
+rustup component add llvm-tools
+./packaging/linux/archive.sh --pgo
+```
+
+O script compila um `bme` instrumentado em um diretório de destino temporário, executa `packaging/linux/pgo-train.sh` sobre a imagem de `bme dev synthetic` (sem ROM de fabricante, sem rede), mescla o perfil com `llvm-profdata` e recompila o `bme` com ele. Isso acrescenta cerca de 3,5 minutos à compilação. O `bme-gui` é compilado como antes. Em uma máquina (um Xeon E5-2680 v4) com uma imagem de 16 MiB, `bme scan` ficou 13,5% mais rápido que a compilação padrão com thin LTO (mediana de 460,7 ms contra 532,8 ms) e o `bme` passou de 9.118.072 para 8.317.016 bytes. `bme patch` não mudou, e o renderizador da GUI não foi medido.
+
+O `bme` com PGO tem outra impressão digital de compilação, porque a flag do perfil faz parte das entradas da compilação. Ele rejeita receitas e manifestos de uma compilação comum com `PLAN_INVALID`, e um `bme` comum rejeita os dele. A GUI não compara impressões digitais, mas entrega cada receita e manifesto ao `bme` que executa; assim, um `bme` escolhido em **Configurações** ou com `--engine` reproduz e verifica apenas artefatos com a impressão digital dele.
+
 O pacote em `dist/` contém os executáveis correspondentes, uma entrada de aplicativo, um ícone e avisos de licença. Extraia-o e execute `bin/bme-gui`, ou copie seus diretórios `bin/` e `share/` para `~/.local/` e verifique que `~/.local/bin` está no `PATH`. O pacote não é uma sandbox e compartilha configuração, cache e fontes de catálogo da CLI. O sistema ainda fornece bibliotecas gráficas, de fontes, teclado e portal.
 
 O código do projeto é MIT. A distribuição gráfica usa a Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0; **Sobre** exibe o widget AboutSlint exigido. O pacote contém essa licença e os avisos das dependências de execução em `share/licenses/biosmod-engine/`.
