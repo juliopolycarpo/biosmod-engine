@@ -666,13 +666,20 @@ fn default_patch_output(rom: &Path) -> PathBuf {
     rom.with_file_name(name)
 }
 
+/// A plan with the input it was built from and the image it produces.
+struct Planned {
+    document: PlanDocument,
+    input: Vec<u8>,
+    output: Vec<u8>,
+}
+
 fn make_plan(
     ctx: &Ctx,
     rom: &Path,
     select: &SelectArgs,
     source: &crate::SourceArgs,
     expectations: &SnapshotExpectations,
-) -> Result<(PlanDocument, Vec<u8>)> {
+) -> Result<Planned> {
     let input = read_bounded(rom, super::MAX_IMAGE_BYTES)?;
     if expectations.expect_input_sha256.is_some() {
         check_snapshot(
@@ -713,7 +720,11 @@ fn make_plan(
         &prepared.request,
         catalog,
     );
-    Ok((document, built.image))
+    Ok(Planned {
+        document,
+        input: image.bytes,
+        output: built.image,
+    })
 }
 
 fn plan_text(plan: &PlanDocument) -> String {
@@ -777,13 +788,14 @@ fn plan_text(plan: &PlanDocument) -> String {
 
 pub fn plan(ctx: &Ctx, args: &PlanArgs) -> Result<Reply> {
     check_outputs(&[&args.output], &[&args.rom])?;
-    let (document, _) = make_plan(
+    let document = make_plan(
         ctx,
         &args.rom,
         &args.select,
         &args.source,
         &SnapshotExpectations::default(),
-    )?;
+    )?
+    .document;
     let bytes = biosmod_core::json::pretty(&document);
     crate::config::write_new(&args.output, &bytes)?;
     let text = plan_text(&document)
@@ -803,7 +815,7 @@ pub fn plan(ctx: &Ctx, args: &PlanArgs) -> Result<Reply> {
 pub fn export(ctx: &Ctx, args: &ExportArgs) -> Result<Reply> {
     let select = normalize_selection(&args.selection, true)?;
     check_outputs(&[&args.output], &[&args.rom])?;
-    let (document, _) = make_plan(ctx, &args.rom, &select, &args.source, &args.expectations)?;
+    let document = make_plan(ctx, &args.rom, &select, &args.source, &args.expectations)?.document;
     crate::config::write_new(&args.output, &biosmod_core::json::pretty(&document))?;
     let text = plan_text(&document) + &format!("Wrote selection file {}\n", args.output.display());
     Ok(Reply::new(
@@ -907,13 +919,13 @@ fn check_engine(identity: &biosmod_core::plan::document::EngineId, path: &Path) 
     Ok(())
 }
 
-/// Rebuild a plan from scratch and confirm every pinned digest.
+/// Rebuild a plan from scratch and confirm every pinned digest; returns the input and the output.
 fn rebuild_from_plan(
     ctx: &Ctx,
     rom: &Path,
     plan: &PlanDocument,
     allow_unsigned_local: bool,
-) -> Result<Vec<u8>> {
+) -> Result<(Vec<u8>, Vec<u8>)> {
     let input = read_bounded(rom, super::MAX_IMAGE_BYTES)?;
     if Blob::of(&input) != plan.input {
         return Err(Error::new(
@@ -949,7 +961,7 @@ fn rebuild_from_plan(
             ),
         ));
     }
-    Ok(built.image)
+    Ok((image.bytes, built.image))
 }
 
 /// The build request named by a plan's `requested` list, checked against the pinned source.
@@ -980,7 +992,25 @@ fn requested_ids(plan: &PlanDocument, loaded: &Loaded) -> Result<Request> {
     })
 }
 
+/// A step between building the output and confirming the input file is unchanged.
+///
+/// Example: a test edits the ROM here to stand in for another program writing to it mid-build.
+trait BuildInterlude {
+    fn after_plan(&self);
+}
+
+/// The real run: nothing happens between the build and the check.
+struct NoInterlude;
+
+impl BuildInterlude for NoInterlude {
+    fn after_plan(&self) {}
+}
+
 pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
+    patch_with(ctx, args, &NoInterlude)
+}
+
+fn patch_with(ctx: &Ctx, args: &PatchArgs, interlude: &dyn BuildInterlude) -> Result<Reply> {
     let select = args
         .plan
         .is_none()
@@ -997,7 +1027,11 @@ pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
         check_outputs(&[&output, &manifest], &[&args.rom])?;
         Some((output, manifest))
     };
-    let (plan, output) = if let Some(select) = select {
+    let Planned {
+        document: plan,
+        input,
+        output,
+    } = if let Some(select) = select {
         make_plan(ctx, &args.rom, &select, &args.source, &args.expectations)?
     } else {
         let path = args
@@ -1005,8 +1039,13 @@ pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
             .as_ref()
             .expect("recipe path when selection is absent");
         let plan = read_plan(path)?;
-        let output = rebuild_from_plan(ctx, &args.rom, &plan, args.source.allow_unsigned_local)?;
-        (plan, output)
+        let (input, output) =
+            rebuild_from_plan(ctx, &args.rom, &plan, args.source.allow_unsigned_local)?;
+        Planned {
+            document: plan,
+            input,
+            output,
+        }
     };
     let source_snapshot_sha256 = source_snapshot_sha256(&plan.source);
     let Some((output_path, manifest_file)) = target else {
@@ -1016,16 +1055,10 @@ pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
         }
         return Ok(Reply::new(data, plan_text(&plan)));
     };
-    let input = read_bounded(&args.rom, super::MAX_IMAGE_BYTES)?;
-    if Blob::of(&input) != plan.input {
-        return Err(Error::new(
-            Code::PlanInputChanged,
-            format!(
-                "{}: changed while building; nothing was written",
-                args.rom.display()
-            ),
-        ));
-    }
+    interlude.after_plan();
+    // Streaming the file against the bytes the plan was built from replaces a second SHA-256
+    // pass over the whole image and a second copy of it in memory.
+    super::ensure_file_holds(&args.rom, &input)?;
     let verification = Verification {
         reparsed: true,
         patches_fixed: plan.selected.iter().chain(&plan.carried).cloned().collect(),
@@ -1538,3 +1571,6 @@ mod detector_text_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

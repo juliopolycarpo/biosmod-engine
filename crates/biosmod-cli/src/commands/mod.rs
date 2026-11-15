@@ -148,9 +148,8 @@ pub(super) fn describe_diagnostic(diagnostic: &ModuleDiagnostic) -> String {
     format!("file {}{name}: {}", diagnostic.guid, diagnostic.message)
 }
 
-/// Read a regular file, enforcing the bound even if its metadata underreports the size.
-/// Example: `read_bounded(Path::new("plan.json"), 16 * 1024 * 1024)?`.
-pub fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
+/// Open a regular file for reading without blocking on a FIFO or device.
+fn open_regular(path: &Path) -> Result<(fs::File, u64)> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -166,17 +165,23 @@ pub fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
             format!("{}: expected a regular file", path.display()),
         ));
     }
-    if meta.len() > limit {
+    Ok((file, meta.len()))
+}
+
+/// Read a regular file, enforcing the bound even if its metadata underreports the size.
+/// Example: `read_bounded(Path::new("plan.json"), 16 * 1024 * 1024)?`.
+pub fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
+    let (file, length) = open_regular(path)?;
+    if length > limit {
         return Err(Error::new(
             Code::FormatUnsupported,
             format!(
-                "{}: {} bytes exceed the limit of {limit}",
-                path.display(),
-                meta.len()
+                "{}: {length} bytes exceed the limit of {limit}",
+                path.display()
             ),
         ));
     }
-    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    let mut bytes = Vec::with_capacity(length as usize);
     file.take(limit.saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(|e| io_error(path, e))?;
@@ -191,6 +196,69 @@ pub fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
         ));
     }
     Ok(bytes)
+}
+
+/// Bytes compared per read by [`ensure_file_holds`].
+const COMPARE_CHUNK: usize = 1 << 20;
+
+/// Fail with `PLAN_INPUT_CHANGED` unless the file at `path` holds exactly `expected`.
+///
+/// It streams the file in 1 MiB chunks, so it needs neither a second copy of the image nor a
+/// digest of it. Example: `ensure_file_holds(&rom, &planned_input)?` after a plan was built from
+/// `planned_input` fails with `(expected 0x00 | received 0xff at offset 0x9000)` when the file was
+/// edited meanwhile.
+pub fn ensure_file_holds(path: &Path, expected: &[u8]) -> Result<()> {
+    let (mut file, _) = open_regular(path)?;
+    let changed = |detail: String| {
+        Error::new(
+            Code::PlanInputChanged,
+            format!(
+                "{}: changed while building; nothing was written ({detail})",
+                path.display()
+            ),
+        )
+    };
+    let mut chunk = vec![0u8; COMPARE_CHUNK];
+    let mut offset = 0usize;
+    while offset < expected.len() {
+        let wanted = chunk.len().min(expected.len() - offset);
+        let read = match file.read(&mut chunk[..wanted]) {
+            Ok(read) => read,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(io_error(path, e)),
+        };
+        if read == 0 {
+            return Err(changed(format!(
+                "expected {} bytes | received {offset} bytes",
+                expected.len()
+            )));
+        }
+        let held = &expected[offset..offset + read];
+        if let Some(at) = chunk[..read].iter().zip(held).position(|(a, b)| a != b) {
+            return Err(changed(format!(
+                "expected {:#04x} | received {:#04x} at offset {:#x}",
+                held[at],
+                chunk[at],
+                offset + at
+            )));
+        }
+        offset += read;
+    }
+    let mut extra = [0u8; 1];
+    loop {
+        match file.read(&mut extra) {
+            Ok(0) => return Ok(()),
+            Ok(_) => {
+                return Err(changed(format!(
+                    "expected {} bytes | received at least {} bytes",
+                    expected.len(),
+                    expected.len() + 1
+                )));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(io_error(path, e)),
+        }
+    }
 }
 
 /// Read and parse a firmware image.
@@ -306,6 +374,105 @@ mod bounded_read_tests {
         assert!(
             error.message.contains("5 bytes exceed the limit of 4"),
             "{error}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod ensure_file_holds_tests {
+    use super::*;
+
+    /// Two chunks and a bit, so a difference can land past the first read.
+    fn planned() -> Vec<u8> {
+        (0..COMPARE_CHUNK * 2 + 5)
+            .map(|i| (i % 251) as u8)
+            .collect()
+    }
+
+    fn file_with(bytes: &[u8]) -> (tempfile::TempDir, std::path::PathBuf) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("rom.bin");
+        fs::write(&path, bytes).unwrap();
+        (directory, path)
+    }
+
+    #[test]
+    fn an_identical_file_passes() {
+        let bytes = planned();
+        let (_directory, path) = file_with(&bytes);
+        ensure_file_holds(&path, &bytes).expect("same bytes are unchanged");
+        let (_empty, empty) = file_with(b"");
+        ensure_file_holds(&empty, b"").expect("two empty files match");
+    }
+
+    #[test]
+    fn a_flipped_byte_past_the_first_chunk_names_its_offset_and_values() {
+        let bytes = planned();
+        let mut edited = bytes.clone();
+        let at = COMPARE_CHUNK + 2;
+        edited[at] ^= 0xFF;
+        let (_directory, path) = file_with(&edited);
+        let error = ensure_file_holds(&path, &bytes).unwrap_err();
+        assert_eq!(error.code, Code::PlanInputChanged);
+        let want = format!(
+            "expected {:#04x} | received {:#04x} at offset {at:#x}",
+            bytes[at], edited[at]
+        );
+        assert!(
+            error.message.contains(&want),
+            "(edited input): expected {want:?} | received {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn a_shorter_file_names_how_far_it_reached() {
+        let bytes = planned();
+        let (_directory, path) = file_with(&bytes[..COMPARE_CHUNK + 7]);
+        let error = ensure_file_holds(&path, &bytes).unwrap_err();
+        assert_eq!(error.code, Code::PlanInputChanged);
+        let want = format!(
+            "expected {} bytes | received {} bytes",
+            bytes.len(),
+            COMPARE_CHUNK + 7
+        );
+        assert!(
+            error.message.contains(&want),
+            "(truncated input): expected {want:?} | received {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn a_longer_file_is_refused() {
+        let bytes = planned();
+        let mut grown = bytes.clone();
+        grown.push(0);
+        let (_directory, path) = file_with(&grown);
+        let error = ensure_file_holds(&path, &bytes).unwrap_err();
+        assert_eq!(error.code, Code::PlanInputChanged);
+        let want = format!(
+            "expected {} bytes | received at least {} bytes",
+            bytes.len(),
+            bytes.len() + 1
+        );
+        assert!(
+            error.message.contains(&want),
+            "(grown input): expected {want:?} | received {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn a_missing_file_is_an_io_error_naming_the_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gone.bin");
+        let error = ensure_file_holds(&path, b"x").unwrap_err();
+        assert_eq!(error.code, Code::Io);
+        assert!(
+            error.message.contains("gone.bin"),
+            "(missing input): expected the path in the message | received {}",
+            error.message
         );
     }
 }

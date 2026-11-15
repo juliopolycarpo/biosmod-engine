@@ -272,6 +272,41 @@ impl Digest256 {
     pub fn of(data: &[u8]) -> Digest256 {
         Digest256(sha256(data))
     }
+
+    /// Digests of `a` and `b`, hashing their common prefix once.
+    ///
+    /// SHA-256 state after the shared bytes is the same for both inputs, so it is computed once
+    /// and cloned. Two images that differ only late (a patched firmware image against its input)
+    /// cost little more than one hash. The result equals `(Digest256::of(a), Digest256::of(b))`.
+    /// Example: `let (input_digest, output_digest) = Digest256::of_pair(&input, &output);`
+    pub fn of_pair(a: &[u8], b: &[u8]) -> (Digest256, Digest256) {
+        let shared = common_prefix_len(a, b);
+        let mut prefix = Sha256::new();
+        prefix.update(&a[..shared]);
+        let mut first = prefix.clone();
+        first.update(&a[shared..]);
+        prefix.update(&b[shared..]);
+        (
+            Digest256(first.finalize().into()),
+            Digest256(prefix.finalize().into()),
+        )
+    }
+}
+
+/// Length of the longest common prefix of `a` and `b`.
+///
+/// Example: `assert_eq!(common_prefix_len(b"abcd", b"abXd"), 2);`
+pub fn common_prefix_len(a: &[u8], b: &[u8]) -> usize {
+    const CHUNK: usize = 4096;
+    let mut at = 0;
+    // Whole-chunk slice comparison is a vectorised memcmp; only the first mismatch is scanned.
+    for (left, right) in a.chunks(CHUNK).zip(b.chunks(CHUNK)) {
+        if left != right {
+            return at + left.iter().zip(right).take_while(|(x, y)| x == y).count();
+        }
+        at += left.len().min(right.len());
+    }
+    at
 }
 
 impl fmt::Display for Digest256 {
@@ -366,6 +401,73 @@ mod tests {
         assert_eq!(window(&data, 3, 0), Some(&[][..]), "empty span at the end");
         assert_eq!(window(&data, 2, 2), None, "span leaves the buffer");
         assert_eq!(window(&data, usize::MAX, 2), None, "at + len overflows");
+    }
+
+    /// Bytes with no repeating structure, so a shifted comparison cannot match by accident.
+    fn noise(len: usize) -> Vec<u8> {
+        (0..len)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+            .collect()
+    }
+
+    #[test]
+    fn common_prefix_len_finds_the_first_difference_across_chunks() {
+        let a = noise(10_000);
+        for at in [0, 1, 63, 64, 4095, 4096, 4097, 8192, 9999] {
+            let mut b = a.clone();
+            b[at] ^= 0x01;
+            assert_eq!(
+                common_prefix_len(&a, &b),
+                at,
+                "(difference at {at}): expected a prefix of {at} bytes"
+            );
+        }
+        assert_eq!(common_prefix_len(&a, &a), a.len(), "identical buffers");
+        assert_eq!(
+            common_prefix_len(&a, &a[..4096]),
+            4096,
+            "shorter, chunk aligned"
+        );
+        assert_eq!(
+            common_prefix_len(&a[..5000], &a),
+            5000,
+            "shorter, mid chunk"
+        );
+        assert_eq!(common_prefix_len(&[], &a), 0, "empty buffer");
+    }
+
+    #[test]
+    fn digest_pair_equals_the_two_separate_digests() {
+        let a = noise(10_000);
+        let mut cases: Vec<(Vec<u8>, Vec<u8>)> = vec![
+            (a.clone(), a.clone()),
+            (Vec::new(), Vec::new()),
+            (Vec::new(), a.clone()),
+            (a.clone(), a[..4096].to_vec()),
+            (a[..5000].to_vec(), a.clone()),
+        ];
+        for at in [0, 1, 55, 56, 63, 64, 65, 4096, 9999] {
+            let mut b = a.clone();
+            b[at] ^= 0xFF;
+            cases.push((a.clone(), b));
+        }
+        for (left, right) in cases {
+            let (first, second) = Digest256::of_pair(&left, &right);
+            assert_eq!(
+                first,
+                Digest256::of(&left),
+                "(first of pair, {} and {} bytes): expected its own digest",
+                left.len(),
+                right.len()
+            );
+            assert_eq!(
+                second,
+                Digest256::of(&right),
+                "(second of pair, {} and {} bytes): expected its own digest",
+                left.len(),
+                right.len()
+            );
+        }
     }
 
     #[test]

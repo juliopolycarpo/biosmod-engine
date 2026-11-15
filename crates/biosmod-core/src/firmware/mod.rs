@@ -24,7 +24,7 @@ pub mod rebuild;
 use crate::codec;
 use crate::error::{Code, Error, Result};
 use crate::util::{Guid, align, le16, le24, le32, le64, sum8};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub const FFS2_GUID: Guid = Guid::constant("8C8CE578-8A3D-4F1C-9935-896185C32DD3");
 pub const FFS3_GUID: Guid = Guid::constant("5473C07A-3DCB-4DCA-BD6F-1E9689E7349A");
@@ -57,7 +57,7 @@ pub const MAX_DEPTH: usize = 16;
 pub const MAX_TOTAL_DECODED: usize = 512 << 20;
 
 /// How an encapsulating section stores its content.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Encoding {
     /// GUID-defined LZMA.
     Lzma,
@@ -312,15 +312,77 @@ pub struct Image {
     pub leaves: BTreeMap<Guid, Vec<LeafRef>>,
 }
 
-/// Decoded bytes spent so far across one image.
-struct Budget {
-    decoded: usize,
+/// Decoded content of an already parsed image, by encoding and compressed payload.
+///
+/// A decoder is a pure function of its payload, so a section whose payload bytes equal one in
+/// the earlier image decodes to the bytes that image already holds. Parsing the output of a
+/// rebuild against its input skips every decode except the re-encoded sections.
+struct KnownDecodes<'a> {
+    by_payload: HashMap<(Encoding, &'a [u8]), &'a [u8]>,
 }
 
-impl Budget {
+impl<'a> KnownDecodes<'a> {
+    /// Index every LZMA, LZMA F86 and Brotli section of `image`, nested ones included.
+    fn of(image: &'a Image) -> Self {
+        let mut known = KnownDecodes {
+            by_payload: HashMap::new(),
+        };
+        known.add_volumes(&image.volumes, &image.bytes);
+        known
+    }
+
+    fn add_volumes(&mut self, volumes: &'a [Volume], buffer: &'a [u8]) {
+        for file in volumes.iter().flat_map(|volume| &volume.files) {
+            self.add_sections(&file.sections, file.body(buffer));
+        }
+    }
+
+    fn add_sections(&mut self, sections: &'a [Section], stream: &'a [u8]) {
+        for section in sections {
+            if let (Some(decoded), Some(encoding)) = (&section.decoded, section.encoding) {
+                if matches!(
+                    encoding,
+                    Encoding::Lzma | Encoding::LzmaX86 | Encoding::Brotli
+                ) {
+                    let payload = &section.raw(stream)[section.data_offset..];
+                    self.by_payload
+                        .insert((encoding, payload), decoded.bytes.as_slice());
+                }
+                self.add_sections(&decoded.children, &decoded.bytes);
+            }
+            if let Some(volumes) = &section.volumes {
+                self.add_volumes(volumes, &section.raw(stream)[section.header_size..]);
+            }
+        }
+    }
+}
+
+/// Decoded bytes spent so far across one image.
+#[derive(Default)]
+struct Budget<'a> {
+    decoded: usize,
+    /// Decodes of an earlier image to reuse for identical payloads.
+    known: Option<&'a KnownDecodes<'a>>,
+    /// How many decodes `known` replaced.
+    reused: usize,
+}
+
+impl<'a> Budget<'a> {
     /// Largest decoded size the next section may produce.
     fn section_limit(&self) -> usize {
         codec::MAX_DECODED.min(MAX_TOTAL_DECODED.saturating_sub(self.decoded))
+    }
+
+    /// The earlier image's decode of `payload`, when it fits what this image may still decode.
+    ///
+    /// A decode over the limit is left to the real decoder, which fails with the usual message.
+    fn known_decode(&mut self, encoding: Encoding, payload: &[u8]) -> Option<&'a [u8]> {
+        let plain = *self.known?.by_payload.get(&(encoding, payload))?;
+        if plain.len() > self.section_limit() {
+            return None;
+        }
+        self.reused += 1;
+        Some(plain)
     }
 
     /// Record `bytes` of decoded content, failing past the image-wide cap.
@@ -339,7 +401,27 @@ impl Budget {
 impl Image {
     /// Parse an image, validating every volume header and FFS checksum.
     pub fn parse(bytes: Vec<u8>) -> Result<Image> {
-        let mut budget = Budget { decoded: 0 };
+        Self::parse_with(bytes, None).map(|(image, _)| image)
+    }
+
+    /// Parse an image, reusing the decoded content of `known` for sections with identical payloads.
+    ///
+    /// The result equals [`Image::parse`] of the same bytes: only the decoder calls are skipped,
+    /// while section places, budgets and child parsing run as usual. Use it to verify a rebuilt
+    /// image against its input, where nearly every compressed section is unchanged.
+    ///
+    /// Example: `let check = Image::parse_reusing(output_bytes, &input_image)?;`
+    pub fn parse_reusing(bytes: Vec<u8>, known: &Image) -> Result<Image> {
+        Self::parse_with(bytes, Some(known)).map(|(image, _)| image)
+    }
+
+    /// Parse and report how many decodes `known` replaced.
+    pub(crate) fn parse_with(bytes: Vec<u8>, known: Option<&Image>) -> Result<(Image, usize)> {
+        let index = known.map(KnownDecodes::of);
+        let mut budget = Budget {
+            known: index.as_ref(),
+            ..Budget::default()
+        };
         let volumes = find_volumes(&bytes, false, 0, &mut budget, &Origin::Image(0))?;
         if volumes.is_empty() {
             return Err(Error::new(
@@ -365,11 +447,15 @@ impl Image {
                 );
             }
         }
-        Ok(Image {
-            bytes,
-            volumes,
-            leaves,
-        })
+        let reused = budget.reused;
+        Ok((
+            Image {
+                bytes,
+                volumes,
+                leaves,
+            },
+            reused,
+        ))
     }
 
     /// The file holding a leaf.
@@ -1095,17 +1181,16 @@ fn decode_guid_content(
         section.crc_valid = Some(true);
         payload.to_vec()
     } else {
-        let plain =
-            decode_within_budget(
-                &section.place,
-                encoding.label(),
-                budget,
-                |limit| match encoding {
+        let plain = match budget.known_decode(encoding, payload) {
+            Some(known) => known.to_vec(),
+            None => decode_within_budget(&section.place, encoding.label(), budget, |limit| {
+                match encoding {
                     Encoding::Lzma => codec::decompress_within(payload, limit),
                     Encoding::LzmaX86 => codec::lzma_x86_decompress(payload, limit),
                     _ => codec::brotli_decompress(payload, limit),
-                },
-            )?;
+                }
+            })?,
+        };
         budget.charge(plain.len())?;
         plain
     };
@@ -1343,7 +1428,7 @@ mod encoding_tests {
         let tiano = section(SECTION_RAW, &[1; 8]);
         let efi = section(SECTION_RAW, &[2; 8]);
         let payload = header_only_payload(tiano.len());
-        let mut budget = Budget { decoded: 0 };
+        let mut budget = Budget::default();
         let decode = fake_variants(tiano.clone(), efi);
         let error = decode_efi_variants(&payload, tiano.len(), "0x60", 0, &mut budget, decode)
             .map(|found| found.encoding)
@@ -1361,7 +1446,7 @@ mod encoding_tests {
     fn two_variants_that_parse_to_the_same_content_are_not_ambiguous() {
         let content = section(SECTION_RAW, &[1; 8]);
         let payload = header_only_payload(content.len());
-        let mut budget = Budget { decoded: 0 };
+        let mut budget = Budget::default();
         let decode = fake_variants(content.clone(), content.clone());
         let found =
             decode_efi_variants(&payload, content.len(), "0x60", 0, &mut budget, decode).unwrap();
@@ -1374,7 +1459,7 @@ mod encoding_tests {
         let content = section(SECTION_RAW, &[1; 8]);
         let garbage = vec![0x55; content.len()];
         let payload = header_only_payload(content.len());
-        let mut budget = Budget { decoded: 0 };
+        let mut budget = Budget::default();
         let decode = fake_variants(content.clone(), garbage);
         let found =
             decode_efi_variants(&payload, content.len(), "0x60", 0, &mut budget, decode).unwrap();
@@ -1390,7 +1475,7 @@ mod encoding_tests {
     fn a_nesting_limit_inside_decoded_content_aborts_instead_of_rejecting_the_variant() {
         let content = section(SECTION_RAW, &[1; 8]);
         let payload = header_only_payload(content.len());
-        let mut budget = Budget { decoded: 0 };
+        let mut budget = Budget::default();
         let decode = fake_variants(content.clone(), content.clone());
         let error = decode_efi_variants(
             &payload,
@@ -1415,7 +1500,7 @@ mod encoding_tests {
         // Tiano decodes 43 bytes of garbage that fail to parse, then EFI 1.1 decodes
         // the real 43 bytes: both count, so ambiguous nesting cannot dodge the cap.
         let stream = compression_section(1, 43, AMBIGUOUS_EFI);
-        let mut budget = Budget { decoded: 0 };
+        let mut budget = Budget::default();
         let sections = parse_stream(&stream, 1, &mut budget, &Origin::Image(0)).unwrap();
         assert_eq!(sections[0].encoding, Some(Encoding::EfiCompression));
         assert_eq!(
@@ -1586,6 +1671,7 @@ mod encoding_tests {
     fn the_image_wide_budget_caps_what_later_sections_may_decode() {
         let mut budget = Budget {
             decoded: MAX_TOTAL_DECODED - 100,
+            ..Budget::default()
         };
         assert_eq!(budget.section_limit(), 100);
         let stream = compression_section(1, 304, STREAM_TIANO);
@@ -1602,7 +1688,7 @@ mod encoding_tests {
 
     #[test]
     fn budget_charge_fails_past_the_image_cap_and_saturates() {
-        let mut budget = Budget { decoded: 0 };
+        let mut budget = Budget::default();
         budget
             .charge(MAX_TOTAL_DECODED)
             .expect("exactly at the cap");
@@ -1729,5 +1815,231 @@ mod encoding_tests {
             assert_eq!(encoding.is_compressed(), compressed, "{label}");
             assert_eq!(encoding.is_rebuildable(), rebuildable, "{label}");
         }
+    }
+}
+
+#[cfg(test)]
+mod known_decode_tests {
+    use super::*;
+    use crate::codec::tiano::tests::fixture_text;
+    use crate::synthetic::{
+        DXE_GUID, ffs, lzma_f86_section, lzma_section, section, volume, x86_code,
+    };
+
+    fn stream(seed: u64) -> Vec<u8> {
+        section(SECTION_RAW, &fixture_text(300, seed))
+    }
+
+    /// An image of one DXE file holding `encapsulation`, after `lead` erased bytes.
+    fn image_bytes(encapsulation: &[u8], lead: usize) -> Vec<u8> {
+        let mut bytes = vec![0xFF; lead];
+        bytes.extend(volume(&[ffs(DXE_GUID, 0x07, encapsulation, 0)], 0x1000));
+        bytes
+    }
+
+    /// Everything a parse reports, including section places, as one comparable text.
+    fn summary(parsed: Result<Image>) -> String {
+        match parsed {
+            Ok(image) => format!("{:?}\n{:?}", image.volumes, image.leaves),
+            Err(error) => format!("error: {error}"),
+        }
+    }
+
+    fn reuse_count(bytes: Vec<u8>, known: &Image) -> (String, usize) {
+        let (image, reused) = Image::parse_with(bytes, Some(known)).expect("parses");
+        (summary(Ok(image)), reused)
+    }
+
+    #[test]
+    fn an_unchanged_lzma_section_is_not_decoded_again() {
+        let bytes = image_bytes(&lzma_section(&stream(1)), 0);
+        let known = Image::parse(bytes.clone()).unwrap();
+        let (reparsed, reused) = reuse_count(bytes.clone(), &known);
+        assert_eq!(
+            reused, 1,
+            "(reused decodes): expected 1 | received {reused}"
+        );
+        assert_eq!(reparsed, summary(Image::parse(bytes)));
+    }
+
+    #[test]
+    fn a_moved_section_keeps_its_own_places() {
+        // The same payload at another image offset: places must follow the new offset.
+        let known = Image::parse(image_bytes(&lzma_section(&stream(1)), 0)).unwrap();
+        let moved = image_bytes(&lzma_section(&stream(1)), 0x2000);
+        let (reparsed, reused) = reuse_count(moved.clone(), &known);
+        assert_eq!(
+            reused, 1,
+            "(reused decodes): expected 1 | received {reused}"
+        );
+        let fresh = summary(Image::parse(moved));
+        assert_eq!(reparsed, fresh);
+        assert!(
+            fresh.contains("0x2"),
+            "(places): expected offsets past 0x2000 | received {fresh}"
+        );
+    }
+
+    #[test]
+    fn a_changed_payload_is_decoded_not_reused() {
+        let known = Image::parse(image_bytes(&lzma_section(&stream(1)), 0)).unwrap();
+        let other = image_bytes(&lzma_section(&stream(2)), 0);
+        let (reparsed, reused) = reuse_count(other.clone(), &known);
+        assert_eq!(
+            reused, 0,
+            "(reused decodes): expected 0 | received {reused}"
+        );
+        assert_eq!(reparsed, summary(Image::parse(other)));
+    }
+
+    /// Image byte range of the only LZMA payload in an image from [`image_bytes`].
+    fn payload_range(image: &Image) -> std::ops::Range<usize> {
+        let file = &image.volumes[0].files[0];
+        let section = &file.sections[0];
+        assert_eq!(
+            section.encoding,
+            Some(Encoding::Lzma),
+            "fixture: expected the first section to be LZMA"
+        );
+        let section_start = file.offset + file.header_size + section.offset;
+        section_start + section.data_offset..section_start + section.size
+    }
+
+    #[test]
+    fn a_corrupted_payload_fails_as_a_plain_parse_does() {
+        let intact = image_bytes(&lzma_section(&stream(1)), 0);
+        let known = Image::parse(intact.clone()).unwrap();
+        let payload = payload_range(&known);
+        // The LZMA properties byte: 0xFF is past the largest valid value (0xE0), so the
+        // decoder itself rejects the stream. A cache that matched on anything but the
+        // exact payload bytes would skip the decoder and accept it.
+        let mut corrupt = intact.clone();
+        assert_ne!(
+            corrupt[payload.start], 0xFF,
+            "fixture: payload starts with a valid byte"
+        );
+        corrupt[payload.start] = 0xFF;
+        let plain = Image::parse(corrupt.clone()).expect_err("a plain parse rejects the stream");
+        assert_eq!(plain.code, Code::FormatInvalid, "(plain parse): {plain}");
+        let reusing = Image::parse_reusing(corrupt.clone(), &known)
+            .expect_err("parsing against the intact image must reject it as well");
+        assert_eq!(
+            (reusing.code, &reusing.message),
+            (plain.code, &plain.message),
+            "(parse_reusing): expected the plain parse's error"
+        );
+        let index = KnownDecodes::of(&known);
+        assert!(
+            index
+                .by_payload
+                .contains_key(&(Encoding::Lzma, &intact[payload.clone()])),
+            "(index): expected the intact payload to be indexed"
+        );
+        assert!(
+            !index
+                .by_payload
+                .contains_key(&(Encoding::Lzma, &corrupt[payload])),
+            "(index): expected no entry for the corrupted payload"
+        );
+    }
+
+    #[test]
+    fn a_payload_that_differs_only_in_unused_header_bytes_is_still_decoded() {
+        // Dictionary size, bytes 1..5 of the header: a larger value decodes to the same
+        // bytes, so a hit would be harmless here, but it is a different payload.
+        let intact = image_bytes(&lzma_section(&stream(1)), 0);
+        let known = Image::parse(intact.clone()).unwrap();
+        let mut altered = intact;
+        altered[payload_range(&known).start + 4] ^= 0x01;
+        let (reparsed, reused) = reuse_count(altered.clone(), &known);
+        assert_eq!(
+            reused, 0,
+            "(reused decodes): expected 0 for a payload that differs in one byte | received {reused}"
+        );
+        assert_eq!(reparsed, summary(Image::parse(altered)));
+    }
+
+    #[test]
+    fn nested_lzma_sections_are_each_reused() {
+        let nested = lzma_section(&lzma_section(&stream(3)));
+        let bytes = image_bytes(&nested, 0);
+        let known = Image::parse(bytes.clone()).unwrap();
+        let (reparsed, reused) = reuse_count(bytes.clone(), &known);
+        assert_eq!(
+            reused, 2,
+            "(reused decodes): expected 2 | received {reused}"
+        );
+        assert_eq!(reparsed, summary(Image::parse(bytes)));
+    }
+
+    #[test]
+    fn lzma_f86_decodes_are_keyed_apart_from_plain_lzma() {
+        let code = section(SECTION_RAW, &x86_code(600));
+        let bytes = image_bytes(&lzma_f86_section(&code), 0);
+        let known = Image::parse(bytes.clone()).unwrap();
+        let (reparsed, reused) = reuse_count(bytes.clone(), &known);
+        assert_eq!(
+            reused, 1,
+            "(reused decodes): expected 1 | received {reused}"
+        );
+        assert_eq!(reparsed, summary(Image::parse(bytes)));
+        // The same payload bytes under another encoding never hit.
+        let payload = &known.volumes[0].files[0].sections[0];
+        let raw = payload.raw(known.volumes[0].files[0].body(&known.bytes));
+        let key = (Encoding::Lzma, &raw[payload.data_offset..]);
+        let index = KnownDecodes::of(&known);
+        assert!(
+            !index.by_payload.contains_key(&key),
+            "(index): expected no plain-LZMA entry for an F86 payload"
+        );
+    }
+
+    #[test]
+    fn sections_inside_a_nested_volume_are_indexed() {
+        let inner = volume(&[ffs(DXE_GUID, 0x07, &lzma_section(&stream(4)), 0)], 0x1000);
+        let bytes = volume(
+            &[ffs(DXE_GUID, 0x07, &section(SECTION_FV_IMAGE, &inner), 0)],
+            0x3000,
+        );
+        let known = Image::parse(bytes.clone()).unwrap();
+        let (reparsed, reused) = reuse_count(bytes.clone(), &known);
+        assert_eq!(
+            reused, 1,
+            "(reused decodes): expected 1 | received {reused}"
+        );
+        assert_eq!(reparsed, summary(Image::parse(bytes)));
+    }
+
+    #[test]
+    fn a_known_decode_over_the_remaining_budget_is_refused() {
+        let plain = [7u8; 64];
+        let payload = [1u8, 2, 3];
+        let mut known = KnownDecodes {
+            by_payload: HashMap::new(),
+        };
+        known
+            .by_payload
+            .insert((Encoding::Lzma, &payload[..]), &plain[..]);
+        let mut roomy = Budget {
+            known: Some(&known),
+            ..Budget::default()
+        };
+        assert_eq!(
+            roomy.known_decode(Encoding::Lzma, &payload),
+            Some(&plain[..])
+        );
+        assert_eq!(roomy.reused, 1);
+        let mut tight = Budget {
+            decoded: MAX_TOTAL_DECODED - 63,
+            known: Some(&known),
+            ..Budget::default()
+        };
+        assert_eq!(
+            tight.known_decode(Encoding::Lzma, &payload),
+            None,
+            "(known decode): expected a miss with 63 bytes left for 64 decoded"
+        );
+        assert_eq!(tight.reused, 0);
+        assert_eq!(roomy.known_decode(Encoding::Brotli, &payload), None);
     }
 }
