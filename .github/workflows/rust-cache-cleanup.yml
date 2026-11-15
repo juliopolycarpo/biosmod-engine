@@ -1,0 +1,56 @@
+name: Rust cache cleanup
+
+# Every rust-cache step in ci.yml saves only on main, and each toolchain, Cargo
+# configuration or Cargo.lock change saves a new generation that nothing restores
+# again. After CI finishes on main this keeps the newest cache of each family and
+# deletes the older ones. tools/prune-rust-caches.py only selects caches on
+# refs/heads/main whose key matches the rust-cache grammar.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: List the caches to delete without deleting them
+        type: boolean
+        default: true
+
+permissions:
+  actions: write
+  contents: read
+
+# Two cleanups must not list and delete at the same time. A run that starts while
+# another is in progress waits, and a newer run replaces one that is still waiting.
+# Every run lists the caches again when it starts, so a replaced run loses nothing.
+concurrency:
+  group: rust-cache-cleanup
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    # workflow_run fires for every CI completion, including PRs from forks whose
+    # branch is named main. Require a successful push to main in this repository.
+    if: >-
+      github.ref == 'refs/heads/main' && (
+        github.event_name == 'workflow_dispatch' || (
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          github.event.workflow_run.head_repository.full_name == github.repository
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Prune superseded rust-cache generations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          # Only a manual run with dry-run checked skips the deletion.
+          flags=()
+          if [ "$DRY_RUN" != "true" ]; then flags+=(--delete); fi
+          python3 tools/prune-rust-caches.py "${flags[@]}"

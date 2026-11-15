@@ -64,6 +64,15 @@ profile still needs an initial build. Cache misses and GitHub eviction are
 expected; every job must also work with an empty cache. Rust toolchain downloads
 and the GUI job's system packages are installed separately on each runner.
 
+Each change to the toolchain, `.cargo/config.toml` or `Cargo.lock` saves a new
+generation under a new key that nothing restores again. After CI succeeds on
+`main`, the `Rust cache cleanup` workflow runs `tools/prune-rust-caches.py`: in
+each family of keys (the key without its last two hash segments, such as
+`v0-rust-gui-linux-Linux-x64`) it keeps the newest cache on `main` and deletes
+the older ones. It never touches caches on other refs or keys that do not match
+the rust-cache format. To preview a cleanup, run the script without arguments or
+start the workflow manually with `dry-run` checked; `--delete` deletes.
+
 ## Board profiles and patch records
 
 A record is accepted when someone else can check it from the files alone.
