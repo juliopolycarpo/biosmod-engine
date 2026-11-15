@@ -47,9 +47,9 @@ Use consistent terms: firmware and patch remain unchanged; translate catalog as 
 ## CI caches
 
 Each job caches Cargo downloads and compiled dependency crates with
-`Swatinem/rust-cache`. PRs can restore caches from `main`; successful PR jobs
-also save caches for subsequent runs of the same PR. GitHub isolates PR caches
-from `main` and other PRs.
+`Swatinem/rust-cache`. Only runs on `main` save a cache. PRs restore `main`'s
+cache and rebuild what their branch changed: a cache saved by a PR is visible
+to that PR alone, so saving there would store one more copy per open PR.
 
 Caches are separated by job, runner OS/architecture, compiler, and build
 environment (including `RUSTFLAGS`). Cargo manifests, lockfiles, toolchain files,

@@ -41,7 +41,7 @@ Use termos consistentes: firmware, patch e catálogo; traduza manifest como mani
 
 ## Caches da CI
 
-Cada job armazena downloads do Cargo e crates de dependências compilados com `Swatinem/rust-cache`. PRs podem restaurar caches de `main`; jobs de PR bem-sucedidos também salvam caches para execuções posteriores do mesmo PR. O GitHub isola caches de PR de `main` e de outros PRs.
+Cada job armazena downloads do Cargo e crates de dependências compilados com `Swatinem/rust-cache`. Apenas execuções em `main` salvam cache. PRs restauram o cache de `main` e recompilam o que o branch alterou: um cache salvo por um PR é visível apenas para aquele PR, então salvar ali armazenaria uma cópia a mais por PR aberto.
 
 Caches são separados por job, sistema operacional e arquitetura do runner, compilador e ambiente de compilação (incluindo `RUSTFLAGS`). Manifestos Cargo, lockfiles, arquivos de toolchain e configuração Cargo contribuem para invalidação automática. Após alterar uma dependência, a action pode restaurar um cache antigo e o Cargo recompila as dependências conforme necessário. Jobs de MSRV e da interface definem `RUSTUP_TOOLCHAIN` antes de procurar o cache para que metadados e compilações usem o mesmo compilador.
 
