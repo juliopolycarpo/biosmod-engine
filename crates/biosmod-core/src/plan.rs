@@ -646,15 +646,26 @@ fn touches_relocation(hunk: &crate::catalog::Hunk, covered: &BTreeSet<usize>) ->
 fn verify_built(
     input: &Image,
     catalog: &Catalog,
-    mut built: Built,
+    built: Built,
     offsets: &analysis::TableOffsetIndex,
 ) -> Result<Built> {
-    let check = Image::parse_reusing(std::mem::take(&mut built.image), input).map_err(|e| {
-        Error::new(
-            Code::OutputVerificationFailed,
-            format!("re-parsed output: {}", e.message),
-        )
-    })?;
+    verify_built_counting(input, catalog, built, offsets).map(|(built, _)| built)
+}
+
+/// [`verify_built`], also returning how many decodes the re-parse took from `input`.
+fn verify_built_counting(
+    input: &Image,
+    catalog: &Catalog,
+    mut built: Built,
+    offsets: &analysis::TableOffsetIndex,
+) -> Result<(Built, usize)> {
+    let (check, reused) = Image::parse_with(std::mem::take(&mut built.image), Some(input))
+        .map_err(|e| {
+            Error::new(
+                Code::OutputVerificationFailed,
+                format!("re-parsed output: {}", e.message),
+            )
+        })?;
     for id in built.selected.iter().chain(&built.carried) {
         let (state, detail) = analysis::patch_state_indexed(
             &check,
@@ -673,7 +684,7 @@ fn verify_built(
     outside_allowlist_unchanged(&input.bytes, &check.bytes, &built.allowlist)?;
     verify_components(&check, &built.components)?;
     built.image = check.bytes;
-    Ok(built)
+    Ok((built, reused))
 }
 
 /// Confirm each rebuilt component is present in the re-parsed output with its composed hash.
@@ -965,6 +976,138 @@ pub mod document {
         pub plan: PlanDocument,
         pub verification: Verification,
         pub notice: String,
+    }
+}
+
+#[cfg(test)]
+mod reused_decode_verification_tests {
+    use super::*;
+    use crate::analysis::TableOffsetIndex;
+    use crate::catalog::{MemorySource, Scope};
+    use crate::firmware::Encoding;
+    use crate::synthetic::{
+        DXE_GUID, FIRMWARE, Fixture, NEXT_GUID, PAD_GUID, PEIM_GUID, TABLE_GUID, ffs, lzma_section,
+        module, section, volume,
+    };
+
+    /// The synthetic image with the DXE driver and its follower each in their own LZMA section.
+    fn two_lzma_image(fixture: &Fixture) -> Vec<u8> {
+        let pei = volume(
+            &[ffs(PEIM_GUID, 0x06, &section(0x10, &fixture.peim), 0)],
+            0x4000,
+        );
+        let dxe = volume(
+            &[
+                ffs(
+                    DXE_GUID,
+                    0x07,
+                    &lzma_section(&section(0x10, &fixture.driver)),
+                    0,
+                ),
+                ffs(PAD_GUID, 0xF0, &[], 0),
+                ffs(
+                    NEXT_GUID,
+                    0x07,
+                    &lzma_section(&section(0x10, &module(4, 64))),
+                    0,
+                ),
+                ffs(TABLE_GUID, 0x02, &section(0x19, &fixture.table), 0),
+            ],
+            0x4000,
+        );
+        let mut image = vec![0xFF; 0x1000];
+        image.extend(dxe);
+        image.extend(pei);
+        image
+    }
+
+    fn lzma_sections(image: &Image) -> usize {
+        image
+            .volumes
+            .iter()
+            .flat_map(|volume| &volume.files)
+            .flat_map(|file| &file.sections)
+            .filter(|section| section.encoding == Some(Encoding::Lzma))
+            .count()
+    }
+
+    /// Image offset of the first byte of the LZMA payload in the file `guid`.
+    fn lzma_payload_start(image: &Image, guid: crate::util::Guid) -> usize {
+        let file = image
+            .volumes
+            .iter()
+            .flat_map(|volume| &volume.files)
+            .find(|file| file.guid == guid)
+            .expect("file in the image");
+        let section = &file.sections[0];
+        assert_eq!(section.encoding, Some(Encoding::Lzma));
+        file.offset + file.header_size + section.offset + section.data_offset
+    }
+
+    struct Rebuilt {
+        input: Image,
+        catalog: Catalog,
+        built: Built,
+    }
+
+    /// Patch DG, which grows the driver inside its LZMA section and reflows the volume.
+    fn rebuilt() -> Rebuilt {
+        let fixture = Fixture::new(0x07);
+        let catalog = Catalog::load(&MemorySource::new(fixture.catalog_files()), Scope::All)
+            .expect("synthetic catalog validates");
+        let input = Image::parse(two_lzma_image(&fixture)).expect("synthetic image parses");
+        let request = Request {
+            select: vec!["DG".into()],
+            firmware: Some(FIRMWARE.into()),
+            ..Request::default()
+        };
+        let built = build(&input, &catalog, &request).expect("DG builds");
+        Rebuilt {
+            input,
+            catalog,
+            built,
+        }
+    }
+
+    #[test]
+    fn verification_reuses_every_decode_but_the_reencoded_section() {
+        let case = rebuilt();
+        assert_eq!(
+            lzma_sections(&case.input),
+            2,
+            "fixture: expected two LZMA sections"
+        );
+        let offsets = TableOffsetIndex::new(&case.catalog, FIRMWARE);
+        let (_, reused) = verify_built_counting(&case.input, &case.catalog, case.built, &offsets)
+            .expect("an intact output verifies");
+        // The driver's section is re-encoded (new payload); the follower's payload is untouched.
+        assert_eq!(
+            reused, 1,
+            "(reused decodes): expected 2 LZMA sections - 1 re-encoded = 1 | received {reused}"
+        );
+    }
+
+    #[test]
+    fn a_corrupted_reencoded_section_is_decoded_and_fails_verification() {
+        let case = rebuilt();
+        let offsets = TableOffsetIndex::new(&case.catalog, FIRMWARE);
+        let output = Image::parse(case.built.image.clone()).expect("built output parses");
+        let start = lzma_payload_start(&output, DXE_GUID);
+        let mut corrupt = case.built.clone();
+        // An LZMA properties byte of 0xFF is invalid, so only a real decode can notice it.
+        assert_ne!(
+            corrupt.image[start], 0xFF,
+            "fixture: payload starts with a valid byte"
+        );
+        corrupt.image[start] = 0xFF;
+        let error = verify_built_counting(&case.input, &case.catalog, corrupt, &offsets)
+            .expect_err("a corrupt re-encoded section must fail verification");
+        assert_eq!(error.code, Code::OutputVerificationFailed, "{error}");
+        assert!(
+            error.message.starts_with("re-parsed output: ") && error.message.contains("LZMA"),
+            "(corrupt re-encoded section): expected a re-parse failure naming LZMA | received {}",
+            error.message
+        );
     }
 }
 

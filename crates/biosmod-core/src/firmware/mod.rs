@@ -416,7 +416,7 @@ impl Image {
     }
 
     /// Parse and report how many decodes `known` replaced.
-    fn parse_with(bytes: Vec<u8>, known: Option<&Image>) -> Result<(Image, usize)> {
+    pub(crate) fn parse_with(bytes: Vec<u8>, known: Option<&Image>) -> Result<(Image, usize)> {
         let index = known.map(KnownDecodes::of);
         let mut budget = Budget {
             known: index.as_ref(),
@@ -1892,16 +1892,71 @@ mod known_decode_tests {
         assert_eq!(reparsed, summary(Image::parse(other)));
     }
 
+    /// Image byte range of the only LZMA payload in an image from [`image_bytes`].
+    fn payload_range(image: &Image) -> std::ops::Range<usize> {
+        let file = &image.volumes[0].files[0];
+        let section = &file.sections[0];
+        assert_eq!(
+            section.encoding,
+            Some(Encoding::Lzma),
+            "fixture: expected the first section to be LZMA"
+        );
+        let section_start = file.offset + file.header_size + section.offset;
+        section_start + section.data_offset..section_start + section.size
+    }
+
     #[test]
     fn a_corrupted_payload_fails_as_a_plain_parse_does() {
-        let known = Image::parse(image_bytes(&lzma_section(&stream(1)), 0)).unwrap();
-        let mut corrupt = image_bytes(&lzma_section(&stream(1)), 0);
-        // Inside the compressed data: past the volume header, file header and section headers.
-        let middle = 0x48 + 24 + 4 + 24 + 13 + 40;
-        corrupt[middle] ^= 0xA5;
-        let with_known = summary(Image::parse_reusing(corrupt.clone(), &known));
-        let plain = summary(Image::parse(corrupt));
-        assert_eq!(with_known, plain);
+        let intact = image_bytes(&lzma_section(&stream(1)), 0);
+        let known = Image::parse(intact.clone()).unwrap();
+        let payload = payload_range(&known);
+        // The LZMA properties byte: 0xFF is past the largest valid value (0xE0), so the
+        // decoder itself rejects the stream. A cache that matched on anything but the
+        // exact payload bytes would skip the decoder and accept it.
+        let mut corrupt = intact.clone();
+        assert_ne!(
+            corrupt[payload.start], 0xFF,
+            "fixture: payload starts with a valid byte"
+        );
+        corrupt[payload.start] = 0xFF;
+        let plain = Image::parse(corrupt.clone()).expect_err("a plain parse rejects the stream");
+        assert_eq!(plain.code, Code::FormatInvalid, "(plain parse): {plain}");
+        let reusing = Image::parse_reusing(corrupt.clone(), &known)
+            .expect_err("parsing against the intact image must reject it as well");
+        assert_eq!(
+            (reusing.code, &reusing.message),
+            (plain.code, &plain.message),
+            "(parse_reusing): expected the plain parse's error"
+        );
+        let index = KnownDecodes::of(&known);
+        assert!(
+            index
+                .by_payload
+                .contains_key(&(Encoding::Lzma, &intact[payload.clone()])),
+            "(index): expected the intact payload to be indexed"
+        );
+        assert!(
+            !index
+                .by_payload
+                .contains_key(&(Encoding::Lzma, &corrupt[payload])),
+            "(index): expected no entry for the corrupted payload"
+        );
+    }
+
+    #[test]
+    fn a_payload_that_differs_only_in_unused_header_bytes_is_still_decoded() {
+        // Dictionary size, bytes 1..5 of the header: a larger value decodes to the same
+        // bytes, so a hit would be harmless here, but it is a different payload.
+        let intact = image_bytes(&lzma_section(&stream(1)), 0);
+        let known = Image::parse(intact.clone()).unwrap();
+        let mut altered = intact;
+        altered[payload_range(&known).start + 4] ^= 0x01;
+        let (reparsed, reused) = reuse_count(altered.clone(), &known);
+        assert_eq!(
+            reused, 0,
+            "(reused decodes): expected 0 for a payload that differs in one byte | received {reused}"
+        );
+        assert_eq!(reparsed, summary(Image::parse(altered)));
     }
 
     #[test]

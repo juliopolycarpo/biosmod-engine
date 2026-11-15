@@ -205,7 +205,8 @@ const COMPARE_CHUNK: usize = 1 << 20;
 ///
 /// It streams the file in 1 MiB chunks, so it needs neither a second copy of the image nor a
 /// digest of it. Example: `ensure_file_holds(&rom, &planned_input)?` after a plan was built from
-/// `planned_input` fails with `... first difference at 0x9000` when the file was edited meanwhile.
+/// `planned_input` fails with `(expected 0x00 | received 0xff at offset 0x9000)` when the file was
+/// edited meanwhile.
 pub fn ensure_file_holds(path: &Path, expected: &[u8]) -> Result<()> {
     let (mut file, _) = open_regular(path)?;
     let changed = |detail: String| {

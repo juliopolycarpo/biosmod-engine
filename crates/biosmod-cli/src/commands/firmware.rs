@@ -992,7 +992,25 @@ fn requested_ids(plan: &PlanDocument, loaded: &Loaded) -> Result<Request> {
     })
 }
 
+/// A step between building the output and confirming the input file is unchanged.
+///
+/// Example: a test edits the ROM here to stand in for another program writing to it mid-build.
+trait BuildInterlude {
+    fn after_plan(&self);
+}
+
+/// The real run: nothing happens between the build and the check.
+struct NoInterlude;
+
+impl BuildInterlude for NoInterlude {
+    fn after_plan(&self) {}
+}
+
 pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
+    patch_with(ctx, args, &NoInterlude)
+}
+
+fn patch_with(ctx: &Ctx, args: &PatchArgs, interlude: &dyn BuildInterlude) -> Result<Reply> {
     let select = args
         .plan
         .is_none()
@@ -1037,6 +1055,7 @@ pub fn patch(ctx: &Ctx, args: &PatchArgs) -> Result<Reply> {
         }
         return Ok(Reply::new(data, plan_text(&plan)));
     };
+    interlude.after_plan();
     // Streaming the file against the bytes the plan was built from replaces a second SHA-256
     // pass over the whole image and a second copy of it in memory.
     super::ensure_file_holds(&args.rom, &input)?;
@@ -1552,3 +1571,6 @@ mod detector_text_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;
