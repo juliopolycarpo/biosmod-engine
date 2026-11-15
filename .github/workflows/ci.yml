@@ -201,11 +201,9 @@ jobs:
         with:
           tool: nextest@0.9.150
       # PGO runs on pull requests as well as main so the smoke test below exercises the binary
-      # that ships. Both PGO builds compile from scratch: one instrumented build took 128 s on
-      # four pinned cores of a developer machine, so the estimate is 5 to 8 extra minutes on a
-      # hosted runner. Against a warm-cache job of about 4 minutes, a cold one of 9 to 14 and a
-      # 30 minute timeout, that leaves headroom. The two builds use fresh target directories in
-      # the temp directory, outside `target`, so they never reach the saved cache.
+      # that ships. Both PGO builds compile from scratch in fresh target directories in the temp
+      # directory, outside `target`, so they never reach the saved cache. With a warm cache the
+      # job took 6m23s on a hosted runner, against about 3m40s without PGO.
       - name: Build Linux archive
         run: ./packaging/linux/archive.sh --pgo
       - name: Smoke test packaged pair
