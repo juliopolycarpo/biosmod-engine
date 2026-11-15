@@ -1,0 +1,11 @@
+# Dependency cooldown: when Cargo resolves or updates the lockfile it skips
+# crate versions published less than three days ago, so a compromised or
+# broken release has time to be noticed and yanked before it is locked here.
+# Versions already in Cargo.lock are kept, and `--locked` builds never
+# resolve. Cargo reads this from 1.100; the 1.88 and 1.92 minimum-version
+# jobs ignore the key.
+#
+# To take a fix sooner, run that one update with
+# `CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow`.
+[registry]
+global-min-publish-age = "3 days"
