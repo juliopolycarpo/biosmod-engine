@@ -47,6 +47,8 @@ Caches são separados por job, sistema operacional e arquitetura do runner, comp
 
 Crates do workspace e estado de compilação incremental são excluídos pela limpeza padrão da action. Artefatos de dependências debug e release são armazenados, mas cada perfil ainda precisa de uma compilação inicial. Ausência de cache e remoção pelo GitHub são esperadas; cada job também deve funcionar com cache vazio. Downloads da toolchain Rust e pacotes de sistema do job gráfico são instalados separadamente em cada runner.
 
+Cada mudança na toolchain, em `.cargo/config.toml` ou em `Cargo.lock` salva uma nova geração sob uma chave nova que nada mais restaura. Depois que a CI passa em `main`, o workflow `Rust cache cleanup` executa `tools/prune-rust-caches.py`: em cada família de chaves (a chave sem os dois últimos segmentos de hash, como `v0-rust-gui-linux-Linux-x64`) ele mantém o cache mais recente em `main` e apaga os mais antigos. Nunca toca em caches de outras refs nem em chaves fora do formato do rust-cache. Para ver o que seria apagado, execute o script sem argumentos ou inicie o workflow manualmente com `dry-run` marcado; `--delete` apaga.
+
 ## Perfis de placa e registros de patches
 
 Um registro é aceito quando outra pessoa pode conferi-lo apenas com os arquivos.
