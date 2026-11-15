@@ -199,7 +199,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
+          tar -xJf dist/*.tar.xz -C "$RUNNER_TEMP"
           package_roots=("$RUNNER_TEMP"/biosmod-engine-*-linux-x86_64)
           test "${#package_roots[@]}" -eq 1
           package_root=${package_roots[0]}
@@ -217,4 +217,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
-          path: dist/*.tar.gz
+          path: dist/*.tar.xz
+          # The archive is already xz-compressed; deflating it again only costs time.
+          compression-level: 0
