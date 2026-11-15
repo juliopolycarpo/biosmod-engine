@@ -803,6 +803,23 @@ pub mod document {
                 length: bytes.len() as u64,
             }
         }
+
+        /// Blobs of two buffers that share a long prefix, hashing the prefix once.
+        ///
+        /// Example: `let (input, output) = Blob::pair(&original, &patched);`
+        pub fn pair(a: &[u8], b: &[u8]) -> (Blob, Blob) {
+            let (first, second) = Digest256::of_pair(a, b);
+            (
+                Blob {
+                    sha256: first,
+                    length: a.len() as u64,
+                },
+                Blob {
+                    sha256: second,
+                    length: b.len() as u64,
+                },
+            )
+        }
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -889,7 +906,8 @@ pub mod document {
             request: &Request,
             catalog: &Catalog,
         ) -> PlanDocument {
-            let output = Blob::of(&built.image);
+            // The output differs from the input only past its first changed byte.
+            let (input_blob, output) = Blob::pair(input, &built.image);
             let observed = catalog
                 .evidence
                 .values()
@@ -899,7 +917,7 @@ pub mod document {
             PlanDocument {
                 schema: PLAN_SCHEMA.into(),
                 engine: EngineId::current(),
-                input: Blob::of(input),
+                input: input_blob,
                 source,
                 firmware: built.firmware.clone(),
                 boards,
@@ -947,6 +965,31 @@ pub mod document {
         pub plan: PlanDocument,
         pub verification: Verification,
         pub notice: String,
+    }
+}
+
+#[cfg(test)]
+mod blob_pair_tests {
+    use super::document::Blob;
+
+    #[test]
+    fn a_pair_of_blobs_equals_two_single_blobs() {
+        let input: Vec<u8> = (0..9000u32).map(|i| (i * 7 % 251) as u8).collect();
+        let mut output = input.clone();
+        output[6000] ^= 0xFF;
+        output.push(1);
+        let (first, second) = Blob::pair(&input, &output);
+        assert_eq!(
+            first,
+            Blob::of(&input),
+            "(input blob): expected its own digest and length"
+        );
+        assert_eq!(
+            second,
+            Blob::of(&output),
+            "(output blob): expected its own digest and length"
+        );
+        assert_eq!(second.length, 9001, "(output length): expected 9001");
     }
 }
 
