@@ -649,7 +649,7 @@ fn verify_built(
     mut built: Built,
     offsets: &analysis::TableOffsetIndex,
 ) -> Result<Built> {
-    let check = Image::parse(std::mem::take(&mut built.image)).map_err(|e| {
+    let check = Image::parse_reusing(std::mem::take(&mut built.image), input).map_err(|e| {
         Error::new(
             Code::OutputVerificationFailed,
             format!("re-parsed output: {}", e.message),
