@@ -15,7 +15,32 @@ use std::time::Duration;
 pub const FLASHROM_OVERRIDE: &str = "BME_FLASHROM";
 
 /// Directories searched after `PATH`: unprivileged shells often lack the sbin directories.
-pub const SBIN_DIRECTORIES: [&str; 3] = ["/usr/sbin", "/sbin", "/usr/local/sbin"];
+#[cfg(not(windows))]
+pub const FLASHROM_DIRECTORIES: [&str; 3] = ["/usr/sbin", "/sbin", "/usr/local/sbin"];
+
+/// Directories searched after `PATH`: MSYS2's default environments, whose `bin` directories
+/// also hold the DLLs flashrom loads, are rarely on the Windows `PATH`.
+#[cfg(windows)]
+pub const FLASHROM_DIRECTORIES: [&str; 3] = [
+    r"C:\msys64\ucrt64\bin",
+    r"C:\msys64\mingw64\bin",
+    r"C:\msys64\clang64\bin",
+];
+
+/// How messages name [`FLASHROM_DIRECTORIES`] on Windows (`true`) or elsewhere.
+///
+/// Example: `directories_name(true)` is `"the MSYS2 directories"`.
+pub fn directories_name(windows: bool) -> &'static str {
+    if windows {
+        "the MSYS2 directories"
+    } else {
+        "the sbin directories"
+    }
+}
+
+/// The MSYS2 command, run in its UCRT64 shell, that installs flashrom on Windows: there is no
+/// distribution package, and MSYS2 ships flashrom with the libusb it needs.
+pub const MSYS2_FLASHROM_INSTALL: &str = "pacman -S mingw-w64-ucrt-x86_64-flashrom";
 
 /// A full read of a 16 MiB chip takes minutes on a CH341A.
 const READ_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -30,7 +55,7 @@ pub enum FlashromOrigin {
     Environment,
     /// `tools.flashrom` in the per-user configuration.
     Config,
-    /// `PATH` or one of the sbin directories.
+    /// `PATH` or one of the [`FLASHROM_DIRECTORIES`].
     Path,
 }
 
@@ -47,7 +72,7 @@ impl FlashromOrigin {
     }
 }
 
-/// Find flashrom: `BME_FLASHROM`, then the configured path, then `PATH`, then the sbin directories.
+/// Find flashrom: `BME_FLASHROM`, then the configured path, then `PATH`, then the [`FLASHROM_DIRECTORIES`].
 ///
 /// Example: `resolve_flashrom(&|_| None, Some(Path::new("/opt/fr/flashrom")))` returns that path
 /// with [`FlashromOrigin::Config`] when no environment override is set.
@@ -55,7 +80,7 @@ pub fn resolve_flashrom(
     get: &dyn Fn(&str) -> Option<OsString>,
     configured: Option<&Path>,
 ) -> Option<(PathBuf, FlashromOrigin)> {
-    resolve_flashrom_in(get, configured, &SBIN_DIRECTORIES)
+    resolve_flashrom_in(get, configured, &FLASHROM_DIRECTORIES)
 }
 
 /// [`resolve_flashrom`] with the directories searched after `PATH` named by the caller.
@@ -64,7 +89,7 @@ pub fn resolve_flashrom(
 pub fn resolve_flashrom_in(
     get: &dyn Fn(&str) -> Option<OsString>,
     configured: Option<&Path>,
-    sbin: &[&str],
+    directories: &[&str],
 ) -> Option<(PathBuf, FlashromOrigin)> {
     if let Some(chosen) = get(FLASHROM_OVERRIDE).filter(|value| !value.is_empty()) {
         return Some((PathBuf::from(chosen), FlashromOrigin::Environment));
@@ -75,7 +100,7 @@ pub fn resolve_flashrom_in(
     let name = format!("flashrom{}", std::env::consts::EXE_SUFFIX);
     let path = get("PATH").unwrap_or_default();
     std::env::split_paths(&path)
-        .chain(sbin.iter().map(PathBuf::from))
+        .chain(directories.iter().map(PathBuf::from))
         .map(|directory| directory.join(&name))
         .find(|candidate| candidate.is_file())
         .map(|found| (found, FlashromOrigin::Path))

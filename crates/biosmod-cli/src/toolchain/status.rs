@@ -8,8 +8,8 @@ use super::replay::{self, ReplayHome};
 use super::{Env, GhidraHome, Runner, ghidra_checks, ghidra_version, java_check};
 use crate::commands::Ctx;
 use crate::flash::{
-    FLASHROM_OVERRIDE, FlashromOrigin, SBIN_DIRECTORIES, parse_version, resolve_flashrom_in,
-    shell_word, validate_privileged_flashrom,
+    FLASHROM_DIRECTORIES, FLASHROM_OVERRIDE, FlashromOrigin, MSYS2_FLASHROM_INSTALL,
+    directories_name, parse_version, resolve_flashrom_in, shell_word, validate_privileged_flashrom,
 };
 use crate::output::{Reply, table};
 use crate::toolchain::{Invocation, System};
@@ -206,11 +206,13 @@ pub struct Probe<'a> {
     /// `tools.flashrom` from the configuration.
     pub flashrom: Option<&'a Path>,
     /// Directories searched for flashrom after `PATH`.
-    pub sbin: &'a [&'a str],
+    pub flashrom_directories: &'a [&'a str],
     /// Contents of `/etc/os-release`, when the system has one.
     pub os_release: Option<&'a str>,
     /// Whether `bme tools setup ghidra` can run here; it is Linux only for now.
     pub linux: bool,
+    /// Whether this is Windows, where flashrom comes from MSYS2 instead of a distribution.
+    pub windows: bool,
 }
 
 /// Inspect every tool. Never fails: problems become rows.
@@ -497,9 +499,27 @@ fn git_row(probe: &Probe) -> ToolRow {
     }
 }
 
+/// The command that installs flashrom here.
+///
+/// Windows has no distribution package; MSYS2 ships flashrom with the libusb it needs.
+/// Example: on Windows the command is `pacman -S mingw-w64-ucrt-x86_64-flashrom`.
+fn flashrom_install(probe: &Probe) -> Install {
+    if probe.windows {
+        return Install {
+            method: "package-manager",
+            command: Some(MSYS2_FLASHROM_INSTALL.into()),
+            automatic: false,
+            blocked: None,
+        };
+    }
+    system_install(probe, Package::Flashrom)
+}
+
 fn flashrom_row(probe: &Probe) -> ToolRow {
-    let install = system_install(probe, Package::Flashrom);
-    let Some((path, origin)) = resolve_flashrom_in(probe.get, probe.flashrom, probe.sbin) else {
+    let install = flashrom_install(probe);
+    let Some((path, origin)) =
+        resolve_flashrom_in(probe.get, probe.flashrom, probe.flashrom_directories)
+    else {
         return ToolRow {
             id: "flashrom",
             name: "flashrom",
@@ -508,7 +528,7 @@ fn flashrom_row(probe: &Probe) -> ToolRow {
             version: None,
             path: None,
             origin: "none",
-            detail: "not found in PATH or the sbin directories".into(),
+            detail: format!("not found in PATH or {}", directories_name(probe.windows)),
             install,
             custom_location: true,
             optional: false,
@@ -865,9 +885,10 @@ pub fn run_status(ctx: &Ctx) -> Result<Reply> {
         replay: &replay_home,
         get: &get,
         flashrom: ctx.config.tools.flashrom.as_deref(),
-        sbin: &SBIN_DIRECTORIES,
+        flashrom_directories: &FLASHROM_DIRECTORIES,
         os_release: os_release.as_deref(),
         linux: cfg!(target_os = "linux"),
+        windows: cfg!(windows),
     });
     let ready = rows.iter().all(|r| r.optional || r.health == Health::Ready);
     let text = render(&rows);

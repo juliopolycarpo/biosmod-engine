@@ -9,10 +9,13 @@ mod flashrom;
 pub(crate) mod host;
 #[cfg(all(test, unix))]
 mod tests;
+#[cfg(test)]
+mod windows_tests;
 
 pub use flashrom::{
-    Chip, FLASHROM_OVERRIDE, FlashromOrigin, Operation, SBIN_DIRECTORIES, Selection, Target,
-    parse_version, resolve_flashrom, resolve_flashrom_in, shell_word, validate_privileged_flashrom,
+    Chip, FLASHROM_DIRECTORIES, FLASHROM_OVERRIDE, FlashromOrigin, MSYS2_FLASHROM_INSTALL,
+    Operation, Selection, Target, directories_name, parse_version, resolve_flashrom,
+    resolve_flashrom_in, shell_word, validate_privileged_flashrom,
 };
 pub use host::{Flashrom, Host, State};
 
@@ -179,12 +182,12 @@ fn configured_flashrom(
     Ok(config.tools.flashrom)
 }
 
-/// Route a parsed subcommand; chip access is refused outside Linux.
+/// Route a parsed subcommand; chip access is refused where flashrom cannot reach the chip.
 pub fn dispatch(env: &Env, command: FlashCommand) -> Result<Reply> {
     match command {
         FlashCommand::Doctor { programmer, .. } => doctor(env, &programmer),
         FlashCommand::Probe(target) => {
-            require_linux(env, "flash probe")?;
+            require_chip_access(env, "flash probe", &target.programmer)?;
             probe(env, &target)
         }
         FlashCommand::Backup {
@@ -192,27 +195,50 @@ pub fn dispatch(env: &Env, command: FlashCommand) -> Result<Reply> {
             regions,
             output,
         } => {
-            require_linux(env, "flash backup")?;
+            require_chip_access(env, "flash backup", &target.programmer)?;
             backup(env, &target, &regions, &output)
         }
         FlashCommand::Write(args) => {
-            require_linux(env, "flash write")?;
+            require_chip_access(env, "flash write", &args.target.programmer)?;
             write(env, &args)
         }
     }
 }
 
-fn require_linux(env: &Env, command: &str) -> Result<()> {
-    if env.host.os == "linux" {
-        return Ok(());
+/// Refuse a chip command flashrom cannot carry out on this platform.
+///
+/// Linux takes every programmer. Windows takes external ones only: upstream flashrom has no
+/// internal programmer there, because Windows gives it no raw access to the chipset.
+/// Example: `flash probe -p internal` on Windows is `PLATFORM_UNSUPPORTED`; `-p ch341a_spi` runs.
+fn require_chip_access(env: &Env, command: &str, programmer: &str) -> Result<()> {
+    match env.host.os {
+        "linux" => Ok(()),
+        "windows" if !host::is_internal(programmer) => Ok(()),
+        "windows" => Err(Error::new(
+            Code::PlatformUnsupported,
+            format!(
+                "{command} -p {programmer}: expected an external programmer on windows | received the internal programmer, which flashrom does not support on Windows; clip a USB programmer such as ch341a_spi to the chip, or flash from Linux (`bme guide flashing`)"
+            ),
+        )),
+        os => Err(Error::new(
+            Code::PlatformUnsupported,
+            format!(
+                "{command}: expected linux, or windows with an external programmer | received {os}; write the image with an external programmer and its own software (`bme guide flashing`)"
+            ),
+        )),
     }
-    Err(Error::new(
-        Code::PlatformUnsupported,
-        format!(
-            "{command}: expected linux | received {}; write the image with an external programmer (`bme guide flashing`)",
-            env.host.os
-        ),
-    ))
+}
+
+/// The prefix that runs a suggested next command with the rights it needs.
+///
+/// Linux needs root for chip access; Windows reaches USB programmers as the current user.
+/// Example: `as_admin(env)` is `"sudo "` on Linux and `""` on Windows.
+fn as_admin(env: &Env) -> &'static str {
+    if env.host.os == "windows" {
+        ""
+    } else {
+        "sudo "
+    }
 }
 
 /// Board profiles of the bundled official catalog; an unreadable catalog yields none.
@@ -232,7 +258,8 @@ fn target(env: &Env, args: &FlashTargetArgs) -> Result<Target> {
         Error::new(
             Code::ToolUnavailable,
             format!(
-                "flashrom: expected an executable in PATH or the sbin directories | received none; install flashrom (`bme tools status`), set {}, or run `bme tools set flashrom <path>`",
+                "flashrom: expected an executable in PATH or {} | received none; install flashrom (`bme tools status`), set {}, or run `bme tools set flashrom <path>`",
+                directories_name(env.host.os == "windows"),
                 flashrom::FLASHROM_OVERRIDE
             ),
         )
@@ -342,7 +369,8 @@ pub fn doctor(env: &Env, programmer: &str) -> Result<Reply> {
     text += &table(&rows);
     text += &if ready {
         format!(
-            "\nNext: sudo bme flash probe{flag}, then sudo bme flash backup{flag} -o dump.bin\n",
+            "\nNext: {admin}bme flash probe{flag}, then {admin}bme flash backup{flag} -o dump.bin\n",
+            admin = as_admin(env),
             flag = flashrom_flag(env)
         )
     } else {
@@ -380,7 +408,19 @@ fn log_tail(finished: &Finished) -> String {
 fn flashrom_failure(env: &Env, target: &Target, step: &str, finished: &Finished) -> Error {
     let output = finished.output();
     let lowered = output.to_lowercase();
-    let hint = if env.host.euid != Some(0)
+    let windows = env.host.os == "windows";
+    // On Windows a programmer flashrom cannot open is a driver problem, never missing root.
+    let usb_refused = [
+        "libusb_error",
+        "couldn't open device",
+        "failed to claim interface",
+    ]
+    .iter()
+    .any(|text| lowered.contains(text));
+    let hint = if windows && usb_refused {
+        "; Windows did not let libusb open the programmer: bind WinUSB to it with Zadig (zadig.akeo.ie), see `bme flash doctor`"
+    } else if !windows
+        && env.host.euid != Some(0)
         && (lowered.contains("root privileges") || lowered.contains("permission"))
     {
         "; run with sudo, or let the desktop app ask for administrator rights"
@@ -434,7 +474,8 @@ pub fn probe(env: &Env, args: &FlashTargetArgs) -> Result<Reply> {
         )
     } else {
         format!(
-            "Next: sudo bme flash backup --programmer {}{} -o dump.bin\n",
+            "Next: {}bme flash backup --programmer {}{} -o dump.bin\n",
+            as_admin(env),
             target.programmer,
             flashrom_flag(env)
         )
