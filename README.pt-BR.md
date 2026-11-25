@@ -4,7 +4,7 @@
 
 `bme` inspeciona imagens de firmware, encontra defeitos catalogados, gera cópias modificadas e verificadas. A CLI é um único executável sem dependências de execução. Pessoas e agentes usam os mesmos comandos; adicione `--json` para obter um documento legível por máquina por execução. `bme-gui` oferece uma interface gráfica Linux para a mesma engine.
 
-As entradas nunca são modificadas e as saídas são sempre novos arquivos. Somente os comandos `bme flash` acessam um chip flash: no Linux eles diagnosticam o sistema, localizam o chip, fazem o backup e gravam uma imagem pelo flashrom, e a gravação exige um backup que corresponda ao chip.
+As entradas nunca são modificadas e as saídas são sempre novos arquivos. Somente os comandos `bme flash` acessam um chip flash: no Linux, e no Windows com um gravador USB, eles diagnosticam o sistema, localizam o chip, fazem o backup e gravam uma imagem pelo flashrom, e a gravação exige um backup que corresponda ao chip.
 
 O primeiro catálogo cobre duas placas AMI Aptio auditadas em [x99-bios-fixes](https://github.com/juliopolycarpo/x99-bios-fixes):
 

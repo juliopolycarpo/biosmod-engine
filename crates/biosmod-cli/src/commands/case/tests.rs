@@ -666,6 +666,7 @@ fn smbios_comes_from_dmi_files_under_the_host_root() {
         root: root.path().to_path_buf(),
         os: "linux",
         euid: None,
+        windows: None,
     };
     let smbios = host.smbios();
     assert_eq!(smbios["board_name"], "E5-MR9A PRO");

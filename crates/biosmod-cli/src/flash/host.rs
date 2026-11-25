@@ -1,9 +1,11 @@
-//! Read-only facts about the running Linux system that decide whether flashing can work.
+//! Read-only facts about the running system that decide whether flashing can work.
 //!
-//! Everything comes from sysfs, procfs and efivarfs under [`Host::root`], so tests
-//! point the same code at a directory tree instead of real hardware.
+//! On Linux everything comes from sysfs, procfs and efivarfs under [`Host::root`], so tests
+//! point the same code at a directory tree instead of real hardware. On Windows the facts
+//! come from [`WindowsFacts`], read once when the host is created, so tests pass plain values.
 
 use super::flashrom::Chip;
+use biosmod_host::windows::{UsbDevice, WindowsFacts};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs;
@@ -59,8 +61,22 @@ const USB_PROGRAMMERS: [(&str, &str, &str, &str); 4] = [
     ("0483", "dada", "Dediprog SF100/SF600", "dediprog"),
 ];
 
+/// Windows drivers through which libusb, and so flashrom, reaches a USB programmer.
+const LIBUSB_DRIVERS: [&str; 3] = ["winusb", "libusbk", "libusb0"];
+
+/// The Windows driver that binds the interfaces of a composite USB device; it says nothing
+/// about whether flashrom can reach the interface that matters.
+const COMPOSITE_PARENT_DRIVER: &str = "usbccgp";
+
 /// BIOS Control register in the PCH configuration space.
 const BIOS_CONTROL_OFFSET: usize = 0xDC;
+
+/// Whether `programmer` is flashrom's internal programmer, the chipset's own SPI controller.
+///
+/// Example: `is_internal("internal:laptop=this_is_not_a_laptop")` is `true`.
+pub fn is_internal(programmer: &str) -> bool {
+    programmer.split(':').next() == Some("internal")
+}
 
 /// The system being diagnosed.
 #[derive(Debug, Clone)]
@@ -70,6 +86,8 @@ pub struct Host {
     pub os: &'static str,
     /// Effective user id, when the platform has one.
     pub euid: Option<u32>,
+    /// What Windows reports, on Windows only: there is no sysfs under `root` to read.
+    pub windows: Option<WindowsFacts>,
 }
 
 impl Host {
@@ -81,6 +99,7 @@ impl Host {
             root: PathBuf::from("/"),
             os: std::env::consts::OS,
             euid: effective_user(),
+            windows: windows_facts(),
         }
     }
 
@@ -106,6 +125,14 @@ impl Host {
     ///
     /// Example: `host.dmi().get("bios_version")` is `Some("5.11")` on the MR9A.
     pub fn dmi(&self) -> BTreeMap<&'static str, String> {
+        if let Some(facts) = &self.windows {
+            return facts
+                .dmi
+                .iter()
+                .filter(|(field, _)| DMI_FIELDS.contains(field))
+                .map(|(field, value)| (*field, value.clone()))
+                .collect();
+        }
         biosmod_host::identity::read_dmi_fields(
             &biosmod_host::RootedFiles::new(&self.root),
             &DMI_FIELDS,
@@ -198,7 +225,10 @@ impl Host {
     ///
     /// Example: `host.checks("internal", flashrom.as_ref())` flags kernel lockdown as `fail`.
     pub fn checks(&self, programmer: &str, flashrom: Option<&Flashrom>) -> Vec<Check> {
-        let internal = programmer.split(':').next() == Some("internal");
+        if let Some(facts) = &self.windows {
+            return windows_checks(facts, programmer, flashrom);
+        }
+        let internal = is_internal(programmer);
         let mut checks = Vec::new();
         let mut add = |check, state, detail: String| {
             checks.push(Check {
@@ -214,40 +244,17 @@ impl Host {
                 "platform",
                 State::Fail,
                 format!(
-                    "expected linux | received {}; chip access is only supported on Linux",
+                    "expected linux or windows | received {}; chip access is only supported there",
                     self.os
                 ),
             );
         }
-        match flashrom {
-            Some(Flashrom {
-                path,
-                version: Some(version),
-            }) => add(
-                "flashrom",
-                State::Pass,
-                format!("{version} at {}", path.display()),
-            ),
-            Some(Flashrom {
-                path,
-                version: None,
-            }) => add(
-                "flashrom",
-                State::Warn,
-                format!(
-                    "{}: expected a `flashrom v<version>` banner | received none",
-                    path.display()
-                ),
-            ),
-            None => add(
-                "flashrom",
-                State::Fail,
-                format!(
-                    "not found in PATH or the sbin directories; install it (Debian/Ubuntu: sudo apt install flashrom, Fedora: sudo dnf install flashrom, Arch: sudo pacman -S flashrom) or set {}",
-                    super::flashrom::FLASHROM_OVERRIDE
-                ),
-            ),
-        }
+        let (state, detail) = flashrom_check(
+            flashrom,
+            false,
+            "Debian/Ubuntu: sudo apt install flashrom, Fedora: sudo dnf install flashrom, Arch: sudo pacman -S flashrom",
+        );
+        add("flashrom", state, detail);
         match self.euid {
             Some(0) => add("privileges", State::Pass, "running as root".into()),
             Some(uid) => add(
@@ -402,6 +409,148 @@ enum BiosControl {
     Absent,
 }
 
+/// The `flashrom` line: its version, or how to install it (`install` names the commands).
+///
+/// Example: without flashrom on Windows the detail starts `not found in PATH or the MSYS2 directories`.
+fn flashrom_check(flashrom: Option<&Flashrom>, windows: bool, install: &str) -> (State, String) {
+    match flashrom {
+        Some(Flashrom {
+            path,
+            version: Some(version),
+        }) => (State::Pass, format!("{version} at {}", path.display())),
+        Some(Flashrom {
+            path,
+            version: None,
+        }) => (
+            State::Warn,
+            format!(
+                "{}: expected a `flashrom v<version>` banner | received none",
+                path.display()
+            ),
+        ),
+        None => (
+            State::Fail,
+            format!(
+                "not found in PATH or {}; install it ({install}) or set {}",
+                super::flashrom::directories_name(windows),
+                super::flashrom::FLASHROM_OVERRIDE
+            ),
+        ),
+    }
+}
+
+/// Diagnose a chip operation on Windows.
+///
+/// flashrom has no internal programmer there, so only external programmers can pass. They are
+/// reached through libusb, which needs WinUSB (or libusbK, libusb0) bound to the device instead
+/// of the vendor driver. Kernel lockdown, `iomem` and `BIOS_CNTL` do not apply: nothing on this
+/// path touches the chipset.
+/// Example: a CH341A bound to `CH341PAR` yields a `usb-programmer` warning that names Zadig.
+fn windows_checks(
+    facts: &WindowsFacts,
+    programmer: &str,
+    flashrom: Option<&Flashrom>,
+) -> Vec<Check> {
+    let internal = is_internal(programmer);
+    let mut checks = vec![if internal {
+        Check {
+            check: "platform",
+            state: State::Fail,
+            detail: "windows: expected an external programmer | received internal; flashrom has no internal programmer on Windows, so clip a USB programmer such as ch341a_spi to the chip, or flash from Linux".into(),
+        }
+    } else {
+        Check {
+            check: "platform",
+            state: State::Pass,
+            detail: "windows (external programmers only)".into(),
+        }
+    }];
+    let (state, detail) = flashrom_check(
+        flashrom,
+        true,
+        &format!("MSYS2: {}", super::flashrom::MSYS2_FLASHROM_INSTALL),
+    );
+    checks.push(Check {
+        check: "flashrom",
+        state,
+        detail,
+    });
+    checks.push(Check {
+        check: "privileges",
+        state: State::Info,
+        detail: match facts.elevated {
+            Some(true) => "administrator".into(),
+            Some(false) => "standard user; USB programmers do not need administrator rights".into(),
+            None => "elevation unknown; USB programmers do not need administrator rights".into(),
+        },
+    });
+    let (state, detail) = windows_usb_programmers(&facts.usb, internal);
+    checks.push(Check {
+        check: "usb-programmer",
+        state,
+        detail,
+    });
+    checks
+}
+
+/// The `usb-programmer` line on Windows: each known programmer with the drivers bound to it.
+///
+/// A composite programmer (FT2232H) is several device nodes: the parent under `usbccgp` and
+/// one per interface. It is reachable when any of its nodes is bound to a libusb driver.
+/// Example: a CH341A under `WinUSB` passes with `--programmer ch341a_spi`.
+fn windows_usb_programmers(usb: &[UsbDevice], internal: bool) -> (State, String) {
+    let mut lines = Vec::new();
+    let mut reachable = 0;
+    for (known_vendor, known_product, name, programmer) in USB_PROGRAMMERS {
+        let nodes: Vec<&UsbDevice> = usb
+            .iter()
+            .filter(|device| device.vendor == known_vendor && device.product == known_product)
+            .collect();
+        if nodes.is_empty() {
+            continue;
+        }
+        let mut drivers: Vec<&str> = nodes
+            .iter()
+            .filter_map(|device| device.service.as_deref())
+            .filter(|service| !service.eq_ignore_ascii_case(COMPOSITE_PARENT_DRIVER))
+            .collect();
+        drivers.sort_unstable();
+        drivers.dedup();
+        let usable = drivers.iter().any(|driver| {
+            LIBUSB_DRIVERS
+                .iter()
+                .any(|known| driver.eq_ignore_ascii_case(known))
+        });
+        let id = format!("{name} ({known_vendor}:{known_product})");
+        if usable {
+            reachable += 1;
+            lines.push(format!("{id}: --programmer {programmer}"));
+        } else {
+            let bound = if drivers.is_empty() {
+                "has no driver".to_string()
+            } else {
+                format!("uses driver {}", drivers.join(", "))
+            };
+            lines.push(format!(
+                "{id} {bound}; expected WinUSB for flashrom: bind WinUSB to it with Zadig (zadig.akeo.ie)"
+            ));
+        }
+    }
+    let state = if lines.is_empty() || internal {
+        State::Info
+    } else if reachable == lines.len() {
+        State::Pass
+    } else {
+        State::Warn
+    };
+    let detail = if lines.is_empty() {
+        "no known USB SPI programmer connected".into()
+    } else {
+        lines.join("; ")
+    };
+    (state, detail)
+}
+
 #[cfg(unix)]
 fn effective_user() -> Option<u32> {
     // SAFETY: geteuid has no preconditions and cannot fail.
@@ -410,6 +559,16 @@ fn effective_user() -> Option<u32> {
 
 #[cfg(not(unix))]
 fn effective_user() -> Option<u32> {
+    None
+}
+
+#[cfg(windows)]
+fn windows_facts() -> Option<WindowsFacts> {
+    Some(biosmod_host::windows::read())
+}
+
+#[cfg(not(windows))]
+fn windows_facts() -> Option<WindowsFacts> {
     None
 }
 

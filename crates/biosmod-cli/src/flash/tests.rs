@@ -166,6 +166,7 @@ impl HostOf for FakeSysfs {
             root: self.root().to_path_buf(),
             os: "linux",
             euid: Some(euid),
+            windows: None,
         }
     }
 }
@@ -196,6 +197,7 @@ fn root_env(chip: &FakeFlashChip) -> Env<'_> {
             root: PathBuf::from("/nonexistent/bme-test-sysfs"),
             os: "linux",
             euid: Some(0),
+            windows: None,
         },
     )
 }
@@ -600,14 +602,16 @@ fn probe_reports_chips_and_explains_a_silent_programmer() {
 }
 
 #[test]
-fn chip_commands_are_refused_outside_linux() {
+fn chip_commands_are_refused_outside_linux_and_windows() {
     let chip = FakeFlashChip::holding(&[0; 16]);
     let mut env = root_env(&chip);
     env.host.os = "macos";
     let error = dispatch(&env, FlashCommand::Probe(target_args("internal"))).unwrap_err();
     assert_eq!(error.code, Code::PlatformUnsupported, "{error}");
     assert!(
-        error.message.contains("expected linux | received macos"),
+        error
+            .message
+            .contains("expected linux, or windows with an external programmer | received macos"),
         "{error}"
     );
     assert!(chip.calls.borrow().is_empty());

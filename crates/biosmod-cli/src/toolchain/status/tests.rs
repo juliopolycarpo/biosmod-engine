@@ -120,6 +120,7 @@ struct Scene {
     configured_flashrom: Option<PathBuf>,
     os_release: &'static str,
     linux: bool,
+    windows: bool,
 }
 
 impl Scene {
@@ -131,6 +132,7 @@ impl Scene {
             configured_flashrom: None,
             os_release: UBUNTU,
             linux: true,
+            windows: false,
         }
     }
 
@@ -159,9 +161,10 @@ impl Scene {
             replay: &replay,
             get: &get,
             flashrom: self.configured_flashrom.as_deref(),
-            sbin: &[],
+            flashrom_directories: &[],
             os_release: Some(self.os_release),
             linux: self.linux,
+            windows: self.windows,
         })
     }
 }
@@ -301,6 +304,26 @@ fn a_missing_flashrom_offers_the_distribution_command_and_a_custom_location() {
         "{text}"
     );
     assert!(text.contains("bme tools set flashrom <path>"), "{text}");
+}
+
+#[test]
+fn a_missing_flashrom_on_windows_offers_the_msys2_command() {
+    let mut scene = Scene::new(FakeInstalledTools::complete());
+    scene.linux = false;
+    scene.windows = true;
+    let rows = scene.rows(&pinned_ghidra(&scene));
+    let flashrom = row(&rows, "flashrom");
+    assert_eq!(
+        flashrom.install.command.as_deref(),
+        Some("pacman -S mingw-w64-ucrt-x86_64-flashrom"),
+        "flashrom install on windows: expected the MSYS2 command | received {:?}",
+        flashrom.install.command
+    );
+    assert_eq!(
+        flashrom.detail, "not found in PATH or the MSYS2 directories",
+        "flashrom detail on windows: expected the MSYS2 directories named"
+    );
+    assert!(!flashrom.install.automatic, "bme never installs flashrom");
 }
 
 #[test]
@@ -1110,9 +1133,10 @@ fn a_saved_or_environment_interpreter_blocks_the_managed_replay_install() {
             replay: &home,
             get: &get,
             flashrom: None,
-            sbin: &[],
+            flashrom_directories: &[],
             os_release: Some(UBUNTU),
             linux: true,
+            windows: false,
         });
         let replay = row(&rows, "replay");
         assert_eq!(

@@ -22,7 +22,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "bme", version, about = "Biosmod Engine: scan firmware images, build patched copies and verify them.", long_about = None)]
 #[command(
-    after_help = "Workflow:\n  bme scan dump.bin\n  bme patch dump.bin --recommended\n  bme verify dump.bin dump.patched.bin\nChip (Linux): bme flash doctor, then `bme guide flashing`\nAgents: add --json for one machine-readable document on stdout; see `bme capabilities --json`."
+    after_help = "Workflow:\n  bme scan dump.bin\n  bme patch dump.bin --recommended\n  bme verify dump.bin dump.patched.bin\nChip (Linux; Windows with a USB programmer): bme flash doctor, then `bme guide flashing`\nAgents: add --json for one machine-readable document on stdout; see `bme capabilities --json`."
 )]
 pub struct Cli {
     /// Emit one JSON document on stdout (including failures).
@@ -88,7 +88,7 @@ pub enum Command {
     /// Diagnostics outside the correction catalog.
     #[command(subcommand)]
     Diag(DiagCommand),
-    /// Diagnose, find, back up and write the system flash chip through flashrom (Linux).
+    /// Diagnose, find, back up and write the flash chip through flashrom (Linux; Windows with a USB programmer).
     #[command(subcommand)]
     Flash(FlashCommand),
     /// Developer helpers.
