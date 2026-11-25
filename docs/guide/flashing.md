@@ -2,7 +2,7 @@
 
 English | [Brazilian Portuguese](../pt-BR/guide/flashing.md)
 
-On Linux, `bme flash` drives [flashrom](https://flashrom.org) to diagnose the system, find the chip, back it up and write an image. The desktop interface has the same steps on its **Flash chip** page. A bad or interrupted write leaves a board that will not POST; only flash if you can recover with an external programmer and your backup (`bme guide recovery`).
+`bme flash` drives [flashrom](https://flashrom.org) to diagnose the system, find the chip, back it up and write an image. Linux supports every flashrom programmer; Windows supports external USB programmers only (see [Windows](#windows)). The desktop interface has the same steps on its **Flash chip** page. A bad or interrupted write leaves a board that will not POST; only flash if you can recover with an external programmer and your backup (`bme guide recovery`).
 
 `flash doctor` runs as any user. The other commands need access to the programmer, which usually means root: run them with `sudo`.
 
@@ -17,7 +17,7 @@ It prints the board and firmware the system reports, the catalog board profile w
 
 | Check | What it reads |
 | --- | --- |
-| `flashrom` | the executable chosen by `--flashrom`, `BME_FLASHROM`, `bme tools set flashrom <path>`, then `PATH`, `/usr/sbin`, `/sbin` and `/usr/local/sbin`, in that order |
+| `flashrom` | the executable chosen by `--flashrom`, `BME_FLASHROM`, `bme tools set flashrom <path>`, then `PATH`, `/usr/sbin`, `/sbin` and `/usr/local/sbin`, in that order (on Windows, MSYS2's `C:\msys64\ucrt64\bin`, `mingw64\bin` and `clang64\bin` instead of the sbin directories) |
 | `privileges` | whether the command runs as root |
 | `kernel-lockdown`, `secure-boot` | lockdown blocks the internal programmer; it usually comes with Secure Boot |
 | `internal-access` | `iomem=relaxed`, or a kernel driver that claims the SPI controller |
@@ -89,13 +89,29 @@ After a successful write the old dump no longer matches the chip. To write again
 
 Boot several times, cold and warm, and note the POST codes. Then move to the next change. If something regresses you will know which change caused it.
 
+## Windows
+
+Upstream flashrom has no internal programmer on Windows: Windows gives it no raw access to the chipset. On Windows, `bme flash probe`, `backup` and `write` refuse `-p internal` and run only with an external programmer clipped to the chip, with the board powered off and unplugged. To flash the board from its own running system, boot Linux.
+
+1. Install [MSYS2](https://www.msys2.org), then run `pacman -S mingw-w64-ucrt-x86_64-flashrom` in its UCRT64 shell. bme finds `C:\msys64\ucrt64\bin\flashrom.exe` without `PATH`; for another location run `bme tools set flashrom <path>`.
+2. flashrom reaches USB programmers through libusb, which needs the WinUSB driver. Windows usually binds the vendor driver (`CH341PAR` for a CH341A), so bind WinUSB to the programmer once with [Zadig](https://zadig.akeo.ie). For a dual-channel FTDI programmer, bind interface 0.
+3. Run the same steps as on Linux, without `sudo`: USB programmers do not need administrator rights.
+
+```sh
+bme flash doctor -p ch341a_spi
+bme flash probe -p ch341a_spi
+bme flash backup -p ch341a_spi -o dump.bin
+```
+
+On Windows `flash doctor` reads the board identity from the registry and lists `platform`, `flashrom`, `privileges` and `usb-programmer`. The last line names the driver bound to each programmer it recognizes and warns when that driver is not WinUSB, libusbK or libusb0. Kernel lockdown, `iomem`, `BIOS_CNTL` and MTD checks are not shown, because they apply only to Linux.
+
 ## Desktop interface
 
 **Flash chip** runs the same commands: **Diagnose**, **Find chip**, **Back up chip**, **Check** (the dry run) and **Flash chip**. With **Ask for administrator rights** ticked, the chip commands run through `pkexec`, which needs a polkit agent (every major desktop has one). **Flash chip** stays disabled until a check passed for the current programmer, image and backup and you tick the recovery confirmation.
 
 ## Limits
 
-Only Linux is supported; elsewhere write the image with a programmer and its own software. `bme` does not use vendor flashers: AMI's tools may reject a modified image or refuse to write some regions. Writing from the OS does not bypass firmware write protection, Intel Boot Guard or signature checks. A matching read-back shows what the chip holds, not that the board will boot.
+Linux, and Windows with an external programmer, are supported; elsewhere write the image with a programmer and its own software. The desktop interface's **Flash chip** page is qualified on Linux only. `bme` does not use vendor flashers: AMI's tools may reject a modified image or refuse to write some regions. Writing from the OS does not bypass firmware write protection, Intel Boot Guard or signature checks. A matching read-back shows what the chip holds, not that the board will boot.
 
 ## Evidence
 

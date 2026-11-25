@@ -2,7 +2,7 @@
 
 [English](../../guide/flashing.md) | Português (Brasil)
 
-No Linux, `bme flash` usa o [flashrom](https://flashrom.org) para diagnosticar o sistema, localizar o chip, fazer o backup e gravar uma imagem. A interface gráfica tem os mesmos passos na página **Gravar chip**. Uma gravação errada ou interrompida pode impedir o POST da placa; grave somente se puder recuperá-la com um gravador externo e o seu backup (`bme guide recovery`).
+`bme flash` usa o [flashrom](https://flashrom.org) para diagnosticar o sistema, localizar o chip, fazer o backup e gravar uma imagem. O Linux aceita qualquer programador do flashrom; o Windows aceita somente gravadores USB externos (veja [Windows](#windows)). A interface gráfica tem os mesmos passos na página **Gravar chip**. Uma gravação errada ou interrompida pode impedir o POST da placa; grave somente se puder recuperá-la com um gravador externo e o seu backup (`bme guide recovery`).
 
 `flash doctor` funciona com qualquer usuário. Os outros comandos precisam de acesso ao gravador, o que normalmente exige root: execute-os com `sudo`.
 
@@ -17,7 +17,7 @@ O comando mostra a placa e o firmware informados pelo sistema, o perfil de placa
 
 | Verificação | O que é lido |
 | --- | --- |
-| `flashrom` | o executável escolhido por `--flashrom`, `BME_FLASHROM`, `bme tools set flashrom <caminho>`, depois `PATH`, `/usr/sbin`, `/sbin` e `/usr/local/sbin`, nessa ordem |
+| `flashrom` | o executável escolhido por `--flashrom`, `BME_FLASHROM`, `bme tools set flashrom <caminho>`, depois `PATH`, `/usr/sbin`, `/sbin` e `/usr/local/sbin`, nessa ordem (no Windows, `C:\msys64\ucrt64\bin`, `mingw64\bin` e `clang64\bin` do MSYS2 no lugar dos diretórios sbin) |
 | `privileges` | se o comando está sendo executado como root |
 | `kernel-lockdown`, `secure-boot` | o lockdown bloqueia o programador interno; ele normalmente acompanha o Secure Boot |
 | `internal-access` | `iomem=relaxed`, ou um driver do kernel que ocupa o controlador SPI |
@@ -89,13 +89,29 @@ Depois de uma gravação bem-sucedida, o dump antigo não corresponde mais ao ch
 
 Inicialize várias vezes, a frio e a quente, e anote os códigos POST. Depois passe à próxima alteração. Se houver regressão, você saberá qual alteração a causou.
 
+## Windows
+
+O flashrom oficial não tem programador interno no Windows: o Windows não lhe dá acesso direto ao chipset. No Windows, `bme flash probe`, `backup` e `write` recusam `-p internal` e só funcionam com um gravador externo preso ao chip, com a placa desligada e desconectada da tomada. Para gravar a placa a partir do próprio sistema em execução, inicialize o Linux.
+
+1. Instale o [MSYS2](https://www.msys2.org) e execute `pacman -S mingw-w64-ucrt-x86_64-flashrom` no terminal UCRT64 dele. O bme encontra `C:\msys64\ucrt64\bin\flashrom.exe` sem o `PATH`; para outro local, execute `bme tools set flashrom <caminho>`.
+2. O flashrom acessa gravadores USB pela libusb, que precisa do driver WinUSB. O Windows costuma associar o driver do fabricante (`CH341PAR` para um CH341A), então associe o WinUSB ao gravador uma vez com o [Zadig](https://zadig.akeo.ie). Em um gravador FTDI de dois canais, associe a interface 0.
+3. Siga os mesmos passos do Linux, sem `sudo`: gravadores USB não precisam de direitos de administrador.
+
+```sh
+bme flash doctor -p ch341a_spi
+bme flash probe -p ch341a_spi
+bme flash backup -p ch341a_spi -o dump.bin
+```
+
+No Windows, `flash doctor` lê a identificação da placa no registro e lista `platform`, `flashrom`, `privileges` e `usb-programmer`. A última linha informa o driver associado a cada gravador reconhecido e avisa quando esse driver não é WinUSB, libusbK nem libusb0. As verificações de lockdown do kernel, `iomem`, `BIOS_CNTL` e MTD não aparecem, porque só se aplicam ao Linux.
+
 ## Interface gráfica
 
 **Gravar chip** executa os mesmos comandos: **Diagnosticar**, **Localizar chip**, **Fazer backup do chip**, **Conferir** (a simulação) e **Gravar chip**. Com **Pedir direitos de administrador** marcado, os comandos do chip são executados pelo `pkexec`, que precisa de um agente polkit (todos os principais ambientes gráficos têm um). **Gravar chip** fica desativado até que uma conferência tenha passado para o programador, a imagem e o backup atuais e você marque a confirmação de recuperação.
 
 ## Limites
 
-Somente o Linux é suportado; em outros sistemas, grave a imagem com um gravador e o software dele. O `bme` não usa os gravadores dos fabricantes: as ferramentas da AMI podem rejeitar uma imagem modificada ou recusar a gravação de algumas regiões. Gravar a partir do sistema operacional não contorna a proteção de escrita do firmware, o Intel Boot Guard nem verificações de assinatura. Uma releitura idêntica mostra o que o chip contém, não que a placa vai inicializar.
+São suportados o Linux e, com um gravador externo, o Windows; em outros sistemas, grave a imagem com um gravador e o software dele. A página **Gravar chip** da interface gráfica só foi qualificada no Linux. O `bme` não usa os gravadores dos fabricantes: as ferramentas da AMI podem rejeitar uma imagem modificada ou recusar a gravação de algumas regiões. Gravar a partir do sistema operacional não contorna a proteção de escrita do firmware, o Intel Boot Guard nem verificações de assinatura. Uma releitura idêntica mostra o que o chip contém, não que a placa vai inicializar.
 
 ## Evidências
 
