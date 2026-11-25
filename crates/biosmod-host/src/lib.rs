@@ -24,6 +24,7 @@ pub mod signals;
 pub mod smbios;
 pub mod superio;
 pub mod suspend;
+pub mod windows;
 
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
